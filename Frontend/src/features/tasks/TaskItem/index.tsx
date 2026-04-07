@@ -179,23 +179,7 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
           </View>
         </View>
 
-        {/* Chevron / Actions hint */}
         <View style={styles.actionsHint}>
-          {subtaskText && (
-            <View style={[styles.subtaskBadge, { backgroundColor: theme.colors.secondary }]}>
-              <Text style={[styles.subtaskText, { color: theme.colors.textSecondary }]}>
-                {subtaskText}
-              </Text>
-            </View>
-          )}
-          {hasAttachments && (
-            <View style={[styles.attachmentBadge, { backgroundColor: theme.colors.secondary }]}>
-              <MaterialCommunityIcons name="paperclip" size={10} color={theme.colors.textSecondary} />
-              <Text style={[styles.attachmentText, { color: theme.colors.textSecondary }]}>
-                {attachmentCount}
-              </Text>
-            </View>
-          )}
           <MaterialIcons name="chevron-right" size={18} color={theme.colors.border} />
         </View>
       </View>

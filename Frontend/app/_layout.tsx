@@ -1,7 +1,9 @@
 import React from 'react';
 import { Stack } from "expo-router";
-import { ThemeProvider } from "../src/themes/ThemeContext";
+import { ThemeProvider, useTheme } from "../src/themes/ThemeContext";
 import { DashboardProvider } from "../src/core/DashboardContext";
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { StatusBar } from 'expo-status-bar';
 import {
   useFonts,
   Inter_400Regular,
@@ -10,6 +12,19 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { View, ActivityIndicator } from 'react-native';
+
+// Inner shell that has access to ThemeContext
+function AppShell() {
+  const { isDark } = useTheme();
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+    </>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -28,12 +43,12 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider>
-      <DashboardProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        </Stack>
-      </DashboardProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <DashboardProvider>
+          <AppShell />
+        </DashboardProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

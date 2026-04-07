@@ -10,11 +10,59 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../themes/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const DraggableInput = ({ value, onChange, min, max, style, pad, placeholder, placeholderTextColor }: any) => {
+  const startValRef = useRef(parseInt(value || String(min), 10));
+  const currentValRef = useRef(value);
+  currentValRef.current = value;
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 10,
+    onPanResponderGrant: () => {
+      startValRef.current = parseInt(currentValRef.current || String(min), 10);
+    },
+    onPanResponderMove: (_, gestureState) => {
+      const delta = Math.floor(-gestureState.dy / 15);
+      let newVal = startValRef.current + delta;
+      
+      const range = max - min + 1;
+      while (newVal < min) newVal += range;
+      while (newVal > max) newVal -= range;
+
+      const formatted = pad ? String(newVal).padStart(2, '0') : String(newVal);
+      if (formatted !== currentValRef.current) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onChange(formatted);
+      }
+    },
+  }), [min, max, pad, onChange]);
+
+  return (
+    <View {...panResponder.panHandlers}>
+      <TextInput
+        style={style}
+        value={value}
+        onChangeText={(text) => {
+          const num = parseInt(text, 10);
+          if (text === '' || (!isNaN(num) && num >= 0)) {
+            onChange(text);
+          }
+        }}
+        keyboardType="number-pad"
+        maxLength={2}
+        placeholder={placeholder}
+        placeholderTextColor={placeholderTextColor}
+      />
+    </View>
+  );
+};
 
 interface DateTimePickerProps {
   visible: boolean;
@@ -152,6 +200,7 @@ export default function DateTimePicker({
   };
 
   const handleQuickDateSelect = useCallback((offset: number | 'nextMonday') => {
+    Haptics.selectionAsync();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -170,6 +219,7 @@ export default function DateTimePicker({
   }, []);
 
   const handleMonthChange = useCallback((direction: 'prev' | 'next') => {
+    Haptics.selectionAsync();
     setCurrentMonth((prev) => {
       const newMonth = new Date(prev);
       if (direction === 'prev') {
@@ -182,6 +232,7 @@ export default function DateTimePicker({
   }, []);
 
   const handleTimeSelect = useCallback((value: string | null) => {
+    Haptics.selectionAsync();
     if (value === 'custom') {
       setSelectedTime('custom');
       setIsCustomTime(true);
@@ -543,6 +594,68 @@ export default function DateTimePicker({
               keyboardShouldPersistTaps="always"
               contentContainerStyle={{ paddingBottom: 20 }}
             >
+              {/* Calendar */}
+              <View style={styles.calendarContainer}>
+                {/* Month Navigation */}
+                <View style={styles.monthHeader}>
+                  <TouchableOpacity onPress={() => handleMonthChange('prev')} style={styles.monthNavButton}>
+                    <MaterialCommunityIcons name="chevron-left" size={24} color={theme.colors.text} />
+                  </TouchableOpacity>
+                  <Text style={styles.monthYearText}>{monthYearLabel}</Text>
+                  <TouchableOpacity onPress={() => handleMonthChange('next')} style={styles.monthNavButton}>
+                    <MaterialCommunityIcons name="chevron-right" size={24} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Days of Week */}
+                <View style={styles.daysOfWeekRow}>
+                  {DAYS_OF_WEEK.map((day, index) => (
+                    <Text key={`${day}-${index}`} style={styles.dayOfWeekText}>
+                      {day}
+                    </Text>
+                  ))}
+                </View>
+
+                {/* Calendar Grid */}
+                <View style={styles.calendarGrid}>
+                  {calendarDays.map((day, index) => {
+                    if (!day.date) return <View key={index} style={styles.dayCell} />;
+
+                    const selected = isSelectedDate(day.date);
+                    const isDimmed = !day.isCurrentMonth;
+
+                    return (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.dayCell}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setSelectedDate(day.date!);
+                        }}
+                      >
+                        <View
+                          style={[
+                            styles.dayCellTouchable,
+                            selected && styles.dayCellSelected,
+                            day.isToday && !selected && styles.dayCellToday,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.dayCellText,
+                              isDimmed && styles.dayCellTextDimmed,
+                              selected && styles.dayCellTextSelected,
+                            ]}
+                          >
+                            {day.date.getDate()}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
               {/* Quick Date Chips */}
               <ScrollView
                 horizontal
@@ -583,65 +696,6 @@ export default function DateTimePicker({
                 })}
               </ScrollView>
 
-              {/* Calendar */}
-              <View style={styles.calendarContainer}>
-                {/* Month Navigation */}
-                <View style={styles.monthHeader}>
-                  <TouchableOpacity onPress={() => handleMonthChange('prev')} style={styles.monthNavButton}>
-                    <MaterialCommunityIcons name="chevron-left" size={24} color={theme.colors.text} />
-                  </TouchableOpacity>
-                  <Text style={styles.monthYearText}>{monthYearLabel}</Text>
-                  <TouchableOpacity onPress={() => handleMonthChange('next')} style={styles.monthNavButton}>
-                    <MaterialCommunityIcons name="chevron-right" size={24} color={theme.colors.text} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Days of Week */}
-                <View style={styles.daysOfWeekRow}>
-                  {DAYS_OF_WEEK.map((day, index) => (
-                    <Text key={`${day}-${index}`} style={styles.dayOfWeekText}>
-                      {day}
-                    </Text>
-                  ))}
-                </View>
-
-                {/* Calendar Grid */}
-                <View style={styles.calendarGrid}>
-                  {calendarDays.map((day, index) => {
-                    if (!day.date) return <View key={index} style={styles.dayCell} />;
-
-                    const selected = isSelectedDate(day.date);
-                    const isDimmed = !day.isCurrentMonth;
-
-                    return (
-                      <TouchableOpacity
-                        key={index}
-                        style={styles.dayCell}
-                        onPress={() => setSelectedDate(day.date)}
-                      >
-                        <View
-                          style={[
-                            styles.dayCellTouchable,
-                            selected && styles.dayCellSelected,
-                            day.isToday && !selected && styles.dayCellToday,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.dayCellText,
-                              isDimmed && styles.dayCellTextDimmed,
-                              selected && styles.dayCellTextSelected,
-                            ]}
-                          >
-                            {day.date.getDate()}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
               {/* Divider */}
               <View style={styles.divider} />
 
@@ -672,34 +726,24 @@ export default function DateTimePicker({
                 {/* Custom Time Input */}
                 {isCustomTime && (
                   <View style={styles.customTimeContainer}>
-                    <TextInput
+                    <DraggableInput
                       style={styles.customTimeInput}
                       value={customHour}
-                      onChangeText={(text) => {
-                        const num = parseInt(text, 10);
-                        if (text === '' || (num >= 1 && num <= 12)) {
-                          setCustomHour(text);
-                        }
-                      }}
-                      onFocus={handleCustomTimeFocus}
-                      keyboardType="number-pad"
-                      maxLength={2}
+                      onChange={setCustomHour}
+                      min={1}
+                      max={12}
+                      pad={false}
                       placeholder="9"
                       placeholderTextColor={theme.colors.textSecondary}
                     />
                     <Text style={styles.customTimeSeparator}>:</Text>
-                    <TextInput
+                    <DraggableInput
                       style={styles.customTimeInput}
                       value={customMinute}
-                      onChangeText={(text) => {
-                        const num = parseInt(text, 10);
-                        if (text === '' || (num >= 0 && num <= 59)) {
-                          setCustomMinute(text.padStart(2, '0'));
-                        }
-                      }}
-                      onFocus={handleCustomTimeFocus}
-                      keyboardType="number-pad"
-                      maxLength={2}
+                      onChange={setCustomMinute}
+                      min={0}
+                      max={59}
+                      pad={true}
                       placeholder="00"
                       placeholderTextColor={theme.colors.textSecondary}
                     />
@@ -710,7 +754,10 @@ export default function DateTimePicker({
                           styles.periodButtonLeft,
                           customPeriod === 'AM' && styles.periodButtonActive,
                         ]}
-                        onPress={() => setCustomPeriod('AM')}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setCustomPeriod('AM');
+                        }}
                       >
                         <Text
                           style={[
@@ -727,7 +774,10 @@ export default function DateTimePicker({
                           styles.periodButtonRight,
                           customPeriod === 'PM' && styles.periodButtonActive,
                         ]}
-                        onPress={() => setCustomPeriod('PM')}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          setCustomPeriod('PM');
+                        }}
                       >
                         <Text
                           style={[

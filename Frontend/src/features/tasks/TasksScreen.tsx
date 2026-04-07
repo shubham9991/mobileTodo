@@ -10,9 +10,11 @@ import { TaskFilter } from './TaskFilter';
 import { TaskGroup as TaskGroupComponent } from './TaskGroup';
 import { QuickAddBar } from './QuickAddBar';
 import { dummyData, Task, Priority, TagType, Subtask, Attachment } from '../../core/dummyData';
+import { useDashboard } from '../../core/DashboardContext';
 import { useFabBottom } from '../../core/hooks/useFabBottom';
 import { FABMenu } from '../../core/components/FABMenu';
 import { TaskComposer } from '../../core/components/TaskComposer';
+import { TaskDetailModal } from './TaskDetailModal';
 
 type FilterTab = 'All' | 'Active' | 'Completed';
 
@@ -80,9 +82,11 @@ export const TasksScreen = () => {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [activeSort, setActiveSort]     = useState('Due Date');
   const [search, setSearch]             = useState('');
-  const [taskGroups, setTaskGroups]     = useState<TaskGroup[]>(dummyData.taskGroups as TaskGroup[]);
+  const { taskGroups, setTaskGroups, handleComposerSave } = useDashboard();
   const [showComposer, setShowComposer] = useState(false);
   const [composerInitialTitle, setComposerInitialTitle] = useState('');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
   const fabBottom = useFabBottom();
 
   // Handle quick add - creates a simple task
@@ -113,35 +117,10 @@ export const TasksScreen = () => {
     setShowComposer(true);
   }, []);
 
-  // Handle saving from full composer
-  const handleComposerSave = useCallback((taskData: any) => {
-    const newTask: Task = {
-      id: taskData.id,
-      title: taskData.title,
-      tag: taskData.tag || 'PERSONAL',
-      tagType: (taskData.tags?.[0]?.id as TagType) || 'personal',
-      priority: taskData.priority as Priority,
-      completed: false,
-      dueDate: taskData.dueDate,
-      dueTime: taskData.dueTime,
-      hasReminder: !!taskData.reminder,
-      subtasks: taskData.subtasks as Subtask[] | undefined,
-      attachments: taskData.attachments as Attachment[] | undefined,
-    };
-
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    
-    // Determine which group to add to based on due date
-    const targetGroupId = taskData.dueDate === 'Today' ? 'today' : 'week';
-    
-    setTaskGroups(prev => 
-      prev.map(g => 
-        g.id === targetGroupId 
-          ? { ...g, tasks: [newTask, ...g.tasks] }
-          : g
-      )
-    );
-  }, []);
+  // Handle saving from full composer is handled by context, but we still need wrapper for TasksScreen specific states if needed
+  const localComposerSave = useCallback((taskData: any) => {
+    handleComposerSave(taskData);
+  }, [handleComposerSave]);
 
   // Handle task toggle
   const handleTaskToggle = useCallback((taskId: string, completed: boolean) => {
@@ -241,6 +220,7 @@ export const TasksScreen = () => {
                 tasks={group.tasks as Task[]}
                 defaultOpen={group.id !== 'completed'}
                 onTaskToggle={handleTaskToggle}
+                onTaskPress={(task) => { setSelectedTaskId(task.id); setShowDetail(true); }}
               />
             ))}
           </View>
@@ -256,8 +236,14 @@ export const TasksScreen = () => {
       <TaskComposer 
         visible={showComposer} 
         onClose={() => setShowComposer(false)}
-        onSave={handleComposerSave}
+        onSave={localComposerSave}
         initialTitle={composerInitialTitle}
+      />
+
+      <TaskDetailModal 
+        visible={showDetail}
+        taskId={selectedTaskId}
+        onClose={() => setShowDetail(false)}
       />
     </SafeAreaView>
   );

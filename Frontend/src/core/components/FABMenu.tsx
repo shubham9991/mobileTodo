@@ -11,6 +11,7 @@ import Animated, {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
 import { TaskComposer } from './TaskComposer';
+import { useDashboard } from '../DashboardContext';
 
 // ─── Quick-form modals ────────────────────────────────────────────────────────
 
@@ -145,6 +146,7 @@ interface FABMenuProps { bottom: number; }
 
 export const FABMenu = ({ bottom }: FABMenuProps) => {
   const { theme }       = useTheme();
+  const { handleComposerSave } = useDashboard();
   const [open, setOpen] = useState(false);
   const [showTask, setShowTask] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -232,7 +234,7 @@ export const FABMenu = ({ bottom }: FABMenuProps) => {
         </TouchableOpacity>
       </View>
 
-      <TaskComposer visible={showTask} onClose={() => setShowTask(false)} />
+      <TaskComposer visible={showTask} onClose={() => setShowTask(false)} onSave={(td) => { handleComposerSave(td); setShowTask(false); }} />
       <AddNoteSheet visible={showNote} onClose={() => setShowNote(false)} />
     </>
   );

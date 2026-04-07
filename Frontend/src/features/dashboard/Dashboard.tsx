@@ -9,7 +9,6 @@ import { BottomNavbar } from '../../layout/BottomNavbar';
 import { useFabBottom } from '../../core/hooks/useFabBottom';
 import { FABMenu } from '../../core/components/FABMenu';
 import { HeroWidgetSection } from './HeroWidgetSection';
-import { SearchAndFilter } from './SearchAndFilter';
 import { CategoryTabs } from './CategoryTabs';
 import { TodaysTasks } from './TodaysTasks';
 import { RecentNotes } from './RecentNotes';
@@ -26,7 +25,6 @@ const SECTION_GAP: Record<string, number> = {
 const SectionComponent = ({ id }: { id: SectionId }) => {
   switch (id) {
     case 'hero':     return <HeroWidgetSection />;
-    case 'search':   return <SearchAndFilter />;
     case 'tabs':     return <CategoryTabs />;
     case 'tasks':    return <TodaysTasks />;
     case 'notes':    return <RecentNotes />;

@@ -5,7 +5,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
 import { TopNavbar } from '../../layout/TopNavbar';
 import { BottomNavbar } from '../../layout/BottomNavbar';
-import { EventsHeader } from './EventsHeader';
 import { CalendarStrip } from './CalendarStrip';
 import { EventCard } from './EventCard';
 import { dummyData } from '../../core/dummyData';
@@ -24,7 +23,7 @@ const EmptyState = () => {
         No events today
       </Text>
       <Text style={[emptyStyles.subtitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-        Pick another day or tap "+ New Event" to create one.
+        Pick another day or use the '+' menu to create one.
       </Text>
     </View>
   );
@@ -74,12 +73,9 @@ export const EventsScreen = () => {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 110 }}
-        stickyHeaderIndices={[1]}
+        stickyHeaderIndices={[0]}
       >
-        {/* 0: Header */}
-        <EventsHeader />
-
-        {/* 1: Sticky expandable calendar */}
+        {/* 0: Sticky expandable calendar */}
         <View style={{ backgroundColor: theme.colors.background }}>
           <CalendarStrip
             activeDate={activeDate}
@@ -87,7 +83,7 @@ export const EventsScreen = () => {
           />
         </View>
 
-        {/* 2: Events list for selected day */}
+        {/* 1: Events list for selected day */}
         <View style={styles.listContainer}>
           {events.length === 0 ? (
             <EmptyState />

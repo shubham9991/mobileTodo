@@ -6,6 +6,7 @@ export interface Subtask {
   id: string;
   text: string;
   done: boolean;
+  children?: Subtask[];
 }
 
 export interface Attachment {
@@ -26,6 +27,7 @@ export interface Task {
   subtasks?: Subtask[];
   attachments?: Attachment[];
   comments?: number;
+  commentsList?: { id: string; text: string; date: string }[];
   hasReminder?: boolean;
   completed: boolean;
   dueDate?: string;
@@ -82,6 +84,7 @@ export const dummyData = {
       preview: 'Explore shadow/ui patterns for mobile...',
       time: '2m ago',
       pinned: true,
+      tag: 'WORK',
     },
     {
       id: '2',
@@ -89,6 +92,15 @@ export const dummyData = {
       preview: 'Review the latest feedback from stakeholders...',
       time: '1h ago',
       pinned: false,
+      tag: 'WORK',
+    },
+    {
+      id: '3',
+      title: 'Recipe: Mushroom Risotto (Food)',
+      preview: 'Ingredients: arborio rice, mushrooms, chicken broth...',
+      time: '2d ago',
+      pinned: false,
+      tag: 'FOOD',
     },
   ],
 
@@ -277,6 +289,14 @@ export const dummyData = {
           tagType: 'work' as TagType,
           completed: true,
           dueDate: 'Yesterday',
+        },
+        {
+          id: 't10',
+          title: 'Buy groceries for the week (Food)',
+          tag: 'FOOD',
+          tagType: 'personal' as TagType,
+          completed: true,
+          dueDate: 'Last Week',
         },
       ],
     },

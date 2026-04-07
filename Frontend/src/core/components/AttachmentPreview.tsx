@@ -156,33 +156,42 @@ export default function AttachmentPreview({
           </TouchableOpacity>
         ) : isDocument ? (
           <View style={styles.documentInner}>
-            <MaterialCommunityIcons
-              name={isPdf ? 'file-pdf-box' : 'file-document'}
-              size={24}
-              color={theme.colors.primary}
-            />
-            <Text
-              style={[
-                styles.filename,
-                { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
-              ]}
-              numberOfLines={1}
-            >
-              {truncateFilename(attachment.name)}
-            </Text>
+            <View style={[styles.iconBox, { backgroundColor: theme.colors.cardPrimary }]}>
+              <MaterialCommunityIcons
+                name={isPdf ? 'file-pdf-box' : 'file-document'}
+                size={24}
+                color={theme.colors.primary}
+              />
+            </View>
+            <View style={styles.textStack}>
+              <Text
+                style={[
+                  styles.filename,
+                  { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
+                ]}
+                numberOfLines={1}
+              >
+                {truncateFilename(attachment.name, 16)}
+              </Text>
+              <Text style={[styles.subText, { color: theme.colors.textSecondary }]}>
+                {isPdf ? 'PDF Document' : 'File'}
+              </Text>
+            </View>
           </View>
         ) : isLink ? (
           <View style={styles.linkInner}>
-            <MaterialCommunityIcons
-              name="link-variant"
-              size={22}
-              color={theme.colors.primary}
-            />
+            <View style={[styles.iconBox, { backgroundColor: theme.colors.cardPrimary }]}>
+              <MaterialCommunityIcons
+                name="link-variant"
+                size={22}
+                color={theme.colors.primary}
+              />
+            </View>
             <View style={styles.linkTextContainer}>
               <Text
                 style={[
                   styles.domainText,
-                  { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
+                  { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
                 ]}
                 numberOfLines={1}
               >
@@ -195,7 +204,7 @@ export default function AttachmentPreview({
                 ]}
                 numberOfLines={1}
               >
-                {truncateUrl(attachment.uri)}
+                {truncateUrl(attachment.uri, 28)}
               </Text>
             </View>
           </View>
@@ -234,30 +243,30 @@ const styles = StyleSheet.create({
     minHeight: 88,
   },
   imageItem: {
-    width: 80,
-    height: 80,
+    width: 90,
+    height: 90,
     position: 'relative',
   },
   documentItem: {
-    height: 48,
+    height: 64,
     position: 'relative',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
   linkItem: {
-    height: 48,
+    height: 64,
     position: 'relative',
     justifyContent: 'center',
     paddingHorizontal: 12,
-    minWidth: 160,
+    minWidth: 180,
   },
   removeButton: {
     position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 20,
-    height: 20,
-    borderWidth: 1.5,
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
@@ -273,31 +282,47 @@ const styles = StyleSheet.create({
   fullImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 12,
+    borderRadius: 14,
   },
   documentInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textStack: {
+    flexDirection: 'column',
+    justifyContent: 'center',
   },
   filename: {
-    fontSize: 13,
-    maxWidth: 160,
+    fontSize: 14,
+  },
+  subText: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
   },
   linkInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   linkTextContainer: {
-    flex: 1,
+    flexDirection: 'column',
+    justifyContent: 'center',
   },
   domainText: {
-    fontSize: 13,
+    fontSize: 14,
   },
   urlText: {
     fontSize: 11,
-    marginTop: 1,
+    marginTop: 2,
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,

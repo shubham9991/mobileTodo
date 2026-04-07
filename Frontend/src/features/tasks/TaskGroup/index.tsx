@@ -10,9 +10,10 @@ interface Props {
   tasks: Task[];
   defaultOpen?: boolean;
   onTaskToggle?: (taskId: string, completed: boolean) => void;
+  onTaskPress?: (task: Task) => void;
 }
 
-export const TaskGroup = ({ label, tasks, defaultOpen = true, onTaskToggle }: Props) => {
+export const TaskGroup = ({ label, tasks, defaultOpen = true, onTaskToggle, onTaskPress }: Props) => {
   const { theme } = useTheme();
   const [open, setOpen] = useState(defaultOpen);
 
@@ -73,6 +74,7 @@ export const TaskGroup = ({ label, tasks, defaultOpen = true, onTaskToggle }: Pr
               key={task.id} 
               task={task} 
               onToggle={onTaskToggle}
+              onPress={onTaskPress}
             />
           ))}
         </View>

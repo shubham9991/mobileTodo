@@ -97,6 +97,15 @@ function detectIntent(
     });
   }
 
+  if (parsed.hasReminder) {
+    suggestions.push({
+      key: 'rem',
+      icon: 'notifications-active',
+      label: 'Set Reminder',
+      apply: () => setReminder('At due time')
+    });
+  }
+
   parsed.tags.forEach(tagLabel => {
     suggestions.push({
       key: `tg-${tagLabel}`,
@@ -457,6 +466,10 @@ const AttachmentsPanel = ({
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > 20 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Attachments cannot exceed 20MB.');
+        return;
+      }
       const attachment: Attachment = {
         id: Date.now().toString(),
         type: 'image',
@@ -487,6 +500,10 @@ const AttachmentsPanel = ({
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > 20 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Attachments cannot exceed 20MB.');
+        return;
+      }
       const attachment: Attachment = {
         id: Date.now().toString(),
         type: 'image',
@@ -508,6 +525,17 @@ const AttachmentsPanel = ({
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
+        
+        if (asset.size && asset.size > 20 * 1024 * 1024) {
+          Alert.alert('File Too Large', 'Attachments cannot exceed 20MB.');
+          return;
+        }
+
+        if (asset.mimeType?.startsWith('video/') || asset.name?.toLowerCase().match(/\.(mp4|mov|avi|wmv|flv|mkv)$/)) {
+          Alert.alert('Invalid File', 'Video attachments are not currently allowed.');
+          return;
+        }
+
         const isPdf = asset.mimeType === 'application/pdf' || asset.name?.toLowerCase().endsWith('.pdf');
         const attachment: Attachment = {
           id: Date.now().toString(),
@@ -553,10 +581,10 @@ const AttachmentsPanel = ({
   };
 
   const options = [
-    { id: 'camera', label: 'Camera', icon: 'camera' as const, action: handleCamera },
-    { id: 'gallery', label: 'Gallery', icon: 'image' as const, action: handlePhotoLibrary },
-    { id: 'file', label: 'File', icon: 'file-document-outline' as const, action: handleDocument },
-    { id: 'link', label: 'Link', icon: 'link-variant' as const, action: () => setShowLinkInput(true) },
+    { id: 'camera',  label: 'Camera',  icon: 'photo-camera'       as const, action: handleCamera },
+    { id: 'gallery', label: 'Gallery', icon: 'photo-library'       as const, action: handlePhotoLibrary },
+    { id: 'file',    label: 'File',    icon: 'insert-drive-file'   as const, action: handleDocument },
+    { id: 'link',    label: 'Link',    icon: 'link'                as const, action: () => setShowLinkInput(true) },
   ];
 
   return (
@@ -571,8 +599,10 @@ const AttachmentsPanel = ({
               style={attachPanelStyles.optionBtn}
               onPress={opt.action}
             >
-              <MaterialCommunityIcons name={opt.icon} size={24} color={theme.colors.primary} />
-              <Text style={[attachPanelStyles.optionLabel, { color: theme.colors.text }]}>
+              <View style={[attachPanelStyles.optionIconWrap, { backgroundColor: `${theme.colors.primary}15` }]}>
+                <MaterialIcons name={opt.icon} size={26} color={theme.colors.primary} />
+              </View>
+              <Text style={[attachPanelStyles.optionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
                 {opt.label}
               </Text>
             </TouchableOpacity>
@@ -618,18 +648,23 @@ const AttachmentsPanel = ({
 const attachPanelStyles = StyleSheet.create({
   optionsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
   },
   optionBtn: {
-    width: 60,
+    flex: 1,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
+    gap: 8,
+  },
+  optionIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   optionLabel: {
     fontSize: 12,
-    fontFamily: 'Inter_500Medium',
   },
   linkContainer: {
     paddingVertical: 8,
@@ -693,6 +728,12 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
   const [touched, setTouched] = useState<{ title?: boolean }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Nested subtasks in composer
+  const [expandedSubIds, setExpandedSubIds] = useState<Set<string>>(new Set());
+  const [addingChildFor, setAddingChildFor] = useState<string | null>(null);
+  const [childInput, setChildInput] = useState('');
+
   const appliedRef = useRef(new Set<string>());
   const titleInputRef = useRef<TextInput>(null);
   const subtaskInputRef = useRef<TextInput>(null);
@@ -746,13 +787,23 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
   useEffect(() => {
     const found = detectIntent(title, setDueDate, setDueTime, setReminder, applySmartTag, setPriority)
-      .filter((s) => !appliedRef.current.has(s.key));
+      .filter((s) => {
+        if (s.key === 'dt' && dueDate) return false;
+        if (s.key === 'tm' && dueTime) return false;
+        if (s.key === 'pri' && priority) return false;
+        if (s.key === 'rem' && reminder) return false;
+        if (s.key.startsWith('tg-')) {
+          const tId = s.key.replace('tg-', '').toLowerCase().replace(/\s+/g, '-');
+          if (selectedTags.includes(tId)) return false;
+        }
+        return true;
+      });
 
     if (found.length !== suggestions.length && (found.length === 0 || suggestions.length === 0)) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
     setSuggestions(found);
-  }, [title, applySmartTag, suggestions.length]);
+  }, [title, applySmartTag, suggestions.length, dueDate, dueTime, priority, reminder, selectedTags]);
 
   // Update title when initialTitle changes
   useEffect(() => {
@@ -770,8 +821,6 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
   const applyS = (s: Suggestion) => {
     s.apply();
-    appliedRef.current.add(s.key);
-    setSuggestions((p) => p.filter((x) => x.key !== s.key));
   };
 
   const validateForm = useCallback((): boolean => {
@@ -787,13 +836,54 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
   }, [title, dueDate]);
 
   const handleClose = () => {
+    const hasUnsavedChanges = 
+      title.trim() !== '' || 
+      description.trim() !== '' || 
+      subtasks.length > 0 || 
+      attachments.length > 0 || 
+      selectedTags.length > 0 || 
+      priority !== null || 
+      dueDate !== '';
+
+    if (hasUnsavedChanges) {
+      Alert.alert(
+        'Discard Task?',
+        'You have unsaved changes. Are you sure you want to discard them?',
+        [
+          { text: 'Keep Editing', style: 'cancel' },
+          { 
+            text: 'Discard', 
+            style: 'destructive', 
+            onPress: () => {
+              setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
+              setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
+              setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
+              setIsSubmitting(false); setSubInput('');
+              setShowDatePicker(false);
+              appliedRef.current.clear();
+              onClose();
+            }
+          }
+        ]
+      );
+    } else {
+      setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
+      setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
+      setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
+      setIsSubmitting(false); setSubInput('');
+      setShowDatePicker(false);
+      appliedRef.current.clear();
+      onClose();
+    }
+  };
+
+  const resetForm = () => {
     setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
     setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
     setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
     setIsSubmitting(false); setSubInput('');
     setShowDatePicker(false);
     appliedRef.current.clear();
-    onClose();
   };
 
   const handleSave = async () => {
@@ -828,7 +918,9 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
       onSave(taskData);
     }
 
-    handleClose();
+    // Reset without showing the discard alert
+    resetForm();
+    onClose();
   };
 
   const togglePanel = (panelName: ActivePanel) => {
@@ -909,27 +1001,112 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
               />
             </View>
 
-            {/* Subtasks - inline compact list (visible when subtasks exist and panel is closed) */}
+            {/* Subtasks - inline compact list */}
             {subtasks.length > 0 && activePanel !== 'subtasks' && (
               <View style={s.inlineSubtasksSection}>
-                {subtasks.map((st) => (
-                  <View key={st.id} style={s.inlineSubtaskRow}>
-                    <TouchableOpacity
-                      style={[s.inlineSubtaskCheck, { borderColor: st.done ? theme.colors.primary : theme.colors.border, backgroundColor: st.done ? theme.colors.primary : 'transparent' }]}
-                      onPress={() => toggleSubtask(st.id)}
-                    >
-                      {st.done && <MaterialIcons name="check" size={10} color="#FFF" />}
-                    </TouchableOpacity>
-                    <Text style={[s.inlineSubtaskText, {
-                      color: theme.colors.text,
-                      opacity: st.done ? 0.5 : 1,
-                      textDecorationLine: st.done ? 'line-through' : 'none',
-                      fontFamily: 'Inter_500Medium'
-                    }]}>
-                      {st.text}
-                    </Text>
-                  </View>
-                ))}
+                {subtasks.map((st) => {
+                  const hasChildren = (st.children?.length ?? 0) > 0;
+                  const isExpanded = expandedSubIds.has(st.id);
+                  const isAddingHere = addingChildFor === st.id;
+                  return (
+                    <View key={st.id}>
+                      {/* Parent row */}
+                      <View style={s.inlineSubtaskRow}>
+                        <TouchableOpacity
+                          style={[s.inlineSubtaskCheck, { borderColor: st.done ? theme.colors.primary : theme.colors.border, backgroundColor: st.done ? theme.colors.primary : 'transparent' }]}
+                          onPress={() => toggleSubtask(st.id)}
+                        >
+                          {st.done && <MaterialIcons name="check" size={10} color="#FFF" />}
+                        </TouchableOpacity>
+                        <Text style={[s.inlineSubtaskText, {
+                          color: theme.colors.text, opacity: st.done ? 0.5 : 1,
+                          textDecorationLine: st.done ? 'line-through' : 'none',
+                          fontFamily: 'Inter_500Medium',
+                        }]}>{st.text}</Text>
+                        {/* Expand/add nested button */}
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (!hasChildren && !isAddingHere) {
+                              setAddingChildFor(st.id);
+                              setChildInput('');
+                            } else {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setExpandedSubIds(prev => {
+                                const next = new Set(prev);
+                                next.has(st.id) ? next.delete(st.id) : next.add(st.id);
+                                return next;
+                              });
+                            }
+                          }}
+                          style={{ padding: 4 }}
+                        >
+                          <MaterialIcons
+                            name={isExpanded || isAddingHere ? 'expand-less' : (hasChildren ? 'expand-more' : 'add-circle-outline')}
+                            size={16}
+                            color={theme.colors.primary}
+                          />
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Nested children */}
+                      {(isExpanded || isAddingHere) && (
+                        <View style={[s.nestedContainer, { borderColor: theme.colors.border }]}>
+                          {(st.children ?? []).map(child => (
+                            <View key={child.id} style={s.nestedChildRow}>
+                              <View style={[s.nestedLine, { backgroundColor: theme.colors.border }]} />
+                              <TouchableOpacity
+                                style={[s.inlineSubtaskCheck, { borderColor: child.done ? theme.colors.primary : theme.colors.border, backgroundColor: child.done ? theme.colors.primary : 'transparent', width: 16, height: 16, borderRadius: 4 }]}
+                                onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.map(c => c.id === child.id ? { ...c, done: !c.done } : c) } : p))}
+                              >
+                                {child.done && <MaterialIcons name="check" size={9} color="#FFF" />}
+                              </TouchableOpacity>
+                              <Text style={[s.inlineSubtaskText, { color: theme.colors.text, opacity: child.done ? 0.5 : 1, fontSize: 13, textDecorationLine: child.done ? 'line-through' : 'none', fontFamily: 'Inter_400Regular' }]}>{child.text}</Text>
+                              <TouchableOpacity onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.filter(c => c.id !== child.id) } : p))}>
+                                <MaterialIcons name="close" size={13} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+
+                          {/* Add child input */}
+                          {isAddingHere && (
+                            <View style={s.addChildInputRow}>
+                              <MaterialIcons name="subdirectory-arrow-right" size={13} color={theme.colors.primary} />
+                              <TextInput
+                                style={[s.addChildInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
+                                placeholder="Nested subtask…"
+                                placeholderTextColor={theme.colors.textSecondary}
+                                value={childInput}
+                                onChangeText={setChildInput}
+                                autoFocus
+                                returnKeyType="done"
+                                onSubmitEditing={() => {
+                                  if (!childInput.trim()) return;
+                                  setSubtasks(prev => prev.map(p => p.id === st.id
+                                    ? { ...p, children: [...(p.children ?? []), { id: `c_${Date.now()}`, text: childInput.trim(), done: false }] }
+                                    : p
+                                  ));
+                                  setChildInput('');
+                                  setAddingChildFor(null);
+                                  setExpandedSubIds(prev => new Set([...prev, st.id]));
+                                }}
+                              />
+                              <TouchableOpacity onPress={() => { setAddingChildFor(null); setChildInput(''); }}>
+                                <MaterialIcons name="close" size={14} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
+                            </View>
+                          )}
+
+                          {!isAddingHere && (
+                            <TouchableOpacity style={s.addMoreNested} onPress={() => { setAddingChildFor(st.id); setChildInput(''); }}>
+                              <MaterialIcons name="add" size={13} color={theme.colors.primary} />
+                              <Text style={[s.addMoreNestedTxt, { color: theme.colors.primary }]}>Add nested</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             )}
 
@@ -976,19 +1153,24 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
             {/* Smart suggestions */}
             {suggestions.length > 0 && (
-              <View style={[s.suggBanner, { backgroundColor: `${theme.colors.primary}10`, borderColor: `${theme.colors.primary}25` }]}>
-                <MaterialIcons name="auto-awesome" size={12} color={theme.colors.primary} />
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    {suggestions.map((sg) => (
-                      <TouchableOpacity key={sg.key} style={[s.suggChip, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]} onPress={() => applyS(sg)}>
-                        <MaterialIcons name={sg.icon as any} size={11} color={theme.colors.primary} />
-                        <Text style={[s.suggTxt, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>{sg.label}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
-              </View>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="always"
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginVertical: 12 }}
+              >
+                {suggestions.map((sg) => (
+                  <TouchableOpacity 
+                    key={sg.key} 
+                    style={[s.suggChip, { backgroundColor: `${theme.colors.primary}18`, borderColor: `${theme.colors.primary}30` }]} 
+                    onPress={() => applyS(sg)}
+                  >
+                    <MaterialIcons name="auto-awesome" size={14} color={theme.colors.primary} />
+                    <MaterialIcons name={sg.icon as any} size={15} color={theme.colors.primary} />
+                    <Text style={[s.suggTxt, { color: theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>{sg.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             )}
 
             {/* Active panel - appears above toolbar */}
@@ -1257,9 +1439,8 @@ const s = StyleSheet.create({
 
   // Pills & Suggestions
   pillsRow: { marginVertical: 8 },
-  suggBanner: { flexDirection: 'row', alignItems: 'center', gap: 7, marginHorizontal: 14, marginVertical: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9, borderWidth: 1 },
-  suggChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 6, borderWidth: 1 },
-  suggTxt: { fontSize: 12 },
+  suggChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  suggTxt: { fontSize: 13 },
 
   // Toolbar
   toolbar: {
@@ -1278,7 +1459,18 @@ const s = StyleSheet.create({
     minWidth: 90,
     alignItems: 'center',
   },
-  saveBtnText: {
-    fontSize: 14,
+  saveBtnText: { fontSize: 14 },
+
+  // Nested subtasks in composer
+  nestedContainer: {
+    borderWidth: StyleSheet.hairlineWidth, borderTopWidth: 0,
+    borderBottomLeftRadius: 10, borderBottomRightRadius: 10,
+    paddingHorizontal: 10, paddingTop: 4, paddingBottom: 8, marginBottom: 4,
   },
+  nestedChildRow: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 4 },
+  nestedLine: { width: 2, height: 16, borderRadius: 1, marginLeft: 4 },
+  addChildInputRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 6 },
+  addChildInput: { flex: 1, fontSize: 13, paddingVertical: 5, paddingHorizontal: 8, borderWidth: 1, borderRadius: 8 },
+  addMoreNested: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 6, paddingLeft: 4 },
+  addMoreNestedTxt: { fontSize: 12, fontFamily: 'Inter_500Medium' },
 });

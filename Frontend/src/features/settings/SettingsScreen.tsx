@@ -63,6 +63,7 @@ const VisibilityModal = ({ visible, onClose }: { visible: boolean; onClose: () =
     <Sheet visible={visible} onClose={onClose} title="Section Visibility">
       {sections.map((id, i) => {
         const meta    = SECTION_META[id as SectionId];
+        if (!meta) return null;
         const isOn    = sectionVisibility[id as SectionId];
         return (
           <TouchableOpacity
@@ -121,6 +122,7 @@ const OrderModal = ({ visible, onClose }: { visible: boolean; onClose: () => voi
           <View style={[s.divider, { backgroundColor: theme.colors.border }]} />
           {localOrder.map((id, i) => {
             const meta = SECTION_META[id];
+            if (!meta) return null;
             return (
               <View
                 key={id}
