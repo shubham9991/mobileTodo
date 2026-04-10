@@ -184,6 +184,13 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const snapState = useRef<'compact' | 'full'>('compact');
 
+  const [layoutHeights, setLayoutHeights] = useState({ header: 0, tabs: 0 });
+  const [tabContentHeights, setTabContentHeights] = useState({
+    subtasks: 0,
+    comments: 0,
+    history: 0
+  });
+
   // Fixed snap points: compact = bottom 70% of screen, full = 100%
   const SNAP_COMPACT = SH * 0.3; // translateY = 30% → panel fills bottom 70%
   const SNAP_COMPACT_REF = useRef(SNAP_COMPACT);
