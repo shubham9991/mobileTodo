@@ -10,6 +10,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../themes/ThemeContext';
 import { Task, Subtask } from '../../core/dummyData';
 import { useDashboard } from '../../core/DashboardContext';
@@ -29,14 +30,14 @@ const { width: SW, height: SH } = Dimensions.get('window');
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PRIORITY_META: Record<string, { color: string; bg: string; label: string }> = {
   HIGH: { color: '#EF4444', bg: '#FEF2F2', label: 'High' },
-  MED:  { color: '#F97316', bg: '#FFF7ED', label: 'Medium' },
-  LOW:  { color: '#22C55E', bg: '#F0FDF4', label: 'Low' },
+  MED: { color: '#F97316', bg: '#FFF7ED', label: 'Medium' },
+  LOW: { color: '#22C55E', bg: '#F0FDF4', label: 'Low' },
 };
 const TAG_META: Record<string, { text: string; bg: string }> = {
-  work:     { text: '#6366F1', bg: '#EEF2FF' },
+  work: { text: '#6366F1', bg: '#EEF2FF' },
   personal: { text: '#64748B', bg: '#F1F5F9' },
-  review:   { text: '#F97316', bg: '#FFF7ED' },
-  health:   { text: '#22C55E', bg: '#F0FDF4' },
+  review: { text: '#F97316', bg: '#FFF7ED' },
+  health: { text: '#22C55E', bg: '#F0FDF4' },
   learning: { text: '#EC4899', bg: '#FDF2F8' },
 };
 
@@ -164,48 +165,29 @@ const ns = StyleSheet.create({
 
 // ─── Main Modal ───────────────────────────────────────────────────────────────
 export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalProps) => {
+  const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { taskGroups, updateTask, handleComposerSave } = useDashboard();
 
-  const [newComment, setNewComment]         = useState('');
-  const [commentAtt, setCommentAtt]         = useState<{ uri: string; name: string; type: 'image' | 'file' } | null>(null);
-  const [activeTab, setActiveTab]           = useState<Tab>('subtasks');
+  const [newComment, setNewComment] = useState('');
+  const [commentAtt, setCommentAtt] = useState<{ uri: string; name: string; type: 'image' | 'file' } | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('subtasks');
   const [showActionMenu, setShowActionMenu] = useState(false);
 
   // Nested subtask state
-  const [expandedIds, setExpandedIds]         = useState<Set<string>>(new Set());
-  const [addingChildFor, setAddingChildFor]   = useState<string | null>(null);
-  const [childInput, setChildInput]           = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [addingChildFor, setAddingChildFor] = useState<string | null>(null);
+  const [childInput, setChildInput] = useState('');
 
   // ── Bottom-sheet animation ─────────────────────────────────────────────────
-  const panelY      = useRef(new Animated.Value(SH)).current;  // starts off screen
+  const panelY = useRef(new Animated.Value(SH)).current;  // starts off screen
   const backdropAnim = useRef(new Animated.Value(0)).current;
-  const snapState   = useRef<'compact' | 'full'>('compact');
+  const snapState = useRef<'compact' | 'full'>('compact');
 
-  const [layoutHeights, setLayoutHeights] = useState({ header: 0, tabs: 0 });
-  const [tabContentHeights, setTabContentHeights] = useState({ subtasks: 0, comments: 0, history: 0 });
+  // Fixed snap points: compact = bottom 70% of screen, full = 100%
+  const SNAP_COMPACT = SH * 0.3; // translateY = 30% → panel fills bottom 70%
+  const SNAP_COMPACT_REF = useRef(SNAP_COMPACT);
 
-  const dynamicSnapCompact = useMemo(() => {
-    if (layoutHeights.header === 0) return SH * 0.5; // Fallback while measuring
-    const activeContentH = tabContentHeights[activeTab] || 0;
-    const totalH = layoutHeights.header + layoutHeights.tabs + activeContentH + 80;
-    return Math.max(0, SH - Math.max(150, totalH));
-  }, [layoutHeights, tabContentHeights, activeTab]);
-
-  const dynamicSnapCompactRef = useRef(dynamicSnapCompact);
-  useEffect(() => {
-    dynamicSnapCompactRef.current = dynamicSnapCompact;
-  }, [dynamicSnapCompact]);
-
-  // Automatically adjust to content size if in compact state
-  useEffect(() => {
-    if (visible && snapState.current === 'compact') {
-      Animated.spring(panelY, {
-        toValue: dynamicSnapCompact,
-        damping: 26, stiffness: 240, useNativeDriver: false
-      }).start();
-    }
-  }, [dynamicSnapCompact, visible]);
 
   // Ref for DraggableFlatList to scroll when adding child subtask
   const subtaskListRef = useRef<any>(null);
@@ -221,11 +203,11 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   const snapTo = useCallback((state: 'compact' | 'full', onDone?: () => void) => {
     snapState.current = state;
-    const toValue = state === 'full' ? 0 : dynamicSnapCompactRef.current;
+    const toValue = state === 'full' ? 0 : SNAP_COMPACT_REF.current;
     Animated.spring(panelY, {
-      toValue, damping: 28, stiffness: 280, mass: 0.8, useNativeDriver: false,
+      toValue, damping: 32, stiffness: 350, mass: 0.8, useNativeDriver: true,
     }).start(onDone);
-  }, [panelY]);
+  }, [panelY, SNAP_COMPACT_REF]);
 
   const dismiss = useCallback(() => {
     // Reset transient state immediately before animation
@@ -238,8 +220,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     snapState.current = 'compact';
 
     Animated.parallel([
-      Animated.timing(backdropAnim, { toValue: 0, duration: 220, useNativeDriver: false }),
-      Animated.timing(panelY, { toValue: SH, duration: 260, useNativeDriver: false }),
+      Animated.timing(backdropAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+      Animated.timing(panelY, { toValue: SH, duration: 300, useNativeDriver: true }),
     ]).start(onClose);
   }, [backdropAnim, panelY, onClose]);
 
@@ -250,8 +232,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       backdropAnim.setValue(0);
       snapState.current = 'compact';
       Animated.parallel([
-        Animated.timing(backdropAnim, { toValue: 1, duration: 300, useNativeDriver: false }),
-        Animated.spring(panelY, { toValue: dynamicSnapCompactRef.current, damping: 26, stiffness: 240, useNativeDriver: false }),
+        Animated.timing(backdropAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.spring(panelY, { toValue: SNAP_COMPACT_REF.current, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: true }),
       ]).start();
     } else {
       // Reset ALL transient UI state every time modal closes
@@ -275,36 +257,36 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   }, [addingChildFor, snapTo]);
 
   // ── Handle drag (PanResponder) ──────────────────────────────────────────────
-  const dragOffset = useRef(0);
   const handlePan = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gs) =>
-        Math.abs(gs.dy) > 8 && Math.abs(gs.dy) > Math.abs(gs.dx),
+        Math.abs(gs.dy) > 4 && Math.abs(gs.dy) > Math.abs(gs.dx),
       onPanResponderGrant: () => {
-        panelY.stopAnimation(v => { dragOffset.current = v; });
+        panelY.stopAnimation();
+        panelY.extractOffset();
       },
-      onPanResponderMove: (_, gs) => {
-        const next = Math.max(0, dragOffset.current + gs.dy);
-        panelY.setValue(next);
-      },
+      onPanResponderMove: Animated.event(
+        [null, { dy: panelY }],
+        { useNativeDriver: false } // Fixed desync in fast swipes by handling move on JS thread
+      ),
       onPanResponderRelease: (_, gs) => {
+        panelY.flattenOffset();
         const state = snapState.current;
-        if (gs.dy < -50 || gs.vy < -0.5) {
-          // swipe up → expand to full
+
+        // More sensitive detection for fast swipes
+        if (gs.dy < -20 || gs.vy < -0.2) {
           snapTo('full');
-          Animated.timing(backdropAnim, { toValue: 1, duration: 150, useNativeDriver: false }).start();
-        } else if (gs.dy > 80 || gs.vy > 0.8) {
-          if (state === 'full') {
-            // pull down from full → compact
-            snapTo('compact');
-          } else {
-            // pull down from compact → dismiss
-            dismiss();
-          }
+        } else if (gs.dy > 60 || gs.vy > 0.3) {
+          if (state === 'full') snapTo('compact');
+          else dismiss();
         } else {
-          // small movement → snap back
           snapTo(state);
         }
+      },
+      onPanResponderTerminate: () => {
+        panelY.flattenOffset();
+        snapTo(snapState.current);
       },
     })
   ).current;
@@ -442,13 +424,14 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // ── 3-dot actions ──────────────────────────────────────────────────────────
   const actionItems: SheetItem[] = [
-    { label: 'Edit Task',        icon: 'edit',           onPress: () => Alert.alert('Edit Task', 'Editor coming soon.') },
-    { label: 'Duplicate Task',   icon: 'content-copy',   onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓', 'Task copied successfully.'); } },
-    { label: 'Move to List',     icon: 'folder-open',    onPress: () => Alert.alert('Move Task', 'Coming soon.') },
-    { label: 'Save as Template', icon: 'bookmark-add',   onPress: () => Alert.alert('Template Saved', 'Saved as reusable template.') },
-    { label: 'Share Task',       icon: 'share',          onPress: () => Alert.alert('Share', `"${task.title}"`) },
-    { label: 'Archive Task',     icon: 'archive',        onPress: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); updateTask(task.id, t => ({ ...t, archived: true })); onClose(); } },
-    { label: 'Delete Task',      icon: 'delete-outline', destructive: true,
+    { label: 'Edit Task', icon: 'edit', onPress: () => Alert.alert('Edit Task', 'Editor coming soon.') },
+    { label: 'Duplicate Task', icon: 'content-copy', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓', 'Task copied successfully.'); } },
+    { label: 'Move to List', icon: 'folder-open', onPress: () => Alert.alert('Move Task', 'Coming soon.') },
+    { label: 'Save as Template', icon: 'bookmark-add', onPress: () => Alert.alert('Template Saved', 'Saved as reusable template.') },
+    { label: 'Share Task', icon: 'share', onPress: () => Alert.alert('Share', `"${task.title}"`) },
+    { label: 'Archive Task', icon: 'archive', onPress: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); updateTask(task.id, t => ({ ...t, archived: true })); onClose(); } },
+    {
+      label: 'Delete Task', icon: 'delete-outline', destructive: true,
       onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); onClose(); } },
@@ -457,15 +440,15 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   ];
 
   const versionHistory: VersionEntry[] = [
-    { id: 'v4', action: 'You marked a subtask as done',  date: '5 min ago',          icon: 'check-circle' },
+    { id: 'v4', action: 'You marked a subtask as done', date: '5 min ago', icon: 'check-circle' },
     { id: 'v3', action: 'You changed priority', from: 'LOW', to: 'HIGH', date: '1 hour ago', icon: 'flag' },
-    { id: 'v2', action: 'You added 2 subtasks',          date: 'Yesterday, 4:30 PM', icon: 'add-circle' },
-    { id: 'v1', action: 'You created this task',         date: 'Apr 5, 10:30 AM',    icon: 'add-task' },
+    { id: 'v2', action: 'You added 2 subtasks', date: 'Yesterday, 4:30 PM', icon: 'add-circle' },
+    { id: 'v1', action: 'You created this task', date: 'Apr 5, 10:30 AM', icon: 'add-task' },
   ];
 
-  const subtasksDone  = task.subtasks?.filter(s => s.done).length ?? 0;
+  const subtasksDone = task.subtasks?.filter(s => s.done).length ?? 0;
   const subtasksTotal = task.subtasks?.length ?? 0;
-  const progress      = subtasksTotal > 0 ? subtasksDone / subtasksTotal : 0;
+  const progress = subtasksTotal > 0 ? subtasksDone / subtasksTotal : 0;
 
   // ── Fixed Header ───────────────────────────────────────────────────────────
   const Header = () => (
@@ -506,13 +489,24 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         </View>
       )}
       {subtasksTotal > 0 && (
-        <View style={st.progressWrap}>
-          <View style={st.progressLabelRow}>
+        <View style={st.progressSection}>
+          <View style={st.progressHeader}>
             <Text style={[st.progressLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>Subtasks</Text>
             <Text style={[st.progressCount, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>{subtasksDone}/{subtasksTotal}</Text>
           </View>
-          <View style={[st.progressTrack, { backgroundColor: theme.colors.secondary }]}>
-            <View style={[st.progressFill, { width: `${progress * 100}%` as any, backgroundColor: theme.colors.primary }]} />
+          <View style={st.segmentedTrack}>
+            {Array.from({ length: subtasksTotal }).map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  st.progressSegment,
+                  {
+                    backgroundColor: i < subtasksDone ? theme.colors.primary : theme.colors.border + '30',
+                    flex: 1,
+                  }
+                ]}
+              />
+            ))}
           </View>
         </View>
       )}
@@ -532,7 +526,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         <DraggableFlatList
           ref={subtaskListRef}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: 14, paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingVertical: 14, paddingHorizontal: 16, paddingBottom: insets.bottom + 20 }}
           data={task.subtasks ?? []}
           keyExtractor={item => item.id}
           onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, subtasks: h }))}
@@ -553,8 +547,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                       {att.type === 'image'
                         ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
                         : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}>
-                            <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={22} color={theme.colors.primary} />
-                          </View>}
+                          <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={22} color={theme.colors.primary} />
+                        </View>}
                       <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={2}>{att.name}</Text>
                     </View>
                   ))}
@@ -564,7 +558,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           }
           renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
             const hasChildren = (sub.children?.length ?? 0) > 0;
-            const isExpanded  = expandedIds.has(sub.id);
+            const isExpanded = expandedIds.has(sub.id);
             const isAddingHere = addingChildFor === sub.id;
 
             return (
@@ -625,11 +619,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                       color={theme.colors.textSecondary}
                     />
                   </TouchableOpacity>
-
-                  {/* Drag handle */}
-                  <View style={{ opacity: isActive ? 1 : 0.3 }}>
-                    <MaterialIcons name="drag-indicator" size={18} color={theme.colors.primary} />
-                  </View>
                 </TouchableOpacity>
 
                 {/* ── Expanded children section ── */}
@@ -694,62 +683,70 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // ── Comments Page ──────────────────────────────────────────────────────────
   const CommentsPage = () => (
-    <ScrollView 
-      style={{ width: SW }} 
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }} 
-      keyboardShouldPersistTaps="handled" 
+    <ScrollView
+      style={{ width: SW }}
+      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 10 }}
+      keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
       onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, comments: h }))}
     >
+      {/* Comments List first */}
+      {(task.commentsList?.length ?? 0) > 0
+        ? <View style={{ gap: 12 }}>
+          {(task.commentsList as any[] ?? []).map((c: any) => (
+            <View key={c.id} style={st.commentRow}>
+              <View style={[st.commentAvatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
+              <View style={{ flex: 1 }}>
+                <View style={[st.commentBubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
+                  <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham  ·  {c.date}</Text>
+                  {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+        : <View style={st.emptyState}>
+          <MaterialIcons name="chat-bubble-outline" size={36} color={theme.colors.border} />
+          <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>No comments yet</Text>
+        </View>
+      }
+
+      {/* Attachment Preview */}
       {commentAtt && (
-        <View style={[st.attPreviewRow, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
+        <View style={[st.attPreviewRow, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginTop: 16 }]}>
           {commentAtt.type === 'image' ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" /> : <MaterialIcons name="insert-drive-file" size={22} color={theme.colors.primary} />}
           <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
           <TouchableOpacity onPress={() => setCommentAtt(null)}><MaterialIcons name="close" size={18} color={theme.colors.textSecondary} /></TouchableOpacity>
         </View>
       )}
-      <View style={[st.commentInputCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
-        <View style={[st.commentInputActions, { borderBottomColor: theme.colors.border }]}>
-          {(['camera', 'gallery', 'file'] as const).map(src => (
-            <TouchableOpacity key={src} style={st.attachBtn} onPress={() => pickCommentAtt(src)}>
-              <MaterialIcons name={src === 'camera' ? 'photo-camera' : src === 'gallery' ? 'photo-library' : 'attach-file'} size={18} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={st.commentTextRow}>
-          <TextInput style={[st.commentInput, { color: theme.colors.text, fontFamily: 'Inter_400Regular' }]} placeholder="Add a comment…" placeholderTextColor={theme.colors.textSecondary} value={newComment} onChangeText={setNewComment} multiline />
-          <TouchableOpacity style={[st.sendBtn, { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]} onPress={handleAddComment}>
-            <MaterialIcons name="send" size={15} color="#fff" />
+
+      {/* Add Comment Input at the bottom */}
+      <View style={[st.commentInputCompact, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginTop: 12 }]}>
+        <View style={st.commentRowCompact}>
+          <TouchableOpacity style={st.miniAttachBtn} onPress={() => pickCommentAtt('gallery')}>
+            <MaterialIcons name="photo-library" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+          <TextInput 
+            style={[st.commentInputMini, { color: theme.colors.text, fontFamily: 'Inter_400Regular' }]} 
+            placeholder="Add a comment…" 
+            placeholderTextColor={theme.colors.textSecondary} 
+            value={newComment} 
+            onChangeText={setNewComment} 
+            multiline 
+          />
+          <TouchableOpacity style={[st.sendBtnMini, { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]} onPress={handleAddComment}>
+            <MaterialIcons name="send" size={14} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
-      {(task.commentsList?.length ?? 0) > 0
-        ? <View style={{ marginTop: 16, gap: 12 }}>
-            {(task.commentsList as any[] ?? []).map((c: any) => (
-              <View key={c.id} style={st.commentRow}>
-                <View style={[st.commentAvatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
-                <View style={{ flex: 1 }}>
-                  <View style={[st.commentBubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
-                    <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham  ·  {c.date}</Text>
-                    {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-        : <View style={st.emptyState}>
-            <MaterialIcons name="chat-bubble-outline" size={36} color={theme.colors.border} />
-            <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>No comments yet</Text>
-          </View>
-      }
     </ScrollView>
   );
 
   // ── History Page ───────────────────────────────────────────────────────────
   const HistoryPage = () => (
-    <ScrollView 
-      style={{ width: SW }} 
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }} 
+    <ScrollView
+      style={{ width: SW }}
+      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
       showsVerticalScrollIndicator={false}
       onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, history: h }))}
     >
@@ -763,10 +760,12 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     if (childInput.trim() || newComment.trim()) {
       Alert.alert('Unsaved input', 'You have unsaved text. Discard it?', [
         { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => {
-          setChildInput(''); setAddingChildFor(null); setNewComment('');
-          dismiss();
-        }},
+        {
+          text: 'Discard', style: 'destructive', onPress: () => {
+            setChildInput(''); setAddingChildFor(null); setNewComment('');
+            dismiss();
+          }
+        },
       ]);
     } else {
       dismiss();
@@ -778,7 +777,13 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={handleClose}>
         <GestureHandlerRootView style={st.flex}>
           {/* Backdrop: fades independently */}
-          <Animated.View style={[st.scrim, { opacity: backdropAnim }]}>
+          <Animated.View style={[st.scrim, {
+            opacity: panelY.interpolate({
+              inputRange: [0, SH * 0.8],
+              outputRange: [1, 0],
+              extrapolate: 'clamp'
+            })
+          }]}>
             <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
           </Animated.View>
 
@@ -790,26 +795,28 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               { transform: [{ translateY: panelY }] },
             ]}
           >
-            {/* Draggable handle */}
-            <View {...handlePan.panHandlers} style={st.handleWrap}>
-              <View style={[st.handle, { backgroundColor: theme.colors.border }]} />
+            {/* Draggable areas: handle and header */}
+            <View {...handlePan.panHandlers}>
+              <View style={st.handleWrap}>
+                <View style={[st.handle, { backgroundColor: theme.colors.border }]} />
+              </View>
+              <Header />
             </View>
 
             {/* Everything inside KAV so keyboard pushes content up */}
             <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
               style={{ flex: 1 }}
-              behavior="padding"
-              keyboardVerticalOffset={20}
             >
-              <Header />
-              <View 
+              <View
                 style={[st.tabBar, { borderBottomColor: theme.colors.border, borderTopColor: theme.colors.border }]}
                 onLayout={e => { const h = e.nativeEvent.layout.height; setLayoutHeights(p => ({ ...p, tabs: h })); }}
               >
                 {TABS.map(tab => {
                   const active = activeTab === tab;
                   const labels = { subtasks: 'Subtasks', comments: 'Comments', history: 'History' };
-                  const icons  = { subtasks: 'checklist', comments: 'chat-bubble-outline', history: 'history' };
+                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', history: 'history' };
                   return (
                     <TouchableOpacity key={tab} style={[st.tab, active && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2.5 }]} onPress={() => switchTab(tab)}>
                       <MaterialIcons name={icons[tab] as any} size={15} color={active ? theme.colors.primary : theme.colors.textSecondary} />
@@ -860,12 +867,12 @@ const st = StyleSheet.create({
   tagDot: { width: 6, height: 6, borderRadius: 3 },
   dueCard: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, borderWidth: 1, marginBottom: 14, alignSelf: 'flex-start' },
   dueText: { fontSize: 13 },
-  progressWrap: { marginBottom: 0 },
-  progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  progressLabel: { fontSize: 12 },
-  progressCount: { fontSize: 12 },
-  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: 4, borderRadius: 2 },
+  progressSection: { marginBottom: 12 },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  progressLabel: { fontSize: 13 },
+  progressCount: { fontSize: 13 },
+  segmentedTrack: { flexDirection: 'row', gap: 4, height: 6 },
+  progressSegment: { height: 6, borderRadius: 3 },
 
   // Tab Bar
   tabBar: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderTopWidth: StyleSheet.hairlineWidth },
@@ -873,17 +880,16 @@ const st = StyleSheet.create({
   tabText: { fontSize: 13 },
 
   // Subtask rows
-  subtaskRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, gap: 10 },
-  subtaskDragging: { shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 10 },
+  subtaskRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
+  subtaskDragging: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   subtaskLabel: { flex: 1, fontSize: 15, lineHeight: 20 },
-  expandBtn: { padding: 2 },
-  childBadge: { fontSize: 11, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, fontFamily: 'Inter_600SemiBold', overflow: 'hidden' },
+  expandBtn: { padding: 4 },
+  childBadge: { fontSize: 11, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, fontFamily: 'Inter_600SemiBold', overflow: 'hidden' },
 
   // Children container
   childrenContainer: {
-    borderWidth: 1, borderTopWidth: 0,
-    borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
     paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10,
   },
   addChildRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
@@ -907,12 +913,11 @@ const st = StyleSheet.create({
   attName: { fontSize: 13, lineHeight: 17 },
 
   // Comments
-  commentInputCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden', marginBottom: 4 },
-  commentInputActions: { flexDirection: 'row', gap: 2, paddingHorizontal: 10, paddingTop: 10, borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 8 },
-  attachBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  commentTextRow: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
-  commentInput: { flex: 1, fontSize: 14, maxHeight: 80 },
-  sendBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  commentInputCompact: { borderRadius: 24, borderWidth: 1, overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 4 },
+  commentRowCompact: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  miniAttachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  commentInputMini: { flex: 1, fontSize: 14, paddingVertical: 8, maxHeight: 100 },
+  sendBtnMini: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   attPreviewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 12, borderWidth: 1, padding: 10, marginBottom: 10 },
   attPreviewImg: { width: 36, height: 36, borderRadius: 8 },
   attPreviewName: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular' },

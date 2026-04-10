@@ -106,27 +106,16 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
         {/* Content */}
         <View style={styles.content}>
           {/* Title + Priority Badge */}
-          <View style={styles.titleRow}>
-            <Text
-              style={[
-                styles.title,
-                { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
-                done && { textDecorationLine: 'line-through', color: theme.colors.textSecondary },
-              ]}
-              numberOfLines={1}
-            >
-              {task.title}
-            </Text>
-
-            {priConfig && !done && (
-              <View style={[styles.priorityBadge, { backgroundColor: priConfig.bg }]}>
-                <View style={[styles.dot, { backgroundColor: priConfig.text }]} />
-                <Text style={[styles.priorityText, { color: priConfig.text, fontFamily: 'Inter_600SemiBold' }]}>
-                  {task.priority}
-                </Text>
-              </View>
-            )}
-          </View>
+          <Text
+            style={[
+              styles.title,
+              { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
+              done && { textDecorationLine: 'line-through', color: theme.colors.textSecondary },
+            ]}
+            numberOfLines={2}
+          >
+            {task.title}
+          </Text>
 
           {/* Due date row */}
           {(task.dueDate || task.dueTime) && (
@@ -140,6 +129,15 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
 
           {/* Meta row */}
           <View style={styles.metaRow}>
+            {priConfig && !done && (
+              <View style={[styles.priorityBadge, { backgroundColor: priConfig.bg }]}>
+                <View style={[styles.dot, { backgroundColor: priConfig.text }]} />
+                <Text style={[styles.priorityText, { color: priConfig.text, fontFamily: 'Inter_600SemiBold' }]}>
+                  {task.priority}
+                </Text>
+              </View>
+            )}
+
             <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
               <Text style={[styles.tagText, { color: tagStyle.text, fontFamily: 'Inter_600SemiBold' }]}>
                 {task.tag}
