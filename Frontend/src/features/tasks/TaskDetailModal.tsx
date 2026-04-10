@@ -184,17 +184,9 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const snapState = useRef<'compact' | 'full'>('compact');
 
-  const [layoutHeights, setLayoutHeights] = useState({ header: 0, tabs: 0 });
-  const [tabContentHeights, setTabContentHeights] = useState({
-    subtasks: 0,
-    comments: 0,
-    history: 0
-  });
-
   // Fixed snap points: compact = bottom 70% of screen, full = 100%
-  const SNAP_COMPACT = SH * 0.3; // translateY = 30% → panel fills bottom 70%
-  const SNAP_COMPACT_REF = useRef(SNAP_COMPACT);
-
+  const SNAP_FULL = 0;           // 0% from top = 100% height
+  const SNAP_COMPACT = SH * 0.3; // 30% from top = 70% height
 
   // Ref for DraggableFlatList to scroll when adding child subtask
   const subtaskListRef = useRef<any>(null);
@@ -210,11 +202,11 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   const snapTo = useCallback((state: 'compact' | 'full', onDone?: () => void) => {
     snapState.current = state;
-    const toValue = state === 'full' ? 0 : SNAP_COMPACT_REF.current;
+    const toValue = state === 'full' ? SNAP_FULL : SNAP_COMPACT;
     Animated.spring(panelY, {
       toValue, damping: 32, stiffness: 350, mass: 0.8, useNativeDriver: true,
     }).start(onDone);
-  }, [panelY, SNAP_COMPACT_REF]);
+  }, [panelY]);
 
   const dismiss = useCallback(() => {
     // Reset transient state immediately before animation
@@ -240,7 +232,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       snapState.current = 'compact';
       Animated.parallel([
         Animated.timing(backdropAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-        Animated.spring(panelY, { toValue: SNAP_COMPACT_REF.current, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: true }),
+        Animated.spring(panelY, { toValue: SNAP_COMPACT, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: true }),
       ]).start();
     } else {
       // Reset ALL transient UI state every time modal closes
@@ -267,8 +259,24 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const handlePan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gs) =>
-        Math.abs(gs.dy) > 4 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onMoveShouldSetPanResponder: (_, gs) => {
+        const isVertical = Math.abs(gs.dy) > 5 && Math.abs(gs.dy) > Math.abs(gs.dx);
+        if (!isVertical) return false;
+        if (snapState.current === 'compact' && gs.dy < 0) return true;
+        if (gs.dy > 10) return true;
+        return false;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gs) => {
+        const isVertical = Math.abs(gs.dy) > 5 && Math.abs(gs.dy) > Math.abs(gs.dx);
+        // FORCE the modal to take control if we are trying to expand it or pulling it down
+        // when the scroll view shouldn't be handling it yet.
+        if (isVertical) {
+          if (snapState.current === 'compact' && gs.dy < 0) return true;
+          // Pulling down in compact should ALWAYS capture
+          if (snapState.current === 'compact' && gs.dy > 5) return true;
+        }
+        return false;
+      },
       onPanResponderGrant: () => {
         panelY.stopAnimation();
         panelY.extractOffset();
@@ -295,6 +303,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         panelY.flattenOffset();
         snapTo(snapState.current);
       },
+      onShouldBlockNativeResponder: () => true,
     })
   ).current;
 
@@ -459,7 +468,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // ── Fixed Header ───────────────────────────────────────────────────────────
   const Header = () => (
-    <View style={st.header} onLayout={e => { const h = e.nativeEvent.layout.height; setLayoutHeights(p => ({ ...p, header: h })); }}>
+    <View style={st.header}>
       <View style={st.toolbar}>
         <TouchableOpacity style={[st.toolBtn, { backgroundColor: theme.colors.secondary }]} onPress={handleClose}>
           <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
@@ -524,7 +533,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const SubtasksPage = () => (
     <View style={{ width: SW, flex: 1 }}>
       {subtasksTotal === 0 ? (
-        <View style={st.emptyState} onLayout={e => { const h = e.nativeEvent.layout.height; setTabContentHeights(p => ({ ...p, subtasks: h })); }}>
+        <View style={st.emptyState}>
           <MaterialIcons name="checklist" size={40} color={theme.colors.border} />
           <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>No subtasks yet</Text>
           <Text style={[st.emptySubText, { color: theme.colors.textSecondary }]}>Add subtasks when creating or editing tasks</Text>
@@ -536,7 +545,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           contentContainerStyle={{ paddingVertical: 14, paddingHorizontal: 16, paddingBottom: insets.bottom + 20 }}
           data={task.subtasks ?? []}
           keyExtractor={item => item.id}
-          onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, subtasks: h }))}
           activationDistance={5}
           onDragBegin={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
           onDragEnd={({ data }) => {
@@ -695,7 +703,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 10 }}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
-      onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, comments: h }))}
     >
       {/* Comments List first */}
       {(task.commentsList?.length ?? 0) > 0
@@ -733,13 +740,13 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           <TouchableOpacity style={st.miniAttachBtn} onPress={() => pickCommentAtt('gallery')}>
             <MaterialIcons name="photo-library" size={20} color={theme.colors.textSecondary} />
           </TouchableOpacity>
-          <TextInput 
-            style={[st.commentInputMini, { color: theme.colors.text, fontFamily: 'Inter_400Regular' }]} 
-            placeholder="Add a comment…" 
-            placeholderTextColor={theme.colors.textSecondary} 
-            value={newComment} 
-            onChangeText={setNewComment} 
-            multiline 
+          <TextInput
+            style={[st.commentInputMini, { color: theme.colors.text, fontFamily: 'Inter_400Regular' }]}
+            placeholder="Add a comment…"
+            placeholderTextColor={theme.colors.textSecondary}
+            value={newComment}
+            onChangeText={setNewComment}
+            multiline
           />
           <TouchableOpacity style={[st.sendBtnMini, { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]} onPress={handleAddComment}>
             <MaterialIcons name="send" size={14} color="#fff" />
@@ -755,7 +762,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       style={{ width: SW }}
       contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
       showsVerticalScrollIndicator={false}
-      onContentSizeChange={(w, h) => setTabContentHeights(p => ({ ...p, history: h }))}
     >
       <Text style={[st.historyNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>All changes to this task are recorded below.</Text>
       {versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)}
@@ -796,14 +802,15 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
           {/* Panel: full-screen height, slides up via translateY */}
           <Animated.View
+            {...handlePan.panHandlers}
             style={[
               st.panel,
               { backgroundColor: theme.colors.cardPrimary },
               { transform: [{ translateY: panelY }] },
             ]}
           >
-            {/* Draggable areas: handle and header */}
-            <View {...handlePan.panHandlers}>
+            {/* Header area now just acts as visual, pan is handled by parent */}
+            <View>
               <View style={st.handleWrap}>
                 <View style={[st.handle, { backgroundColor: theme.colors.border }]} />
               </View>
@@ -818,7 +825,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             >
               <View
                 style={[st.tabBar, { borderBottomColor: theme.colors.border, borderTopColor: theme.colors.border }]}
-                onLayout={e => { const h = e.nativeEvent.layout.height; setLayoutHeights(p => ({ ...p, tabs: h })); }}
               >
                 {TABS.map(tab => {
                   const active = activeTab === tab;
