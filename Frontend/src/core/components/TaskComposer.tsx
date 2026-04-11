@@ -525,7 +525,7 @@ const AttachmentsPanel = ({
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        
+
         if (asset.size && asset.size > 20 * 1024 * 1024) {
           Alert.alert('File Too Large', 'Attachments cannot exceed 20MB.');
           return;
@@ -581,10 +581,10 @@ const AttachmentsPanel = ({
   };
 
   const options = [
-    { id: 'camera',  label: 'Camera',  icon: 'photo-camera'       as const, action: handleCamera },
-    { id: 'gallery', label: 'Gallery', icon: 'photo-library'       as const, action: handlePhotoLibrary },
-    { id: 'file',    label: 'File',    icon: 'insert-drive-file'   as const, action: handleDocument },
-    { id: 'link',    label: 'Link',    icon: 'link'                as const, action: () => setShowLinkInput(true) },
+    { id: 'camera', label: 'Camera', icon: 'photo-camera' as const, action: handleCamera },
+    { id: 'gallery', label: 'Gallery', icon: 'photo-library' as const, action: handlePhotoLibrary },
+    { id: 'file', label: 'File', icon: 'insert-drive-file' as const, action: handleDocument },
+    { id: 'link', label: 'Link', icon: 'link' as const, action: () => setShowLinkInput(true) },
   ];
 
   return (
@@ -836,13 +836,13 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
   }, [title, dueDate]);
 
   const handleClose = () => {
-    const hasUnsavedChanges = 
-      title.trim() !== '' || 
-      description.trim() !== '' || 
-      subtasks.length > 0 || 
-      attachments.length > 0 || 
-      selectedTags.length > 0 || 
-      priority !== null || 
+    const hasUnsavedChanges =
+      title.trim() !== '' ||
+      description.trim() !== '' ||
+      subtasks.length > 0 ||
+      attachments.length > 0 ||
+      selectedTags.length > 0 ||
+      priority !== null ||
       dueDate !== '';
 
     if (hasUnsavedChanges) {
@@ -851,9 +851,9 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
         'You have unsaved changes. Are you sure you want to discard them?',
         [
           { text: 'Keep Editing', style: 'cancel' },
-          { 
-            text: 'Discard', 
-            style: 'destructive', 
+          {
+            text: 'Discard',
+            style: 'destructive',
             onPress: () => {
               setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
               setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
@@ -920,7 +920,10 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
     // Reset without showing the discard alert
     resetForm();
-    onClose();
+    // Do not call onClose() so composer stays open to add the next task
+    setTimeout(() => {
+      titleInputRef.current?.focus();
+    }, 100);
   };
 
   const togglePanel = (panelName: ActivePanel) => {
@@ -1153,16 +1156,16 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
             {/* Smart suggestions */}
             {suggestions.length > 0 && (
-              <ScrollView 
-                horizontal 
+              <ScrollView
+                horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
                 contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginVertical: 12 }}
               >
                 {suggestions.map((sg) => (
-                  <TouchableOpacity 
-                    key={sg.key} 
-                    style={[s.suggChip, { backgroundColor: `${theme.colors.primary}18`, borderColor: `${theme.colors.primary}30` }]} 
+                  <TouchableOpacity
+                    key={sg.key}
+                    style={[s.suggChip, { backgroundColor: `${theme.colors.primary}18`, borderColor: `${theme.colors.primary}30` }]}
                     onPress={() => applyS(sg)}
                   >
                     <MaterialIcons name="auto-awesome" size={14} color={theme.colors.primary} />

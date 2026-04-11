@@ -234,7 +234,7 @@ export const FABMenu = ({ bottom }: FABMenuProps) => {
         </TouchableOpacity>
       </View>
 
-      <TaskComposer visible={showTask} onClose={() => setShowTask(false)} onSave={(td) => { handleComposerSave(td); setShowTask(false); }} />
+      <TaskComposer visible={showTask} onClose={() => setShowTask(false)} onSave={(td) => { handleComposerSave(td); }} />
       <AddNoteSheet visible={showNote} onClose={() => setShowNote(false)} />
     </>
   );

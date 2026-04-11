@@ -93,10 +93,46 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateTask = (taskId: string, updater: (t: Task) => Task) => {
+    const updateInTree = (subs: any[] | undefined): { changed: boolean; newSubs: any[] } => {
+      if (!subs) return { changed: false, newSubs: [] };
+      let changed = false;
+      const newSubs = subs.map(s => {
+        if (s.id === taskId) {
+          changed = true;
+          const fakeTask = { ...s, title: s.text, completed: s.done } as any;
+          const res = updater(fakeTask);
+          return {
+            ...s,
+            ...res,
+            text: res.title !== undefined ? res.title : s.text,
+            done: res.completed !== undefined ? res.completed : s.done
+          };
+        }
+        const children = s.subtasks || s.children;
+        if (children) {
+          const res = updateInTree(children);
+          if (res.changed) {
+            changed = true;
+            if (s.subtasks) return { ...s, subtasks: res.newSubs };
+            return { ...s, children: res.newSubs };
+          }
+        }
+        return s;
+      });
+      return { changed, newSubs };
+    };
+
     setTaskGroups((prev) => 
       prev.map((group) => ({
         ...group,
-        tasks: group.tasks.map((t) => (t.id === taskId ? updater(t) : t)),
+        tasks: group.tasks.map((t) => {
+          if (t.id === taskId) return updater(t);
+          const { changed, newSubs } = updateInTree(t.subtasks);
+          if (changed) {
+            return { ...t, subtasks: newSubs };
+          }
+          return t;
+        }),
       }))
     );
   };
