@@ -21,8 +21,8 @@ export interface Attachment {
 export interface Task {
   id: string;
   title: string;
-  tag: string;
-  tagType: TagType;
+  tag?: string;
+  tagType?: TagType;
   priority?: Priority;
   subtasks?: Subtask[];
   attachments?: Attachment[];

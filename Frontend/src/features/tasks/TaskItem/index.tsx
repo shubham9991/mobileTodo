@@ -138,11 +138,13 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
               </View>
             )}
 
-            <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
-              <Text style={[styles.tagText, { color: tagStyle.text, fontFamily: 'Inter_600SemiBold' }]}>
-                {task.tag}
-              </Text>
-            </View>
+            {task.tag && (
+              <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
+                <Text style={[styles.tagText, { color: tagStyle.text, fontFamily: 'Inter_600SemiBold' }]}>
+                  {task.tag}
+                </Text>
+              </View>
+            )}
 
             {subtaskText && (
               <View style={styles.metaItem}>

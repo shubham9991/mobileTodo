@@ -42,7 +42,7 @@ const TAG_META: Record<string, { text: string; bg: string }> = {
   learning: { text: '#EC4899', bg: '#FDF2F8' },
 };
 
-const TABS = ['subtasks', 'comments', 'history'] as const;
+const TABS = ['subtasks', 'comments', 'attachments'] as const;
 type Tab = typeof TABS[number];
 
 // ─── Version Timeline ─────────────────────────────────────────────────────────
@@ -133,6 +133,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const [composerVisible, setComposerVisible] = useState(false);
   const [subtaskInput, setSubtaskInput] = useState('');
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // ── Bottom-sheet animation ─────────────────────────────────────────────────
   const panelY = useRef(new Animated.Value(SH)).current;  // starts off screen
@@ -264,10 +265,10 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           return {
             ...s,
             id: s.id,
-            title: s.text,
-            completed: s.done,
-            tag: parentTask.tag,
-            tagType: parentTask.tagType,
+            title: s.title || s.text,
+            completed: s.done !== undefined ? s.done : s.completed,
+            tag: s.tag,
+            tagType: s.tagType,
             subtasks: s.subtasks || s.children || [],
             parentId: parentTask.id,
           };
@@ -376,6 +377,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // ── 3-dot actions ──────────────────────────────────────────────────────────
   const actionItems: SheetItem[] = [
+    { label: 'View Task History', icon: 'history', onPress: () => { setShowActionMenu(false); setTimeout(() => setShowHistoryModal(true), 200); } },
     { label: 'Edit Task', icon: 'edit', onPress: () => Alert.alert('Edit Task', 'Editor coming soon.') },
     { label: 'Duplicate Task', icon: 'content-copy', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓', 'Task copied successfully.'); } },
     { label: 'Move to List', icon: 'folder-open', onPress: () => Alert.alert('Move Task', 'Coming soon.') },
@@ -482,6 +484,11 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </View>
         }
         renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
+          // Safe metadata lookups
+          const subPriority = (sub as any).priority ? PRIORITY_META[(sub as any).priority] : null;
+          const subTagType = (sub as any).tagType?.toLowerCase() || 'personal';
+          const subTagColor = TAG_META[subTagType] || TAG_META.personal;
+        
           return (
             <TouchableOpacity
               activeOpacity={0.7}
@@ -491,6 +498,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               style={[
                 st.subtaskCardNew,
                 isActive && st.subtaskDragging,
+                { alignItems: 'flex-start' } // Align to top for multi-line support
               ]}
             >
               {/* Checkbox */}
@@ -498,6 +506,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 style={[st.checkboxNew, {
                   backgroundColor: sub.done ? theme.colors.primary : 'transparent',
                   borderColor: sub.done ? theme.colors.primary : theme.colors.border,
+                  marginTop: 2, // Align with first line of text
                 }]}
                 onPress={(e) => {
                   e.stopPropagation();
@@ -506,33 +515,58 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               >
                 {sub.done && <MaterialIcons name="check" size={12} color="#fff" />}
               </TouchableOpacity>
-
-              {/* Label */}
-              <Text style={[st.subtaskLabelNew, {
-                color: sub.done ? theme.colors.textSecondary : theme.colors.text,
-                textDecorationLine: sub.done ? 'line-through' : 'none',
-                opacity: sub.done ? 0.5 : 1,
-                fontFamily: 'Inter_500Medium',
-              }]}>
-                {sub.text}
-              </Text>
-
-              {/* Subtask Indicators */}
-              <View style={{ flexDirection: 'row', gap: 8, opacity: sub.done ? 0.5 : 1 }}>
-                {((sub as any).subtasks?.length ?? 0) > 0 && (
-                  <View style={st.indicatorRow}>
-                    <MaterialIcons name="checklist" size={14} color={theme.colors.textSecondary} />
-                    <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).subtasks.length}</Text>
-                  </View>
-                )}
-                {((sub as any).attachments?.length ?? 0) > 0 && (
-                  <View style={st.indicatorRow}>
-                    <MaterialIcons name="attach-file" size={14} color={theme.colors.textSecondary} />
-                  </View>
-                )}
-                {((sub as any).comments?.length ?? 0) > 0 && (
-                  <View style={st.indicatorRow}>
-                    <MaterialIcons name="chat-bubble-outline" size={14} color={theme.colors.textSecondary} />
+        
+              {/* Main Content Area */}
+              <View style={{ flex: 1 }}>
+                {/* Subtask Label */}
+                <Text style={[st.subtaskLabelNew, {
+                  color: sub.done ? theme.colors.textSecondary : theme.colors.text,
+                  textDecorationLine: sub.done ? 'line-through' : 'none',
+                  opacity: sub.done ? 0.5 : 1,
+                  fontFamily: 'Inter_500Medium',
+                }]}>
+                  {sub.text}
+                </Text>
+        
+                {/* Metadata Row (The "Everything" display) */}
+                {!sub.done && (
+                  <View style={[st.subtaskMetaRow, { marginTop: 4 }]}>
+                    {/* Priority Badge */}
+                    {subPriority && (
+                      <View style={[st.miniBadge, { backgroundColor: subPriority.bg }]}>
+                        <MaterialIcons name="flag" size={10} color={subPriority.color} />
+                        <Text style={[st.miniBadgeText, { color: subPriority.color }]}>{subPriority.label}</Text>
+                      </View>
+                    )}
+        
+                    {/* Tag Pill */}
+                    {(sub as any).tag && (
+                      <View style={[st.miniBadge, { backgroundColor: subTagColor.bg }]}>
+                        <View style={[st.tagDotNew, { backgroundColor: subTagColor.text, width: 4, height: 4 }]} />
+                        <Text style={[st.miniBadgeText, { color: subTagColor.text }]}>{(sub as any).tag}</Text>
+                      </View>
+                    )}
+        
+                    {/* Due Date */}
+                    {(sub as any).dueDate && (
+                      <View style={st.indicatorRow}>
+                        <MaterialIcons name="event" size={12} color={theme.colors.textSecondary} />
+                        <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).dueDate}</Text>
+                      </View>
+                    )}
+        
+                    {/* Nested Indicators */}
+                    <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
+                      {((sub as any).subtasks?.length ?? 0) > 0 && (
+                        <View style={st.indicatorRow}>
+                          <MaterialIcons name="checklist" size={12} color={theme.colors.textSecondary} />
+                          <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).subtasks.length}</Text>
+                        </View>
+                      )}
+                      {((sub as any).attachments?.length ?? 0) > 0 && (
+                        <MaterialIcons name="attach-file" size={12} color={theme.colors.textSecondary} />
+                      )}
+                    </View>
                   </View>
                 )}
               </View>
@@ -584,31 +618,46 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     </ScrollView>
   );
 
-  // ── History Page ───────────────────────────────────────────────────────────
-  const HistoryPage = () => (
+  // ── Attachments Page ────────────────────────────────────────────────────────
+  const AttachmentsPage = () => (
     <ScrollView
       style={{ width: SW }}
       contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={[st.historyNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>All changes to this task are recorded below.</Text>
-      {versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)}
-
-      {(task.attachments?.length ?? 0) > 0 && (
-        <View style={{ marginTop: 30 }}>
-          <Text style={[st.sectionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium', marginBottom: 12 }]}>ATTACHMENTS</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+      {(task.attachments?.length ?? 0) > 0 ? (
+        <View style={{ gap: 16 }}>
+          <Text style={[st.sectionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', marginBottom: 4 }]}>
+            TASK ATTACHMENTS ({task.attachments?.length})
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
             {task.attachments!.map(att => (
-              <View key={att.id} style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
+              <TouchableOpacity 
+                key={att.id} 
+                style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, width: (SW - 44) / 2 }]}
+                activeOpacity={0.8}
+              >
                 {att.type === 'image'
                   ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
                   : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}>
-                    <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={22} color={theme.colors.primary} />
-                  </View>}
-                <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={2}>{att.name}</Text>
-              </View>
+                      <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} />
+                    </View>
+                }
+                <View style={{ padding: 8, backgroundColor: theme.colors.cardPrimary, borderTopWidth: 1, borderColor: theme.colors.border }}>
+                  <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={1}>
+                    {att.name}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             ))}
-          </ScrollView>
+          </View>
+        </View>
+      ) : (
+        <View style={st.emptyState}>
+          <MaterialIcons name="attachment" size={48} color={theme.colors.border} />
+          <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+            No attachments for this task
+          </Text>
         </View>
       )}
     </ScrollView>
@@ -688,8 +737,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
                 {TABS.map(tab => {
                   const active = activeTab === tab;
-                  const labels = { subtasks: 'Subtasks', comments: 'Comments', history: 'History' };
-                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', history: 'history' };
+                  const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
+                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
                   return (
                     <TouchableOpacity
                       key={tab}
@@ -707,7 +756,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               <ScrollView ref={tabScrollRef} horizontal pagingEnabled scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onMomentumScrollEnd={handleTabScroll} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
                 {SubtasksPage()}
                 {CommentsPage()}
-                {HistoryPage()}
+                {AttachmentsPage()}
               </ScrollView>
             </KeyboardAvoidingView>
 
@@ -744,6 +793,25 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       </Modal>
       <AndroidSheet visible={showActionMenu} title="TASK OPTIONS" items={actionItems} onClose={() => setShowActionMenu(false)} theme={theme} />
 
+      {/* History Modal */}
+      <Modal visible={showHistoryModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowHistoryModal(false)}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.cardPrimary }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+            <Text style={{ fontSize: 18, color: theme.colors.text, fontFamily: 'Inter_700Bold' }}>Task History</Text>
+            <TouchableOpacity onPress={() => setShowHistoryModal(false)} style={{ padding: 4 }}>
+              <MaterialIcons name="close" size={24} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={[st.historyNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>All changes to this task are recorded below.</Text>
+            {versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)}
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* Recursive Render for Subtasks */}
       <TaskDetailModal
         visible={!!selectedSubtaskId}
@@ -758,13 +826,10 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         initialTitle=""
         onSave={(taskData: any) => {
           const newChild: any = {
+            ...taskData,
             id: `c_${Date.now()}`,
             text: taskData.title,
             done: false,
-            attachments: taskData.attachments,
-            priority: taskData.priority,
-            subtasks: taskData.subtasks,
-            dueDate: taskData.dueDate,
           };
           updateTask(task.id, t => ({
             ...t,
@@ -903,6 +968,26 @@ const st = StyleSheet.create({
   attIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   attImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   attName: { fontSize: 13, lineHeight: 18 },
+
+  subtaskMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  miniBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  miniBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
 });
 
 export default TaskDetailModal;

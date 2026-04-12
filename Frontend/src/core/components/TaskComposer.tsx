@@ -908,8 +908,8 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
       subtasks: subtasks.length > 0 ? subtasks : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       completed: false,
-      tag: selectedTags.length > 0 ? allTags.find(t => t.id === selectedTags[0])?.label.toUpperCase() : 'PERSONAL',
-      tagType: selectedTags.length > 0 ? selectedTags[0] : 'personal',
+      tag: selectedTags.length > 0 ? allTags.find(t => t.id === selectedTags[0])?.label.toUpperCase() : undefined,
+      tagType: selectedTags.length > 0 ? selectedTags[0] : undefined,
     };
 
     await new Promise(resolve => setTimeout(resolve, 300));
