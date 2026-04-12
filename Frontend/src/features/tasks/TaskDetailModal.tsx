@@ -144,6 +144,22 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const SNAP_FULL = 0;           // 0% from top = 100% height
   const SNAP_COMPACT = SH * 0.3; // 30% from top = 70% height
 
+  // --- ADD THESE NEW ANIMATED VALUES ---
+  // Smoothly expand top padding when dragging to full screen to dodge the notch
+  const headerPaddingTop = panelY.interpolate({
+    inputRange: [SNAP_FULL, Math.max(1, SNAP_COMPACT)],
+    outputRange: [Math.max(insets.top + 8, 20), 16], // Full screen = Safe Area, Compact = 16px
+    extrapolate: 'clamp',
+  });
+
+  // Smoothly flatten the top corners when dragging to full screen
+  const sheetRadius = panelY.interpolate({
+    inputRange: [SNAP_FULL, Math.max(1, SNAP_COMPACT)],
+    outputRange: [0, 16], // 0 radius at full screen, 16 radius at compact
+    extrapolate: 'clamp',
+  });
+  // -------------------------------------
+
   // Ref for DraggableFlatList to scroll when adding child subtask
   const subtaskListRef = useRef<any>(null);
 
@@ -151,7 +167,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     snapState.current = state;
     const toValue = state === 'full' ? SNAP_FULL : SNAP_COMPACT;
     Animated.spring(panelY, {
-      toValue, damping: 32, stiffness: 350, mass: 0.8, useNativeDriver: true,
+      toValue, damping: 32, stiffness: 350, mass: 0.8, useNativeDriver: false,
     }).start(onDone);
   }, [panelY]);
 
@@ -164,7 +180,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
     Animated.parallel([
       Animated.timing(backdropAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-      Animated.timing(panelY, { toValue: SH, duration: 300, useNativeDriver: true }),
+      Animated.timing(panelY, { toValue: SH, duration: 300, useNativeDriver: false }),
     ]).start(onClose);
   }, [backdropAnim, panelY, onClose]);
 
@@ -176,7 +192,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       snapState.current = 'compact';
       Animated.parallel([
         Animated.timing(backdropAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-        Animated.spring(panelY, { toValue: SNAP_COMPACT, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: true }),
+        Animated.spring(panelY, { toValue: SNAP_COMPACT, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: false }),
       ]).start();
     } else {
       // Reset ALL transient UI state every time modal closes
@@ -406,9 +422,13 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // ── Hero Header ────────────────────────────────────────────────────────────
   const Header = () => (
-    <View style={st.headerNew}>
-      <View style={st.toolbar}>
-        <TouchableOpacity style={st.toolBtn} onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }}>
+    <Animated.View style={[st.headerNew, { paddingTop: headerPaddingTop }]}>
+      <View style={[st.toolbar, { zIndex: 10 }]}>
+        <TouchableOpacity 
+          style={st.toolBtn} 
+          onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <MaterialIcons name="more-vert" size={24} color={theme.colors.text} />
         </TouchableOpacity>
       </View>
@@ -444,7 +464,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </Text>
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 
   // ── Subtask Page — DraggableFlatList with nested support ─────────────────
@@ -488,7 +508,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           const subPriority = (sub as any).priority ? PRIORITY_META[(sub as any).priority] : null;
           const subTagType = (sub as any).tagType?.toLowerCase() || 'personal';
           const subTagColor = TAG_META[subTagType] || TAG_META.personal;
-        
+
           return (
             <TouchableOpacity
               activeOpacity={0.7}
@@ -515,7 +535,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               >
                 {sub.done && <MaterialIcons name="check" size={12} color="#fff" />}
               </TouchableOpacity>
-        
+
               {/* Main Content Area */}
               <View style={{ flex: 1 }}>
                 {/* Subtask Label */}
@@ -527,7 +547,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 }]}>
                   {sub.text}
                 </Text>
-        
+
                 {/* Metadata Row (The "Everything" display) */}
                 {!sub.done && (
                   <View style={[st.subtaskMetaRow, { marginTop: 4 }]}>
@@ -538,7 +558,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                         <Text style={[st.miniBadgeText, { color: subPriority.color }]}>{subPriority.label}</Text>
                       </View>
                     )}
-        
+
                     {/* Tag Pill */}
                     {(sub as any).tag && (
                       <View style={[st.miniBadge, { backgroundColor: subTagColor.bg }]}>
@@ -546,7 +566,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                         <Text style={[st.miniBadgeText, { color: subTagColor.text }]}>{(sub as any).tag}</Text>
                       </View>
                     )}
-        
+
                     {/* Due Date */}
                     {(sub as any).dueDate && (
                       <View style={st.indicatorRow}>
@@ -554,7 +574,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                         <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).dueDate}</Text>
                       </View>
                     )}
-        
+
                     {/* Nested Indicators */}
                     <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
                       {((sub as any).subtasks?.length ?? 0) > 0 && (
@@ -632,16 +652,16 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
             {task.attachments!.map(att => (
-              <TouchableOpacity 
-                key={att.id} 
+              <TouchableOpacity
+                key={att.id}
                 style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, width: (SW - 44) / 2 }]}
                 activeOpacity={0.8}
               >
                 {att.type === 'image'
                   ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
                   : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}>
-                      <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} />
-                    </View>
+                    <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} />
+                  </View>
                 }
                 <View style={{ padding: 8, backgroundColor: theme.colors.cardPrimary, borderTopWidth: 1, borderColor: theme.colors.border }}>
                   <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={1}>
@@ -709,7 +729,11 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             style={[
               st.panel,
               { backgroundColor: theme.colors.cardPrimary },
-              { transform: [{ translateY: panelY }] },
+              { 
+                transform: [{ translateY: panelY }],
+                borderTopLeftRadius: sheetRadius,
+                borderTopRightRadius: sheetRadius,
+              },
             ]}
           >
             {/* Hero Header */}
@@ -860,7 +884,6 @@ const st = StyleSheet.create({
   // New Hero Header
   headerNew: {
     paddingHorizontal: 20,
-    paddingTop: 8,
     paddingBottom: 2,
   },
   toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 0 },
