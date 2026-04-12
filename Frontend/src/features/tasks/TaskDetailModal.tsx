@@ -473,7 +473,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       <DraggableFlatList
         ref={subtaskListRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 100 }}
+        // FIX: Reduced massive bottom padding
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 20 }}
         data={task.subtasks ?? []}
         keyExtractor={item => item.id}
         activationDistance={5}
@@ -490,7 +491,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         }
         ListFooterComponent={
           <View style={{ paddingTop: 16 }}>
-            {/* Restored: Original Add Subtask Button */}
             <TouchableOpacity
               style={[st.addSubtaskBtn, { borderColor: theme.colors.border }]}
               onPress={() => setComposerVisible(true)}
@@ -498,9 +498,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               <MaterialIcons name="add" size={18} color={theme.colors.primary} />
               <Text style={[st.addSubtaskText, { color: theme.colors.primary }]}>Add subtask</Text>
             </TouchableOpacity>
-
-            {/* Footer spacer prevents cutoff behind the bottom of the sheet */}
-            <View style={{ height: 80 }} />
+            {/* FIX: The 80px spacer has been completely removed so the button shows up! */}
           </View>
         }
         renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
@@ -601,7 +599,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const CommentsPage = () => (
     <ScrollView
       style={{ width: SW }}
-      contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+      // FIX: Changed paddingBottom from 120 to just a standard gap
+      contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 20 }}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
@@ -752,94 +751,98 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               </View>
             )}
 
-            {/* THE MAGIC FIX: This Animated View pushes the floor up perfectly by the amount the panel translates down */}
-            <Animated.View style={{ flex: 1, paddingBottom: panelY }}>
-              
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-                style={{ flex: 1 }}
-              >
-                {/* Tab Bar */}
-                <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
-                  {TABS.map(tab => {
-                    const active = activeTab === tab;
-                    const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
-                    const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
-                    return (
-                      <TouchableOpacity
-                        key={tab}
-                        style={[st.tabPill, active && { backgroundColor: theme.colors.primary }]}
-                        onPress={() => switchTab(tab)}
-                      >
-                        <MaterialIcons name={icons[tab] as any} size={15} color={active ? '#fff' : theme.colors.textSecondary} />
-                        <Text style={[st.tabTextNew, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
-                          {labels[tab]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {/* Content Pages */}
-                <ScrollView 
-                  ref={tabScrollRef} 
-                  horizontal 
-                  pagingEnabled 
-                  scrollEventThrottle={16} 
-                  showsHorizontalScrollIndicator={false} 
-                  onMomentumScrollEnd={handleTabScroll} 
-                  style={{ flex: 1 }} 
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {SubtasksPage()}
-                  {CommentsPage()}
-                  {AttachmentsPage()} 
-                </ScrollView>
-
-                {/* DYNAMIC STICKY COMMENT BAR (ONLY for Comments Tab) */}
-                {activeTab === 'comments' && (
-                  <View style={[
-                    st.commentBarSticky, 
-                    { 
-                      backgroundColor: theme.colors.cardPrimary, 
-                      borderTopColor: theme.colors.border, 
-                      paddingBottom: Math.max(insets.bottom, 12),
-                      paddingTop: 12
-                    }
-                  ]}>
-                    <TouchableOpacity 
-                      style={st.miniAttachBtnNew} 
-                      onPress={() => pickCommentAtt('gallery')}
-                    >
-                      <MaterialIcons name="add-photo-alternate" size={24} color={theme.colors.textSecondary} />
-                    </TouchableOpacity>
-
-                    <TextInput
-                      style={[st.commentInputNew, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
-                      placeholder="Add a comment…"
-                      placeholderTextColor={theme.colors.textSecondary}
-                      value={newComment}
-                      onChangeText={setNewComment}
-                      onSubmitEditing={handleAddComment}
-                      returnKeyType="send"
-                      multiline={true}
-                    />
-
+            {/* MAIN CONTENT AREA */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+              style={{ flex: 1 }}
+            >
+              {/* Tab Bar */}
+              <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
+                {TABS.map(tab => {
+                  const active = activeTab === tab;
+                  const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
+                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
+                  return (
                     <TouchableOpacity
-                      style={[
-                        st.sendBtnNew, 
-                        { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }
-                      ]}
-                      onPress={handleAddComment}
+                      key={tab}
+                      style={[st.tabPill, active && { backgroundColor: theme.colors.primary }]}
+                      onPress={() => switchTab(tab)}
                     >
-                      <MaterialIcons name="send" size={18} color="#fff" />
+                      <MaterialIcons name={icons[tab] as any} size={15} color={active ? '#fff' : theme.colors.textSecondary} />
+                      <Text style={[st.tabTextNew, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
+                        {labels[tab]}
+                      </Text>
                     </TouchableOpacity>
-                  </View>
-                )}
-              </KeyboardAvoidingView>
+                  );
+                })}
+              </View>
+
+              {/* Content Pages */}
+              <ScrollView 
+                ref={tabScrollRef} 
+                horizontal 
+                pagingEnabled 
+                scrollEventThrottle={16} 
+                showsHorizontalScrollIndicator={false} 
+                onMomentumScrollEnd={handleTabScroll} 
+                style={{ flex: 1 }} 
+                keyboardShouldPersistTaps="handled"
+              >
+                {SubtasksPage()}
+                {CommentsPage()}
+                {AttachmentsPage()} 
+              </ScrollView>
+
+              {/* DYNAMIC STICKY COMMENT BAR (ONLY for Comments Tab) */}
+              {activeTab === 'comments' && (
+                <View style={[
+                  st.commentBarSticky, 
+                  { 
+                    backgroundColor: theme.colors.cardPrimary, 
+                    borderTopColor: theme.colors.border, 
+                    paddingBottom: Math.max(insets.bottom, 8),
+                    paddingTop: 8
+                  }
+                ]}>
+                  <TouchableOpacity 
+                    style={st.miniAttachBtnNew} 
+                    onPress={() => pickCommentAtt('gallery')}
+                  >
+                    <MaterialIcons name="add-photo-alternate" size={26} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={[st.commentInputNew, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
+                    placeholder="Add a comment…"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={newComment}
+                    onChangeText={setNewComment}
+                    onSubmitEditing={handleAddComment}
+                    returnKeyType="send"
+                    multiline={true}
+                    /* THE MAGIC FIX: Instantly slides the sheet to 100% height when you tap the input */
+                    onFocus={() => snapTo('full')} 
+                  />
+
+                  <TouchableOpacity
+                    style={[
+                      st.sendBtnNew, 
+                      { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }
+                    ]}
+                    onPress={handleAddComment}
+                    disabled={!newComment.trim() && !commentAtt}
+                  >
+                    <MaterialIcons name="send" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </KeyboardAvoidingView>
               
-            </Animated.View>
+            {/* THE MAGIC FIX: This invisible spacer takes up exactly the amount of height hidden below the screen.
+                It forces the KeyboardAvoidingView to sit perfectly flush with the bottom edge of your glass. */}
+            <Animated.View style={{ height: panelY }} />
+
           </Animated.View>
         </GestureHandlerRootView>
       </Modal>
@@ -983,18 +986,40 @@ const st = StyleSheet.create({
   addNestedTrigger: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, marginTop: 4 },
   addNestedText: { fontSize: 13, fontWeight: '600' },
 
-  // Sticky Comment Bar
+  // Sticky Comment Bar Redesign
   commentBarSticky: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    alignItems: 'flex-end', // Keeps buttons at the bottom when input grows multiline
+    gap: 8,
     paddingHorizontal: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth, // Much cleaner, thinner line
   },
-  miniAttachBtnNew: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  commentInputNew: { flex: 1, fontSize: 15, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24, maxHeight: 100 },
-  sendBtnNew: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  miniAttachBtnNew: { 
+    width: 38, 
+    height: 38, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    marginBottom: 4, // Aligns exactly with the bottom of the text input
+  },
+  commentInputNew: { 
+    flex: 1, 
+    fontSize: 15, 
+    paddingHorizontal: 16, 
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 8, 
+    borderRadius: 20, 
+    minHeight: 40,
+    maxHeight: 120, // Allows it to grow to ~5 lines without taking over the screen
+    marginBottom: 4,
+  },
+  sendBtnNew: { 
+    width: 38, 
+    height: 38, 
+    borderRadius: 19, 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    marginBottom: 4, // Aligns exactly with the bottom of the text input
+  },
 
   // Comment Row
   commentRow: { flexDirection: 'row', gap: 12, marginBottom: 16, paddingHorizontal: 20 },
