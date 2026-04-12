@@ -489,7 +489,19 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </View>
         }
         ListFooterComponent={
-          <View style={{ height: 80 }} />
+          <View style={{ paddingTop: 16 }}>
+            {/* Restored: Original Add Subtask Button */}
+            <TouchableOpacity
+              style={[st.addSubtaskBtn, { borderColor: theme.colors.border }]}
+              onPress={() => setComposerVisible(true)}
+            >
+              <MaterialIcons name="add" size={18} color={theme.colors.primary} />
+              <Text style={[st.addSubtaskText, { color: theme.colors.primary }]}>Add subtask</Text>
+            </TouchableOpacity>
+
+            {/* Footer spacer prevents cutoff behind the bottom of the sheet */}
+            <View style={{ height: 80 }} />
+          </View>
         }
         renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
           // Safe metadata lookups
@@ -785,8 +797,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                   {AttachmentsPage()} 
                 </ScrollView>
 
-                {/* DYNAMIC STICKY INPUT BAR */}
-                {activeTab !== 'attachments' && (
+                {/* DYNAMIC STICKY COMMENT BAR (ONLY for Comments Tab) */}
+                {activeTab === 'comments' && (
                   <View style={[
                     st.commentBarSticky, 
                     { 
@@ -798,35 +810,30 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                   ]}>
                     <TouchableOpacity 
                       style={st.miniAttachBtnNew} 
-                      onPress={() => activeTab === 'comments' ? pickCommentAtt('gallery') : null}
-                      activeOpacity={activeTab === 'comments' ? 0.7 : 1}
+                      onPress={() => pickCommentAtt('gallery')}
                     >
-                      <MaterialIcons 
-                        name={activeTab === 'comments' ? "add-photo-alternate" : "subdirectory-arrow-right"} 
-                        size={24} 
-                        color={theme.colors.textSecondary} 
-                      />
+                      <MaterialIcons name="add-photo-alternate" size={24} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
 
                     <TextInput
                       style={[st.commentInputNew, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
-                      placeholder={activeTab === 'comments' ? "Add a comment…" : "Quick add subtask…"}
+                      placeholder="Add a comment…"
                       placeholderTextColor={theme.colors.textSecondary}
-                      value={activeTab === 'comments' ? newComment : subtaskInput}
-                      onChangeText={activeTab === 'comments' ? setNewComment : setSubtaskInput}
-                      onSubmitEditing={activeTab === 'comments' ? handleAddComment : addSubtask}
+                      value={newComment}
+                      onChangeText={setNewComment}
+                      onSubmitEditing={handleAddComment}
                       returnKeyType="send"
-                      multiline={activeTab === 'comments'}
+                      multiline={true}
                     />
 
                     <TouchableOpacity
                       style={[
                         st.sendBtnNew, 
-                        { backgroundColor: ((activeTab === 'comments' ? (newComment.trim() || commentAtt) : subtaskInput.trim()) ? theme.colors.primary : theme.colors.border) }
+                        { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }
                       ]}
-                      onPress={activeTab === 'comments' ? handleAddComment : addSubtask}
+                      onPress={handleAddComment}
                     >
-                      <MaterialIcons name={activeTab === 'comments' ? "send" : "add"} size={18} color="#fff" />
+                      <MaterialIcons name="send" size={18} color="#fff" />
                     </TouchableOpacity>
                   </View>
                 )}
