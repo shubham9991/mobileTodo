@@ -489,19 +489,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </View>
         }
         ListFooterComponent={
-          <View style={{ paddingTop: 16 }}>
-            {/* New Big Clean Add Subtask Button */}
-            <TouchableOpacity
-              style={[st.addSubtaskBtn, { borderColor: theme.colors.border }]}
-              onPress={() => setComposerVisible(true)}
-            >
-              <MaterialIcons name="add" size={18} color={theme.colors.primary} />
-              <Text style={[st.addSubtaskText, { color: theme.colors.primary }]}>Add subtask</Text>
-            </TouchableOpacity>
-
-            {/* Footer spacer prevents cutoff behind sticky UI/Navigation */}
-            <View style={{ height: 80 }} />
-          </View>
+          <View style={{ height: 80 }} />
         }
         renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
           // Safe metadata lookups
@@ -728,8 +716,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             {...handlePan.panHandlers}
             style={[
               st.panel,
-              { backgroundColor: theme.colors.cardPrimary },
               { 
+                backgroundColor: theme.colors.cardPrimary,
                 transform: [{ translateY: panelY }],
                 borderTopLeftRadius: sheetRadius,
                 borderTopRightRadius: sheetRadius,
@@ -752,66 +740,99 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               </View>
             )}
 
-            {/* Everything inside KAV so keyboard pushes content up */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-              style={{ flex: 1 }}
-            >
-              <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
-                {TABS.map(tab => {
-                  const active = activeTab === tab;
-                  const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
-                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
-                  return (
-                    <TouchableOpacity
-                      key={tab}
-                      style={[st.tabPill, active && { backgroundColor: theme.colors.primary }]}
-                      onPress={() => switchTab(tab)}
-                    >
-                      <MaterialIcons name={icons[tab] as any} size={15} color={active ? '#fff' : theme.colors.textSecondary} />
-                      <Text style={[st.tabTextNew, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
-                        {labels[tab]}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <ScrollView ref={tabScrollRef} horizontal pagingEnabled scrollEventThrottle={16} showsHorizontalScrollIndicator={false} onMomentumScrollEnd={handleTabScroll} style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
-                {SubtasksPage()}
-                {CommentsPage()}
-                {AttachmentsPage()}
-              </ScrollView>
-            </KeyboardAvoidingView>
+            {/* THE MAGIC FIX: This Animated View pushes the floor up perfectly by the amount the panel translates down */}
+            <Animated.View style={{ flex: 1, paddingBottom: panelY }}>
+              
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+                style={{ flex: 1 }}
+              >
+                {/* Tab Bar */}
+                <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
+                  {TABS.map(tab => {
+                    const active = activeTab === tab;
+                    const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
+                    const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
+                    return (
+                      <TouchableOpacity
+                        key={tab}
+                        style={[st.tabPill, active && { backgroundColor: theme.colors.primary }]}
+                        onPress={() => switchTab(tab)}
+                      >
+                        <MaterialIcons name={icons[tab] as any} size={15} color={active ? '#fff' : theme.colors.textSecondary} />
+                        <Text style={[st.tabTextNew, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
+                          {labels[tab]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
-            {/* Sticky Comment Bar Wrapper with its own KAV logic for Android/iOS consistency */}
-            {activeTab === 'comments' && (
-              <View style={{ backgroundColor: theme.colors.cardPrimary }}>
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                {/* Content Pages */}
+                <ScrollView 
+                  ref={tabScrollRef} 
+                  horizontal 
+                  pagingEnabled 
+                  scrollEventThrottle={16} 
+                  showsHorizontalScrollIndicator={false} 
+                  onMomentumScrollEnd={handleTabScroll} 
+                  style={{ flex: 1 }} 
+                  keyboardShouldPersistTaps="handled"
                 >
-                  <View style={[st.commentBarSticky, { backgroundColor: theme.colors.cardPrimary, borderTopColor: theme.colors.border, paddingBottom: insets.bottom + 8 }]}>
-                    <TouchableOpacity style={st.miniAttachBtnNew} onPress={() => pickCommentAtt('gallery')}>
-                      <MaterialIcons name="add-photo-alternate" size={22} color={theme.colors.textSecondary} />
+                  {SubtasksPage()}
+                  {CommentsPage()}
+                  {AttachmentsPage()} 
+                </ScrollView>
+
+                {/* DYNAMIC STICKY INPUT BAR */}
+                {activeTab !== 'attachments' && (
+                  <View style={[
+                    st.commentBarSticky, 
+                    { 
+                      backgroundColor: theme.colors.cardPrimary, 
+                      borderTopColor: theme.colors.border, 
+                      paddingBottom: Math.max(insets.bottom, 12),
+                      paddingTop: 12
+                    }
+                  ]}>
+                    <TouchableOpacity 
+                      style={st.miniAttachBtnNew} 
+                      onPress={() => activeTab === 'comments' ? pickCommentAtt('gallery') : null}
+                      activeOpacity={activeTab === 'comments' ? 0.7 : 1}
+                    >
+                      <MaterialIcons 
+                        name={activeTab === 'comments' ? "add-photo-alternate" : "subdirectory-arrow-right"} 
+                        size={24} 
+                        color={theme.colors.textSecondary} 
+                      />
                     </TouchableOpacity>
+
                     <TextInput
                       style={[st.commentInputNew, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
-                      placeholder="Add a comment…"
+                      placeholder={activeTab === 'comments' ? "Add a comment…" : "Quick add subtask…"}
                       placeholderTextColor={theme.colors.textSecondary}
-                      value={newComment}
-                      onChangeText={setNewComment}
-                      multiline
+                      value={activeTab === 'comments' ? newComment : subtaskInput}
+                      onChangeText={activeTab === 'comments' ? setNewComment : setSubtaskInput}
+                      onSubmitEditing={activeTab === 'comments' ? handleAddComment : addSubtask}
+                      returnKeyType="send"
+                      multiline={activeTab === 'comments'}
                     />
+
                     <TouchableOpacity
-                      style={[st.sendBtnNew, { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]}
-                      onPress={handleAddComment}
+                      style={[
+                        st.sendBtnNew, 
+                        { backgroundColor: ((activeTab === 'comments' ? (newComment.trim() || commentAtt) : subtaskInput.trim()) ? theme.colors.primary : theme.colors.border) }
+                      ]}
+                      onPress={activeTab === 'comments' ? handleAddComment : addSubtask}
                     >
-                      <MaterialIcons name="send" size={18} color="#fff" />
+                      <MaterialIcons name={activeTab === 'comments' ? "send" : "add"} size={18} color="#fff" />
                     </TouchableOpacity>
                   </View>
-                </KeyboardAvoidingView>
-              </View>
-            )}
+                )}
+              </KeyboardAvoidingView>
+              
+            </Animated.View>
           </Animated.View>
         </GestureHandlerRootView>
       </Modal>
