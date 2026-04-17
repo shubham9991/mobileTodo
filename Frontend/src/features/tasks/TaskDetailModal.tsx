@@ -1,10 +1,16 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Modal, StyleSheet, TouchableOpacity, Pressable, View, Text,
-  ScrollView, Platform, KeyboardAvoidingView, Image, TextInput,
-  Alert, Animated, Dimensions, LayoutAnimation, PanResponder, Keyboard,
+  Platform, KeyboardAvoidingView, Image, TextInput,
+  Alert, Dimensions, ScrollView, Keyboard, // <--- Added Keyboard import
 } from 'react-native';
-import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import BottomSheet, {
+  BottomSheetScrollView,
+  BottomSheetBackdrop,
+  BottomSheetView,
+  BottomSheetTextInput,
+  BottomSheetFooter,
+} from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -24,11 +30,10 @@ interface TaskDetailModalProps {
   visible: boolean; taskId: string | null; onClose: () => void;
 }
 
-const { width: SW, height: SH } = Dimensions.get('window');
-
-// Dynamic bottom sheet positions computed on layout.
+const { width: SW } = Dimensions.get('window');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+// ... (Keep your PRIORITY_META, TAG_META, TABS, VersionItem, AndroidSheet, and styles exactly the same)
 const PRIORITY_META: Record<string, { color: string; bg: string; label: string }> = {
   HIGH: { color: '#EF4444', bg: '#FEF2F2', label: 'High' },
   MED: { color: '#F97316', bg: '#FFF7ED', label: 'Medium' },
@@ -41,11 +46,9 @@ const TAG_META: Record<string, { text: string; bg: string }> = {
   health: { text: '#22C55E', bg: '#F0FDF4' },
   learning: { text: '#EC4899', bg: '#FDF2F8' },
 };
-
 const TABS = ['subtasks', 'comments', 'attachments'] as const;
 type Tab = typeof TABS[number];
 
-// ─── Version Timeline ─────────────────────────────────────────────────────────
 const VersionItem = ({ entry, isLast, theme }: { entry: VersionEntry; isLast: boolean; theme: any }) => (
   <View style={vm.row}>
     <View style={vm.col}>
@@ -71,6 +74,7 @@ const VersionItem = ({ entry, isLast, theme }: { entry: VersionEntry; isLast: bo
     </View>
   </View>
 );
+
 const vm = StyleSheet.create({
   row: { flexDirection: 'row', gap: 12, marginBottom: 4 },
   col: { alignItems: 'center', width: 24 },
@@ -84,7 +88,6 @@ const vm = StyleSheet.create({
   date: { fontSize: 11 },
 });
 
-// ─── Android Action Sheet ──────────────────────────────────────────────────────
 type SheetItem = { label: string; icon: string; destructive?: boolean; onPress: () => void };
 const AndroidSheet = ({ visible, title, items, onClose, theme }: {
   visible: boolean; title?: string; items: SheetItem[]; onClose: () => void; theme: any;
@@ -120,235 +123,165 @@ const as = StyleSheet.create({
   cancelText: { fontSize: 16 },
 });
 
-// ─── Main Modal ───────────────────────────────────────────────────────────────
+// ─── NEW COMPONENT: Isolated Comment Input ─────────────────────────────────────
+// By isolating this, typing text no longer causes the parent Modal to remount!
+const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onTextChange }: any) => {
+  const [text, setText] = useState('');
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  // Listen to keyboard state to remove the gap dynamically
+  useEffect(() => {
+    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  const handleSend = () => {
+    if (!text.trim() && !commentAtt) return;
+    onSend(text, commentAtt);
+    setText('');
+    onTextChange(''); // Clear parent's warning ref
+  };
+
+  // If keyboard is visible, padding is 8px. If hidden, use the safe area inset!
+  const dynamicPaddingBottom = isKeyboardVisible
+    ? 8
+    : Math.max(insets.bottom, Platform.OS === 'ios' ? 8 : 16);
+
+  return (
+    <View style={[
+      st.commentBar,
+      {
+        backgroundColor: theme.colors.cardPrimary,
+        borderTopColor: theme.colors.border,
+        paddingBottom: dynamicPaddingBottom,
+        paddingTop: 8
+      }
+    ]}>
+      <TouchableOpacity style={st.attachBtn} onPress={onPickAtt}>
+        <MaterialIcons name="add-photo-alternate" size={24} color={theme.colors.textSecondary} />
+      </TouchableOpacity>
+
+      <BottomSheetTextInput
+        style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
+        placeholder="Add a comment…"
+        placeholderTextColor={theme.colors.textSecondary}
+        value={text}
+        onChangeText={(val) => {
+          setText(val);
+          onTextChange(val); // Keep parent updated for the "Discard" warning ONLY
+        }}
+        onSubmitEditing={handleSend}
+        returnKeyType="send"
+        multiline
+      />
+
+      <TouchableOpacity
+        style={[st.sendBtn, { backgroundColor: (text.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]}
+        onPress={handleSend}
+        disabled={!text.trim() && !commentAtt}
+      >
+        <MaterialIcons name="send" size={16} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalProps) => {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { taskGroups, updateTask, handleComposerSave } = useDashboard();
 
-  const [newComment, setNewComment] = useState('');
+  // Replaced `newComment` state with a Ref to prevent re-renders when typing
+  const unsavedTextRef = useRef('');
   const [commentAtt, setCommentAtt] = useState<{ uri: string; name: string; type: 'image' | 'file' } | null>(null);
+
   const [activeTab, setActiveTab] = useState<Tab>('subtasks');
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [composerVisible, setComposerVisible] = useState(false);
-  const [subtaskInput, setSubtaskInput] = useState('');
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  // ── Bottom-sheet animation ─────────────────────────────────────────────────
-  const panelY = useRef(new Animated.Value(SH)).current;  // starts off screen
-  const backdropAnim = useRef(new Animated.Value(0)).current;
-  const snapState = useRef<'compact' | 'full'>('compact');
-
-  // Fixed snap points: compact = bottom 70% of screen, full = 100%
-  const SNAP_FULL = 0;           // 0% from top = 100% height
-  const SNAP_COMPACT = SH * 0.3; // 30% from top = 70% height
-
-  // --- ADD THESE NEW ANIMATED VALUES ---
-  // Smoothly expand top padding when dragging to full screen to dodge the notch
-  const headerPaddingTop = panelY.interpolate({
-    inputRange: [SNAP_FULL, Math.max(1, SNAP_COMPACT)],
-    outputRange: [Math.max(insets.top + 8, 20), 16], // Full screen = Safe Area, Compact = 16px
-    extrapolate: 'clamp',
-  });
-
-  // Smoothly flatten the top corners when dragging to full screen
-  const sheetRadius = panelY.interpolate({
-    inputRange: [SNAP_FULL, Math.max(1, SNAP_COMPACT)],
-    outputRange: [0, 16], // 0 radius at full screen, 16 radius at compact
-    extrapolate: 'clamp',
-  });
-  // -------------------------------------
-
-  // Ref for DraggableFlatList to scroll when adding child subtask
+  const bottomSheetRef = useRef<BottomSheet>(null);
   const subtaskListRef = useRef<any>(null);
 
-  const snapTo = useCallback((state: 'compact' | 'full', onDone?: () => void) => {
-    snapState.current = state;
-    const toValue = state === 'full' ? SNAP_FULL : SNAP_COMPACT;
-    Animated.spring(panelY, {
-      toValue, damping: 32, stiffness: 350, mass: 0.8, useNativeDriver: false,
-    }).start(onDone);
-  }, [panelY]);
+  const snapPoints = useMemo(() => ['70%', '100%'], []);
 
   const dismiss = useCallback(() => {
-    // Reset transient state immediately before animation
-    setNewComment('');
+    unsavedTextRef.current = '';
     setCommentAtt(null);
     setActiveTab('subtasks');
-    snapState.current = 'compact';
+    bottomSheetRef.current?.close();
+  }, []);
 
-    Animated.parallel([
-      Animated.timing(backdropAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-      Animated.timing(panelY, { toValue: SH, duration: 300, useNativeDriver: false }),
-    ]).start(onClose);
-  }, [backdropAnim, panelY, onClose]);
+  const handleSheetClose = useCallback(() => { onClose(); }, [onClose]);
 
-  // Open / close + state reset
-  useEffect(() => {
-    if (visible) {
-      panelY.setValue(SH);
-      backdropAnim.setValue(0);
-      snapState.current = 'compact';
-      Animated.parallel([
-        Animated.timing(backdropAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-        Animated.spring(panelY, { toValue: SNAP_COMPACT, damping: 30, stiffness: 300, mass: 0.8, useNativeDriver: false }),
-      ]).start();
-    } else {
-      // Reset ALL transient UI state every time modal closes
-      setNewComment('');
-      setCommentAtt(null);
-      setActiveTab('subtasks');
-      snapState.current = 'compact';
-    }
-  }, [visible]);
+  const renderBackdrop = useCallback(
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.45}
+        pressBehavior="close"
+        onPress={() => {
+          if (unsavedTextRef.current.trim()) {
+            Alert.alert('Unsaved input', 'You have unsaved text. Discard it?', [
+              { text: 'Keep editing', style: 'cancel' },
+              { text: 'Discard', style: 'destructive', onPress: dismiss },
+            ]);
+          } else { dismiss(); }
+        }}
+      />
+    ),
+    [dismiss]
+  );
 
-  // ── Handle drag (PanResponder) ──────────────────────────────────────────────
-  const handlePan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gs) => {
-        const isVertical = Math.abs(gs.dy) > 5 && Math.abs(gs.dy) > Math.abs(gs.dx);
-        // If the panel is in compact mode (70% height), any vertical gesture should move the panel
-        if (isVertical && snapState.current === 'compact') return true;
-        // If pulling down from full-screen, we move the panel
-        if (isVertical && gs.dy > 5) return true;
-        return false;
-      },
-      onMoveShouldSetPanResponderCapture: (_, gs) => {
-        const isVertical = Math.abs(gs.dy) > 5 && Math.abs(gs.dy) > Math.abs(gs.dx);
-        if (!isVertical) return false;
-
-        // In compact mode, we want the panel to catch ALL vertical swipes 
-        // to move it between 70% and 100% (or down to dismiss).
-        if (snapState.current === 'compact') return true;
-
-        // In full-screen mode, we only capture significant downward swipes to collapse it.
-        // Small downward swipes or any upward swipes are handled by the internal ScrollViews.
-        if (snapState.current === 'full' && gs.dy > 30) return true;
-
-        return false;
-      },
-      onPanResponderGrant: () => {
-        panelY.stopAnimation();
-        panelY.extractOffset();
-      },
-      onPanResponderMove: Animated.event(
-        [null, { dy: panelY }],
-        { useNativeDriver: false } // Fixed desync in fast swipes by handling move on JS thread
-      ),
-      onPanResponderRelease: (_, gs) => {
-        panelY.flattenOffset();
-        const state = snapState.current;
-
-        // More sensitive detection for fast swipes
-        if (gs.dy < -20 || gs.vy < -0.2) {
-          snapTo('full');
-        } else if (gs.dy > 60 || gs.vy > 0.3) {
-          if (state === 'full') snapTo('compact');
-          else dismiss();
-        } else {
-          snapTo(state);
-        }
-      },
-      onPanResponderTerminate: () => {
-        panelY.flattenOffset();
-        snapTo(snapState.current);
-      },
-      onShouldBlockNativeResponder: () => true,
-    })
-  ).current;
-
-  // Swipeable tabs
-  const tabScrollRef = useRef<ScrollView>(null);
-  const switchTab = (tab: Tab) => {
-    Haptics.selectionAsync();
-    setActiveTab(tab);
-    tabScrollRef.current?.scrollTo({ x: TABS.indexOf(tab) * SW, animated: true });
-  };
-  const handleTabScroll = (e: any) => {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SW);
-    if (idx >= 0 && idx < TABS.length && TABS[idx] !== activeTab) setActiveTab(TABS[idx]);
-  };
-
-  // Find task live
   const task = useMemo(() => {
     if (!taskId) return null;
-
-    const findInSubtasks = (parentTask: any, subs: any[]): any => {
+    const findInSubs = (parent: any, subs: any[]): any => {
       for (const s of subs) {
-        if (s.id === taskId) {
-          return {
-            ...s,
-            id: s.id,
-            title: s.title || s.text,
-            completed: s.done !== undefined ? s.done : s.completed,
-            tag: s.tag,
-            tagType: s.tagType,
-            subtasks: s.subtasks || s.children || [],
-            parentId: parentTask.id,
-          };
-        }
+        if (s.id === taskId) return { ...s, title: s.title || s.text, completed: s.done ?? s.completed, subtasks: s.subtasks || s.children || [], parentId: parent.id };
         const children = s.subtasks || s.children;
-        if (children && children.length > 0) {
-          const found = findInSubtasks(parentTask, children);
-          if (found) return found;
-        }
+        if (children?.length) { const f = findInSubs(parent, children); if (f) return f; }
       }
       return null;
     };
-
     for (const group of taskGroups) {
-      const found = group.tasks.find(t => t.id === taskId);
+      const found = group.tasks.find((t: any) => t.id === taskId);
       if (found) return found as any;
       for (const t of group.tasks) {
-        const children = t.subtasks || (t as any).children;
-        if (children && children.length > 0) {
-          const subFound = findInSubtasks(t, children);
-          if (subFound) return subFound;
-        }
+        const children = (t as any).subtasks || (t as any).children;
+        if (children?.length) { const f = findInSubs(t, children); if (f) return f; }
       }
     }
     return null;
   }, [taskGroups, taskId]);
 
-  if (!task) return null;
-
-  const priority = task.priority ? PRIORITY_META[task.priority] : null;
-  const tagColor = TAG_META[task.tagType?.toLowerCase() ?? 'personal'] ?? TAG_META.personal;
-
-  // ── Subtask helpers ────────────────────────────────────────────────────────
-  const toggleSubtask = (subId: string) => {
-    Haptics.selectionAsync();
-    updateTask(task.id, t => ({
-      ...t,
-      subtasks: t.subtasks?.map(s => s.id === subId ? { ...s, done: !s.done } : s),
-    }));
-  };
-
-  const openSubtaskDetail = (sub: Subtask) => {
-    Haptics.selectionAsync();
-    setSelectedSubtaskId(sub.id);
-  };
-
-  const addSubtask = () => {
-    if (!subtaskInput.trim()) {
-      Keyboard.dismiss();
-      return;
+  useEffect(() => {
+    if (visible && task) {
+      setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+    } else if (!visible) {
+      bottomSheetRef.current?.close();
     }
+  }, [visible, !!task]);
+
+  const priority = task?.priority ? PRIORITY_META[task.priority] : null;
+  const tagColor = TAG_META[task?.tagType?.toLowerCase() ?? 'personal'] ?? TAG_META.personal;
+  const subtasksDone = task?.subtasks?.filter((s: any) => s.done).length ?? 0;
+  const subtasksTotal = task?.subtasks?.length ?? 0;
+  const progress = subtasksTotal > 0 ? subtasksDone / subtasksTotal : 0;
+
+  const toggleSubtask = (subId: string) => {
+    if (!task) return;
     Haptics.selectionAsync();
-    const newChild: Subtask = { id: `c_${Date.now()}`, text: subtaskInput.trim(), done: false };
-    updateTask(task.id, t => ({
-      ...t,
-      subtasks: [...(t.subtasks ?? []), newChild],
-    }));
-    setSubtaskInput('');
-    setTimeout(() => {
-      subtaskListRef.current?.scrollToEnd?.({ animated: true });
-    }, 100);
+    updateTask(task.id, (t: any) => ({ ...t, subtasks: t.subtasks?.map((s: any) => s.id === subId ? { ...s, done: !s.done } : s) }));
   };
 
-  // ── Comment helpers ────────────────────────────────────────────────────────
+  const switchTab = (tab: Tab) => { Haptics.selectionAsync(); setActiveTab(tab); };
+
   const pickCommentAtt = async (source: 'camera' | 'gallery' | 'file') => {
     const MAX = 5 * 1024 * 1024;
     if (source === 'file') {
@@ -377,36 +310,35 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     }
   };
 
-  const handleAddComment = () => {
-    if (!newComment.trim() && !commentAtt) return;
+  // Refactored to accept text directly from the isolated component
+  const handleAddComment = useCallback((text: string, att: any) => {
+    if (!task) return;
     Haptics.selectionAsync();
-    updateTask(task.id, t => ({
+    updateTask(task.id, (t: any) => ({
       ...t,
-      commentsList: [...(t.commentsList ?? []), {
-        id: Date.now().toString(), text: newComment.trim(), date: 'Just now',
-        attachment: commentAtt ?? undefined,
-      } as any],
+      commentsList: [...(t.commentsList ?? []), { id: Date.now().toString(), text: text.trim(), date: 'Just now', attachment: att ?? undefined }],
     }));
-    setNewComment('');
     setCommentAtt(null);
+  }, [task, updateTask]);
+
+  const handleClose = () => {
+    if (unsavedTextRef.current.trim()) {
+      Alert.alert('Unsaved input', 'You have unsaved text. Discard it?', [
+        { text: 'Keep editing', style: 'cancel' },
+        { text: 'Discard', style: 'destructive', onPress: dismiss },
+      ]);
+    } else { dismiss(); }
   };
 
-  // ── 3-dot actions ──────────────────────────────────────────────────────────
   const actionItems: SheetItem[] = [
     { label: 'View Task History', icon: 'history', onPress: () => { setShowActionMenu(false); setTimeout(() => setShowHistoryModal(true), 200); } },
     { label: 'Edit Task', icon: 'edit', onPress: () => Alert.alert('Edit Task', 'Editor coming soon.') },
-    { label: 'Duplicate Task', icon: 'content-copy', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓', 'Task copied successfully.'); } },
+    { label: 'Duplicate Task', icon: 'content-copy', onPress: () => { if (!task) return; Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓'); } },
     { label: 'Move to List', icon: 'folder-open', onPress: () => Alert.alert('Move Task', 'Coming soon.') },
     { label: 'Save as Template', icon: 'bookmark-add', onPress: () => Alert.alert('Template Saved', 'Saved as reusable template.') },
-    { label: 'Share Task', icon: 'share', onPress: () => Alert.alert('Share', `"${task.title}"`) },
-    { label: 'Archive Task', icon: 'archive', onPress: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); updateTask(task.id, t => ({ ...t, archived: true })); onClose(); } },
-    {
-      label: 'Delete Task', icon: 'delete-outline', destructive: true,
-      onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); onClose(); } },
-      ]),
-    },
+    { label: 'Share Task', icon: 'share', onPress: () => Alert.alert('Share', `"${task?.title}"`) },
+    { label: 'Archive Task', icon: 'archive', onPress: () => { if (!task) return; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); updateTask(task.id, (t: any) => ({ ...t, archived: true })); dismiss(); } },
+    { label: 'Delete Task', icon: 'delete-outline', destructive: true, onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); dismiss(); } }]) },
   ];
 
   const versionHistory: VersionEntry[] = [
@@ -416,289 +348,28 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     { id: 'v1', action: 'You created this task', date: 'Apr 5, 10:30 AM', icon: 'add-task' },
   ];
 
-  const subtasksDone = task.subtasks?.filter(s => s.done).length ?? 0;
-  const subtasksTotal = task.subtasks?.length ?? 0;
-  const progress = subtasksTotal > 0 ? subtasksDone / subtasksTotal : 0;
-
-  // ── Hero Header ────────────────────────────────────────────────────────────
-  const Header = () => (
-    <Animated.View style={[st.headerNew, { paddingTop: headerPaddingTop }]}>
-      <View style={[st.toolbar, { zIndex: 10 }]}>
-        <TouchableOpacity 
-          style={st.toolBtn} 
-          onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MaterialIcons name="more-vert" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={st.titleNew}>{task.title}</Text>
-
-      {/* Badges Row */}
-      <View style={st.badgesRowNew}>
-        {priority && (
-          <View style={[st.badgePill, { backgroundColor: priority.bg }]}>
-            <MaterialIcons name="flag" size={14} color={priority.color} />
-            <Text style={[st.pillTextNew, { color: priority.color }]}>{priority.label}</Text>
-          </View>
-        )}
-        <View style={[st.badgePill, { backgroundColor: tagColor.bg }]}>
-          <View style={[st.tagDotNew, { backgroundColor: tagColor.text }]} />
-          <Text style={[st.pillTextNew, { color: tagColor.text }]}>{task.tag}</Text>
-        </View>
-        {task.hasReminder && (
-          <View style={st.badgePill}>
-            <MaterialIcons name="notifications" size={14} color={theme.colors.primary} />
-            <Text style={[st.pillTextNew, { color: theme.colors.primary }]}>Reminder</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Date/Time Hero Row */}
-      {(task.dueDate || task.dueTime) && (
-        <View style={st.dateRowNew}>
-          <MaterialIcons name="event" size={16} color={theme.colors.textSecondary} />
-          <Text style={st.dateTextNew}>
-            {task.dueDate || 'No date'} {task.dueTime ? `at ${task.dueTime}` : ''}
-          </Text>
-        </View>
-      )}
-    </Animated.View>
-  );
-
-  // ── Subtask Page — DraggableFlatList with nested support ─────────────────
-  const SubtasksPage = () => (
-    <View style={{ width: SW, flex: 1 }}>
-      <DraggableFlatList
-        ref={subtaskListRef}
-        showsVerticalScrollIndicator={false}
-        // FIX: Reduced massive bottom padding
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: Math.max(insets.bottom, 20) + 20 }}
-        data={task.subtasks ?? []}
-        keyExtractor={item => item.id}
-        activationDistance={5}
-        onDragBegin={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
-        onDragEnd={({ data }) => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          updateTask(task.id, t => ({ ...t, subtasks: data }));
-        }}
-        ListEmptyComponent={
-          <View style={[st.emptyState, { paddingVertical: 40 }]}>
-            <MaterialIcons name="checklist" size={40} color={theme.colors.border} />
-            <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>No subtasks yet</Text>
-          </View>
-        }
-        ListFooterComponent={
-          <View style={{ paddingTop: 16 }}>
-            <TouchableOpacity
-              style={[st.addSubtaskBtn, { borderColor: theme.colors.border }]}
-              onPress={() => setComposerVisible(true)}
-            >
-              <MaterialIcons name="add" size={18} color={theme.colors.primary} />
-              <Text style={[st.addSubtaskText, { color: theme.colors.primary }]}>Add subtask</Text>
-            </TouchableOpacity>
-            {/* FIX: The 80px spacer has been completely removed so the button shows up! */}
-          </View>
-        }
-        renderItem={({ item: sub, drag, isActive }: RenderItemParams<Subtask>) => {
-          // Safe metadata lookups
-          const subPriority = (sub as any).priority ? PRIORITY_META[(sub as any).priority] : null;
-          const subTagType = (sub as any).tagType?.toLowerCase() || 'personal';
-          const subTagColor = TAG_META[subTagType] || TAG_META.personal;
-
-          return (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onLongPress={drag}
-              delayLongPress={150}
-              onPress={() => openSubtaskDetail(sub)}
-              style={[
-                st.subtaskCardNew,
-                isActive && st.subtaskDragging,
-                { alignItems: 'flex-start' } // Align to top for multi-line support
-              ]}
-            >
-              {/* Checkbox */}
-              <TouchableOpacity
-                style={[st.checkboxNew, {
-                  backgroundColor: sub.done ? theme.colors.primary : 'transparent',
-                  borderColor: sub.done ? theme.colors.primary : theme.colors.border,
-                  marginTop: 2, // Align with first line of text
-                }]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  toggleSubtask(sub.id);
-                }}
-              >
-                {sub.done && <MaterialIcons name="check" size={12} color="#fff" />}
-              </TouchableOpacity>
-
-              {/* Main Content Area */}
-              <View style={{ flex: 1 }}>
-                {/* Subtask Label */}
-                <Text style={[st.subtaskLabelNew, {
-                  color: sub.done ? theme.colors.textSecondary : theme.colors.text,
-                  textDecorationLine: sub.done ? 'line-through' : 'none',
-                  opacity: sub.done ? 0.5 : 1,
-                  fontFamily: 'Inter_500Medium',
-                }]}>
-                  {sub.text}
-                </Text>
-
-                {/* Metadata Row (The "Everything" display) */}
-                {!sub.done && (
-                  <View style={[st.subtaskMetaRow, { marginTop: 4 }]}>
-                    {/* Priority Badge */}
-                    {subPriority && (
-                      <View style={[st.miniBadge, { backgroundColor: subPriority.bg }]}>
-                        <MaterialIcons name="flag" size={10} color={subPriority.color} />
-                        <Text style={[st.miniBadgeText, { color: subPriority.color }]}>{subPriority.label}</Text>
-                      </View>
-                    )}
-
-                    {/* Tag Pill */}
-                    {(sub as any).tag && (
-                      <View style={[st.miniBadge, { backgroundColor: subTagColor.bg }]}>
-                        <View style={[st.tagDotNew, { backgroundColor: subTagColor.text, width: 4, height: 4 }]} />
-                        <Text style={[st.miniBadgeText, { color: subTagColor.text }]}>{(sub as any).tag}</Text>
-                      </View>
-                    )}
-
-                    {/* Due Date */}
-                    {(sub as any).dueDate && (
-                      <View style={st.indicatorRow}>
-                        <MaterialIcons name="event" size={12} color={theme.colors.textSecondary} />
-                        <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).dueDate}</Text>
-                      </View>
-                    )}
-
-                    {/* Nested Indicators */}
-                    <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
-                      {((sub as any).subtasks?.length ?? 0) > 0 && (
-                        <View style={st.indicatorRow}>
-                          <MaterialIcons name="checklist" size={12} color={theme.colors.textSecondary} />
-                          <Text style={[st.indicatorText, { color: theme.colors.textSecondary }]}>{(sub as any).subtasks.length}</Text>
-                        </View>
-                      )}
-                      {((sub as any).attachments?.length ?? 0) > 0 && (
-                        <MaterialIcons name="attach-file" size={12} color={theme.colors.textSecondary} />
-                      )}
-                    </View>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-      />
-    </View>
-  );
-
-  // ── Comments Page ──────────────────────────────────────────────────────────
-  const CommentsPage = () => (
-    <ScrollView
-      style={{ width: SW }}
-      // FIX: Changed paddingBottom from 120 to just a standard gap
-      contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 20 }}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Comments List first */}
-      {(task.commentsList?.length ?? 0) > 0
-        ? <View style={{ gap: 12 }}>
-          {(task.commentsList as any[] ?? []).map((c: any) => (
-            <View key={c.id} style={st.commentRow}>
-              <View style={[st.commentAvatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
-              <View style={{ flex: 1 }}>
-                <View style={[st.commentBubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
-                  <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham  ·  {c.date}</Text>
-                  {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
-                </View>
-              </View>
-            </View>
-          ))}
-        </View>
-        : <View style={st.emptyState}>
-          <MaterialIcons name="chat-bubble-outline" size={36} color={theme.colors.border} />
-          <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>No comments yet</Text>
-        </View>
-      }
-
-      {/* Attachment Preview */}
-      {commentAtt && (
-        <View style={[st.attPreviewRow, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginTop: 16 }]}>
-          {commentAtt.type === 'image' ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" /> : <MaterialIcons name="insert-drive-file" size={22} color={theme.colors.primary} />}
-          <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
-          <TouchableOpacity onPress={() => setCommentAtt(null)}><MaterialIcons name="close" size={18} color={theme.colors.textSecondary} /></TouchableOpacity>
-        </View>
-      )}
-
-    </ScrollView>
-  );
-
-  // ── Attachments Page ────────────────────────────────────────────────────────
-  const AttachmentsPage = () => (
-    <ScrollView
-      style={{ width: SW }}
-      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
-      showsVerticalScrollIndicator={false}
-    >
-      {(task.attachments?.length ?? 0) > 0 ? (
-        <View style={{ gap: 16 }}>
-          <Text style={[st.sectionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', marginBottom: 4 }]}>
-            TASK ATTACHMENTS ({task.attachments?.length})
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-            {task.attachments!.map(att => (
-              <TouchableOpacity
-                key={att.id}
-                style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, width: (SW - 44) / 2 }]}
-                activeOpacity={0.8}
-              >
-                {att.type === 'image'
-                  ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
-                  : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}>
-                    <MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} />
-                  </View>
-                }
-                <View style={{ padding: 8, backgroundColor: theme.colors.cardPrimary, borderTopWidth: 1, borderColor: theme.colors.border }}>
-                  <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={1}>
-                    {att.name}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      ) : (
-        <View style={st.emptyState}>
-          <MaterialIcons name="attachment" size={48} color={theme.colors.border} />
-          <Text style={[st.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-            No attachments for this task
-          </Text>
-        </View>
-      )}
-    </ScrollView>
-  );
-
   // ── Render ─────────────────────────────────────────────────────────────────
-  const handleClose = () => {
-    if (newComment.trim()) {
-      Alert.alert('Unsaved input', 'You have unsaved text. Discard it?', [
-        { text: 'Keep editing', style: 'cancel' },
-        {
-          text: 'Discard', style: 'destructive', onPress: () => {
-            setNewComment('');
-            dismiss();
-          }
-        },
-      ]);
+  const renderFooter = useCallback(
+    (props: any) => {
+      if (activeTab !== 'comments') return null;
 
-    } else {
-      dismiss();
-    }
-  };
+      return (
+        <BottomSheetFooter {...props} bottomInset={0}>
+          <CommentInputBar
+            theme={theme}
+            insets={insets}
+            onSend={handleAddComment}
+            onPickAtt={() => pickCommentAtt('gallery')}
+            commentAtt={commentAtt}
+            onTextChange={(val: string) => { unsavedTextRef.current = val; }}
+          />
+        </BottomSheetFooter>
+      );
+    },
+    [activeTab, theme, insets.bottom, handleAddComment, commentAtt]
+  );
+
+  if (!task) return null;
 
   return (
     <>
@@ -710,145 +381,245 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         statusBarTranslucent
         presentationStyle="overFullScreen"
       >
-        <GestureHandlerRootView style={st.flex}>
-          {/* Backdrop: fades independently */}
-          <Animated.View style={[st.scrim, {
-            opacity: panelY.interpolate({
-              inputRange: [0, SH * 0.8],
-              outputRange: [1, 0],
-              extrapolate: 'clamp'
-            })
-          }]}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
-          </Animated.View>
-
-          {/* Panel: full-screen height, slides up via translateY */}
-          <Animated.View
-            {...handlePan.panHandlers}
-            style={[
-              st.panel,
-              { 
-                backgroundColor: theme.colors.cardPrimary,
-                transform: [{ translateY: panelY }],
-                borderTopLeftRadius: sheetRadius,
-                borderTopRightRadius: sheetRadius,
-              },
-            ]}
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <BottomSheet
+            ref={bottomSheetRef}
+            index={-1}
+            snapPoints={snapPoints}
+            enablePanDownToClose
+            backdropComponent={renderBackdrop}
+            onClose={handleSheetClose}
+            activeOffsetY={[-4, 4]}
+            failOffsetX={[-10, 10]}
+            animationConfigs={{ duration: 350, dampingRatio: 0.82, stiffness: 140 }}
+            backgroundStyle={{ backgroundColor: theme.colors.cardPrimary }}
+            handleIndicatorStyle={{ backgroundColor: theme.colors.border, width: 40, height: 5 }}
+            footerComponent={renderFooter}
+            keyboardBehavior="extend"
+            keyboardBlurBehavior="restore"
+            android_keyboardInputMode="adjustPan"
           >
-            {/* Hero Header */}
-            <Header />
+            <BottomSheetView style={st.sheetContainer}>
 
-            {/* Progress Bar moved here for better hierarchy */}
-            {subtasksTotal > 0 && (
-              <View style={[st.progressWrap, { paddingHorizontal: 20, marginTop: 4, marginBottom: 12 }]}>
-                <View style={st.progressBarBg}>
-                  <View style={[st.progressBarFill, { width: `${progress * 100}%`, backgroundColor: theme.colors.primary }]} />
-                </View>
-                <View style={st.progressHeader}>
-                  <Text style={[st.progressText, { color: theme.colors.textSecondary }]}>{subtasksDone}/{subtasksTotal} Subtasks</Text>
-                  <Text style={[st.progressText, { color: theme.colors.primary, fontWeight: '700' }]}>{Math.round(progress * 100)}%</Text>
-                </View>
-              </View>
-            )}
-
-            {/* MAIN CONTENT AREA */}
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-              style={{ flex: 1 }}
-            >
-              {/* Tab Bar */}
-              <View style={[st.tabBarNew, { backgroundColor: theme.colors.cardPrimary }]}>
-                {TABS.map(tab => {
-                  const active = activeTab === tab;
-                  const labels = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
-                  const icons = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
-                  return (
-                    <TouchableOpacity
-                      key={tab}
-                      style={[st.tabPill, active && { backgroundColor: theme.colors.primary }]}
-                      onPress={() => switchTab(tab)}
-                    >
-                      <MaterialIcons name={icons[tab] as any} size={15} color={active ? '#fff' : theme.colors.textSecondary} />
-                      <Text style={[st.tabTextNew, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
-                        {labels[tab]}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Content Pages */}
-              <ScrollView 
-                ref={tabScrollRef} 
-                horizontal 
-                pagingEnabled 
-                scrollEventThrottle={16} 
-                showsHorizontalScrollIndicator={false} 
-                onMomentumScrollEnd={handleTabScroll} 
-                style={{ flex: 1 }} 
-                keyboardShouldPersistTaps="handled"
-              >
-                {SubtasksPage()}
-                {CommentsPage()}
-                {AttachmentsPage()} 
-              </ScrollView>
-
-              {/* DYNAMIC STICKY COMMENT BAR (ONLY for Comments Tab) */}
-              {activeTab === 'comments' && (
-                <View style={[
-                  st.commentBarSticky, 
-                  { 
-                    backgroundColor: theme.colors.cardPrimary, 
-                    borderTopColor: theme.colors.border, 
-                    paddingBottom: Math.max(insets.bottom, 8),
-                    paddingTop: 8
-                  }
-                ]}>
-                  <TouchableOpacity 
-                    style={st.miniAttachBtnNew} 
-                    onPress={() => pickCommentAtt('gallery')}
-                  >
-                    <MaterialIcons name="add-photo-alternate" size={26} color={theme.colors.textSecondary} />
-                  </TouchableOpacity>
-
-                  <TextInput
-                    style={[st.commentInputNew, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
-                    placeholder="Add a comment…"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={newComment}
-                    onChangeText={setNewComment}
-                    onSubmitEditing={handleAddComment}
-                    returnKeyType="send"
-                    multiline={true}
-                    /* THE MAGIC FIX: Instantly slides the sheet to 100% height when you tap the input */
-                    onFocus={() => snapTo('full')} 
-                  />
-
-                  <TouchableOpacity
-                    style={[
-                      st.sendBtnNew, 
-                      { backgroundColor: (newComment.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }
-                    ]}
-                    onPress={handleAddComment}
-                    disabled={!newComment.trim() && !commentAtt}
-                  >
-                    <MaterialIcons name="send" size={18} color="#fff" />
+              {/* ════════════ STATIC HEADER ════════════ */}
+              <View style={[st.header, { backgroundColor: theme.colors.cardPrimary }]}>
+                {/* 3-dot menu */}
+                <View style={st.toolbar}>
+                  <TouchableOpacity style={st.toolBtn} onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <MaterialIcons name="more-vert" size={24} color={theme.colors.text} />
                   </TouchableOpacity>
                 </View>
-              )}
-            </KeyboardAvoidingView>
-              
-            {/* THE MAGIC FIX: This invisible spacer takes up exactly the amount of height hidden below the screen.
-                It forces the KeyboardAvoidingView to sit perfectly flush with the bottom edge of your glass. */}
-            <Animated.View style={{ height: panelY }} />
 
-          </Animated.View>
+                {/* Title */}
+                <Text 
+                  style={[
+                    st.title, 
+                    { color: theme.colors.text }, 
+                    task.title.length > 60 && { fontSize: 18, lineHeight: 24 } // dynamically reduce text size for long titles
+                  ]} 
+                >
+                  {task.title}
+                </Text>
+
+                {/* Badges */}
+                <View style={st.badgeRow}>
+                  {priority && (
+                    <View style={[st.badge, { backgroundColor: priority.bg }]}>
+                      <MaterialIcons name="flag" size={12} color={priority.color} />
+                      <Text style={[st.badgeTxt, { color: priority.color }]}>{priority.label}</Text>
+                    </View>
+                  )}
+                  {task.tag && (
+                    <View style={[st.badge, { backgroundColor: tagColor.bg }]}>
+                      <View style={[st.tagDot, { backgroundColor: tagColor.text }]} />
+                      <Text style={[st.badgeTxt, { color: tagColor.text }]}>{task.tag}</Text>
+                    </View>
+                  )}
+                  {task.hasReminder && (
+                    <View style={[st.badge, { backgroundColor: `${theme.colors.primary}18` }]}>
+                      <MaterialIcons name="notifications" size={12} color={theme.colors.primary} />
+                      <Text style={[st.badgeTxt, { color: theme.colors.primary }]}>Reminder</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Due date */}
+                {(task.dueDate || task.dueTime) && (
+                  <View style={st.dateRow}>
+                    <MaterialIcons name="event" size={14} color={theme.colors.textSecondary} />
+                    <Text style={[st.dateTxt, { color: theme.colors.textSecondary }]}>
+                      {task.dueDate || 'No date'}{task.dueTime ? `  ·  ${task.dueTime}` : ''}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Progress */}
+                {subtasksTotal > 0 && (
+                  <View style={st.progressWrap}>
+                    <View style={st.progressRow}>
+                      <Text style={[st.progressLabel, { color: theme.colors.textSecondary }]}>{subtasksDone}/{subtasksTotal} completed</Text>
+                      <Text style={[st.progressPct, { color: theme.colors.primary }]}>{Math.round(progress * 100)}%</Text>
+                    </View>
+                    <View style={[st.progressTrack, { backgroundColor: `${theme.colors.primary}22` }]}>
+                      <View style={[st.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.colors.primary }]} />
+                    </View>
+                  </View>
+                )}
+
+                <View style={[st.divider, { backgroundColor: theme.colors.border }]} />
+
+                {/* Tab pills */}
+                <View style={st.tabBar}>
+                  {(TABS as readonly Tab[]).map(tab => {
+                    const active = activeTab === tab;
+                    const LABELS: Record<Tab, string> = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
+                    const ICONS: Record<Tab, string> = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
+                    return (
+                      <TouchableOpacity
+                        key={tab}
+                        style={[st.tabPill, { backgroundColor: active ? theme.colors.primary : theme.colors.secondary }]}
+                        onPress={() => switchTab(tab)}
+                        activeOpacity={0.75}
+                      >
+                        <MaterialIcons name={ICONS[tab] as any} size={13} color={active ? '#fff' : theme.colors.textSecondary} />
+                        <Text style={[st.tabTxt, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
+                          {LABELS[tab]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* ════════════ SCROLLABLE CONTENT ════════════ */}
+              <View style={{ flex: 1 }}>
+                {activeTab === 'subtasks' && (
+                  <BottomSheetScrollView ref={subtaskListRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 24 }}>
+                    {/* Your existing Subtasks map */}
+                    {(task.subtasks?.length ?? 0) === 0 ? (
+                      <View style={st.emptyState}>
+                        <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="checklist" size={30} color={theme.colors.primary} /></View>
+                        <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No subtasks yet</Text>
+                        <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Break this task into smaller steps</Text>
+                      </View>
+                    ) : (
+                      (task.subtasks as Subtask[]).map((sub) => {
+                        const sp = (sub as any).priority ? PRIORITY_META[(sub as any).priority] : null;
+                        const stk = (sub as any).tagType?.toLowerCase() || 'personal';
+                        const sc = TAG_META[stk] || TAG_META.personal;
+                        return (
+                          <TouchableOpacity key={sub.id} activeOpacity={0.72} onPress={() => { Haptics.selectionAsync(); setSelectedSubtaskId(sub.id); }} style={[st.subtaskRow, { borderBottomColor: theme.colors.border }]}>
+                            <TouchableOpacity style={[st.checkbox, { backgroundColor: sub.done ? theme.colors.primary : 'transparent', borderColor: sub.done ? theme.colors.primary : theme.colors.border }]} onPress={(e) => { e.stopPropagation(); toggleSubtask(sub.id); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              {sub.done && <MaterialIcons name="check" size={11} color="#fff" />}
+                            </TouchableOpacity>
+                            <View style={{ flex: 1 }}>
+                              <Text numberOfLines={2} style={[st.subtaskLabel, { color: sub.done ? theme.colors.textSecondary : theme.colors.text, textDecorationLine: sub.done ? 'line-through' : 'none', opacity: sub.done ? 0.5 : 1, fontFamily: 'Inter_500Medium' }]}>{sub.text}</Text>
+                              {!sub.done && (sp || (sub as any).tag || (sub as any).dueDate) && (
+                                <View style={st.metaRow}>
+                                  {sp && <View style={[st.miniBadge, { backgroundColor: sp.bg }]}><MaterialIcons name="flag" size={9} color={sp.color} /><Text style={[st.miniBadgeTxt, { color: sp.color }]}>{sp.label}</Text></View>}
+                                  {(sub as any).tag && <View style={[st.miniBadge, { backgroundColor: sc.bg }]}><View style={[st.tagDot, { backgroundColor: sc.text, width: 4, height: 4 }]} /><Text style={[st.miniBadgeTxt, { color: sc.text }]}>{(sub as any).tag}</Text></View>}
+                                  {(sub as any).dueDate && <View style={st.metaChip}><MaterialIcons name="event" size={10} color={theme.colors.textSecondary} /><Text style={[st.metaChipTxt, { color: theme.colors.textSecondary }]}>{(sub as any).dueDate}</Text></View>}
+                                  <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
+                                    {((sub as any).subtasks?.length ?? 0) > 0 && <View style={st.metaChip}><MaterialIcons name="checklist" size={10} color={theme.colors.textSecondary} /><Text style={[st.metaChipTxt, { color: theme.colors.textSecondary }]}>{(sub as any).subtasks.length}</Text></View>}
+                                    {((sub as any).attachments?.length ?? 0) > 0 && <MaterialIcons name="attach-file" size={10} color={theme.colors.textSecondary} />}
+                                  </View>
+                                </View>
+                              )}
+                            </View>
+                            <MaterialIcons name="chevron-right" size={16} color={theme.colors.border} />
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                    <View style={{ paddingTop: 14, paddingHorizontal: 16 }}>
+                      <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={() => setComposerVisible(true)} activeOpacity={0.75}>
+                        <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
+                        <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add subtask</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </BottomSheetScrollView>
+                )}
+
+                {activeTab === 'comments' && (
+                  <View style={{ flex: 1 }}>
+                    <BottomSheetScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 80 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                      {(task.commentsList?.length ?? 0) > 0 ? (
+                        <View style={{ gap: 12 }}>
+                          {(task.commentsList as any[]).map((c: any) => (
+                            <View key={c.id} style={st.commentRow}>
+                              <View style={[st.avatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
+                              <View style={{ flex: 1 }}>
+                                <View style={[st.bubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
+                                  <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham · {c.date}</Text>
+                                  {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
+                                </View>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={st.emptyState}>
+                          <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="chat-bubble-outline" size={30} color={theme.colors.primary} /></View>
+                          <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No comments yet</Text>
+                          <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Start the conversation below</Text>
+                        </View>
+                      )}
+
+                      {commentAtt && (
+                        <View style={[st.attPreview, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginTop: 12 }]}>
+                          {commentAtt.type === 'image'
+                            ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" />
+                            : <MaterialIcons name="insert-drive-file" size={20} color={theme.colors.primary} />
+                          }
+                          <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
+                          <TouchableOpacity onPress={() => setCommentAtt(null)}>
+                            <MaterialIcons name="close" size={16} color={theme.colors.textSecondary} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </BottomSheetScrollView>
+                  </View>
+                )}
+
+                {activeTab === 'attachments' && (
+                  <BottomSheetScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
+                    {/* Your existing Attachments map */}
+                    {(task.attachments?.length ?? 0) > 0 ? (
+                      <View style={{ gap: 16 }}>
+                        <Text style={[st.sectionLabel, { color: theme.colors.textSecondary }]}>TASK ATTACHMENTS ({task.attachments?.length})</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                          {task.attachments!.map((att: any) => (
+                            <TouchableOpacity key={att.id} style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, width: (SW - 44) / 2 }]} activeOpacity={0.8}>
+                              {att.type === 'image'
+                                ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
+                                : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} /></View>
+                              }
+                              <View style={{ padding: 8, borderTopWidth: 1, borderColor: theme.colors.border }}>
+                                <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={1}>{att.name}</Text>
+                              </View>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={st.emptyState}>
+                        <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="attachment" size={30} color={theme.colors.primary} /></View>
+                        <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No attachments</Text>
+                        <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>No files attached to this task</Text>
+                      </View>
+                    )}
+                  </BottomSheetScrollView>
+                )}
+              </View>
+
+            </BottomSheetView>
+          </BottomSheet>
         </GestureHandlerRootView>
       </Modal>
+
       <AndroidSheet visible={showActionMenu} title="TASK OPTIONS" items={actionItems} onClose={() => setShowActionMenu(false)} theme={theme} />
 
-      {/* History Modal */}
+      {/* History modal */}
       <Modal visible={showHistoryModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setShowHistoryModal(false)}>
         <View style={{ flex: 1, backgroundColor: theme.colors.cardPrimary }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
@@ -857,39 +628,22 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
               <MaterialIcons name="close" size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           </View>
-          <ScrollView
-            contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }}
-            showsVerticalScrollIndicator={false}
-          >
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }} showsVerticalScrollIndicator={false}>
             <Text style={[st.historyNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>All changes to this task are recorded below.</Text>
             {versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)}
           </ScrollView>
         </View>
       </Modal>
 
-      {/* Recursive Render for Subtasks */}
-      <TaskDetailModal
-        visible={!!selectedSubtaskId}
-        taskId={selectedSubtaskId!}
-        onClose={() => setSelectedSubtaskId(null)}
-      />
+      <TaskDetailModal visible={!!selectedSubtaskId} taskId={selectedSubtaskId!} onClose={() => setSelectedSubtaskId(null)} />
 
-      {/* Composer for creating new Subtasks */}
       <TaskComposer
         visible={composerVisible}
         onClose={() => setComposerVisible(false)}
         initialTitle=""
         onSave={(taskData: any) => {
-          const newChild: any = {
-            ...taskData,
-            id: `c_${Date.now()}`,
-            text: taskData.title,
-            done: false,
-          };
-          updateTask(task.id, t => ({
-            ...t,
-            subtasks: [...(t.subtasks ?? []), newChild],
-          }));
+          const newChild: any = { ...taskData, id: `c_${Date.now()}`, text: taskData.title, done: false };
+          updateTask(task.id, (t: any) => ({ ...t, subtasks: [...(t.subtasks ?? []), newChild] }));
           setTimeout(() => subtaskListRef.current?.scrollToEnd?.({ animated: true }), 100);
         }}
       />
@@ -899,171 +653,64 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const st = StyleSheet.create({
-  flex: { flex: 1 },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
-
-  panel: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    height: SH,
-    borderTopLeftRadius: 12, borderTopRightRadius: 12,
-    overflow: 'hidden',
-    paddingBottom: 0,
-  },
-  handleWrap: { paddingTop: 6, paddingBottom: 4, alignItems: 'center' },
-  handle: { width: 40, height: 5, borderRadius: 3, opacity: 0.2 },
-
-  // New Hero Header
-  headerNew: {
-    paddingHorizontal: 20,
-    paddingBottom: 2,
-  },
-  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 0 },
+  sheetContainer: { flex: 1, flexDirection: 'column' },
+  header: { paddingHorizontal: 20, paddingBottom: 0 },
+  toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 2 },
   toolBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  titleNew: { fontSize: 26, fontWeight: '800', lineHeight: 32, marginBottom: 8, letterSpacing: -0.5 },
-
+  title: { fontSize: 24, fontWeight: '800', lineHeight: 30, marginBottom: 10, letterSpacing: -0.4 },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#f1f5f9' },
+  badgeTxt: { fontSize: 12, fontWeight: '700' },
+  tagDot: { width: 6, height: 6, borderRadius: 3 },
+  dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  dateTxt: { fontSize: 13, fontWeight: '500' },
   progressWrap: { marginBottom: 12 },
-  progressBarBg: { height: 6, backgroundColor: '#eee', borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
-  progressBarFill: { height: '100%', borderRadius: 4 },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressText: { fontSize: 12, fontWeight: '600' },
+  progressRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  progressLabel: { fontSize: 12, fontWeight: '500' },
+  progressPct: { fontSize: 12, fontWeight: '700' },
+  progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  divider: { height: StyleSheet.hairlineWidth },
+  tabBar: { flexDirection: 'row', paddingVertical: 10, gap: 6 },
+  tabPill: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 10 },
+  tabTxt: { fontSize: 12, fontWeight: '600' },
+  subtaskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.8, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  subtaskLabel: { fontSize: 15, lineHeight: 22 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' },
+  miniBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
+  miniBadgeTxt: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  metaChipTxt: { fontSize: 11, fontWeight: '500' },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 12 },
+  addBtnIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  addBtnTxt: { fontSize: 14, fontWeight: '600' },
+  emptyState: { alignItems: 'center', paddingVertical: 48, gap: 10 },
+  emptyIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyTitle: { fontSize: 16, fontWeight: '700' },
+  emptySubtitle: { fontSize: 13, opacity: 0.6, textAlign: 'center' },
+  commentRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  avatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  avatarTxt: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  bubble: { flex: 1, padding: 12, borderRadius: 16, borderTopLeftRadius: 4, borderWidth: 1 },
+  commentMeta: { fontSize: 11, marginBottom: 5, fontWeight: '600' },
+  commentTxt: { fontSize: 14, lineHeight: 20 },
 
-  badgesRowNew: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  badgePill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#f1f5f9' },
-  pillTextNew: { fontSize: 12, fontWeight: '700' },
-  tagDotNew: { width: 6, height: 6, borderRadius: 3 },
+  // NOTE: paddingBottom is intentionally removed here, we apply it dynamically in the component!
+  commentBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, borderTopWidth: StyleSheet.hairlineWidth },
 
-  dateRowNew: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  dateTextNew: { fontSize: 13, fontWeight: '600', color: '#636e72' },
-
-  // New Pill Tabs
-  tabBarNew: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-  },
-  tabPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: '#f1f2f6',
-    marginHorizontal: 4,
-  },
-  tabTextNew: { fontSize: 13, fontWeight: '600' },
-
-  // Subtask Card Style
-  subtaskCardNew: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 14, paddingHorizontal: 20,
-    borderBottomWidth: 1, borderColor: '#eee',
-    backgroundColor: 'transparent',
-  },
-  checkboxNew: {
-    width: 22, height: 22, borderRadius: 6,
-    borderWidth: 1.8, alignItems: 'center', justifyContent: 'center',
-    marginRight: 10, flexShrink: 0
-  },
-  subtaskLabelNew: { flex: 1, fontSize: 16, lineHeight: 24 },
-  expandBtnNew: { padding: 6, marginLeft: 8 },
-  childBadgeNew: { fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, overflow: 'hidden', fontWeight: '800' },
-
-  // Children
-  childrenContainer: {
-    marginLeft: 36,
-    paddingVertical: 6,
-  },
-  addChildRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  indentLineThin: { width: 1.5, height: '100%', borderRadius: 1, opacity: 0.25 },
-  childInput: { flex: 1, fontSize: 14, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderRadius: 12 },
-  addChildBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  cancelChildBtn: { padding: 4 },
-  addNestedTrigger: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, marginTop: 4 },
-  addNestedText: { fontSize: 13, fontWeight: '600' },
-
-  // Sticky Comment Bar Redesign
-  commentBarSticky: {
-    flexDirection: 'row',
-    alignItems: 'flex-end', // Keeps buttons at the bottom when input grows multiline
-    gap: 8,
-    paddingHorizontal: 12,
-    borderTopWidth: StyleSheet.hairlineWidth, // Much cleaner, thinner line
-  },
-  miniAttachBtnNew: { 
-    width: 38, 
-    height: 38, 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    marginBottom: 4, // Aligns exactly with the bottom of the text input
-  },
-  commentInputNew: { 
-    flex: 1, 
-    fontSize: 15, 
-    paddingHorizontal: 16, 
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: Platform.OS === 'ios' ? 10 : 8, 
-    borderRadius: 20, 
-    minHeight: 40,
-    maxHeight: 120, // Allows it to grow to ~5 lines without taking over the screen
-    marginBottom: 4,
-  },
-  sendBtnNew: { 
-    width: 38, 
-    height: 38, 
-    borderRadius: 19, 
-    alignItems: 'center', 
-    justifyContent: 'center',
-    marginBottom: 4, // Aligns exactly with the bottom of the text input
-  },
-
-  // Comment Row
-  commentRow: { flexDirection: 'row', gap: 12, marginBottom: 16, paddingHorizontal: 20 },
-  commentAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  avatarTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  commentBubble: { flex: 1, padding: 14, borderRadius: 20, borderTopLeftRadius: 4, borderWidth: 1 },
-  commentMeta: { fontSize: 11, marginBottom: 6, fontWeight: '600' },
-  commentTxt: { fontSize: 15, lineHeight: 22 },
-
-  // Misc
-  historyNote: { fontSize: 14, lineHeight: 22, marginBottom: 20, paddingHorizontal: 20 },
-  emptyState: { alignItems: 'center', paddingVertical: 60, gap: 10 },
-  emptyText: { fontSize: 16, fontWeight: '700' },
-  emptySubText: { fontSize: 14, textAlign: 'center', opacity: 0.6 },
-
-  addSubtaskBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderWidth: 1, borderStyle: 'dashed', borderRadius: 8, marginHorizontal: 20 },
-  addSubtaskText: { fontSize: 14, fontWeight: '600' },
-  indicatorRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  indicatorText: { fontSize: 11, fontWeight: '600' },
+  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
+  commentInput: { flex: 1, fontSize: 14, paddingHorizontal: 14, paddingTop: Platform.OS === 'ios' ? 9 : 7, paddingBottom: Platform.OS === 'ios' ? 9 : 7, borderRadius: 20, minHeight: 38, maxHeight: 110, marginBottom: 3 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
+  attPreview: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 10, borderWidth: 1 },
+  attPreviewImg: { width: 36, height: 36, borderRadius: 6 },
+  attPreviewName: { flex: 1, fontSize: 12 },
   sectionLabel: { fontSize: 11, letterSpacing: 0.8 },
-  attCard: { width: 140, height: 140, borderRadius: 12, borderWidth: 1, overflow: 'hidden', padding: 12, justifyContent: 'space-between' },
-  attIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  attCard: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
+  attIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', margin: 12 },
   attImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  attName: { fontSize: 13, lineHeight: 18 },
-
-  subtaskMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  miniBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  miniBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
+  attName: { fontSize: 12, lineHeight: 16 },
+  historyNote: { fontSize: 13, lineHeight: 20, marginBottom: 20 },
 });
 
 export default TaskDetailModal;
