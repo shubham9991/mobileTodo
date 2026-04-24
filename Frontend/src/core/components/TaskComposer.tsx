@@ -693,11 +693,13 @@ const attachPanelStyles = StyleSheet.create({
 });
 
 // ─── Main Composer ────────────────────────────────────────────────────────────
-export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
+export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', initialDescription = '', editMode = false }: {
   visible: boolean;
   onClose: () => void;
   onSave?: (task: any) => void;
   initialTitle?: string;
+  initialDescription?: string;
+  editMode?: boolean;
 }) => {
   const { theme } = useTheme();
 
@@ -707,7 +709,7 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
   const [reminder, setReminder] = useState('');
-  const [description, setDesc] = useState('');
+  const [description, setDesc] = useState(initialDescription);
 
   // Tags
   const [allTags, setAllTags] = useState<Tag[]>(DEFAULT_TAGS);
@@ -805,12 +807,11 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
     setSuggestions(found);
   }, [title, applySmartTag, suggestions.length, dueDate, dueTime, priority, reminder, selectedTags]);
 
-  // Update title when initialTitle changes
+  // Update title and description when initial values change
   useEffect(() => {
-    if (initialTitle) {
-      setTitle(initialTitle);
-    }
-  }, [initialTitle]);
+    if (initialTitle) setTitle(initialTitle);
+    if (initialDescription) setDesc(initialDescription);
+  }, [initialTitle, initialDescription]);
 
   // Focus title input when modal opens
   useEffect(() => {
@@ -837,13 +838,15 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
 
   const handleClose = () => {
     const hasUnsavedChanges =
-      title.trim() !== '' ||
-      description.trim() !== '' ||
-      subtasks.length > 0 ||
-      attachments.length > 0 ||
-      selectedTags.length > 0 ||
-      priority !== null ||
-      dueDate !== '';
+      title.trim() !== initialTitle.trim() ||
+      description.trim() !== initialDescription.trim() ||
+      (!editMode && (
+        subtasks.length > 0 ||
+        attachments.length > 0 ||
+        selectedTags.length > 0 ||
+        priority !== null ||
+        dueDate !== ''
+      ));
 
     if (hasUnsavedChanges) {
       Alert.alert(
@@ -1215,87 +1218,91 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
           {/* Bottom Toolbar */}
           <View style={[s.toolbar, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.cardPrimary }]}>
             <View style={s.toolLeft}>
-              {/* Calendar */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <MaterialIcons
-                  name="calendar-month"
-                  size={22}
-                  color={dueDate ? '#6366F1' : theme.colors.textSecondary}
-                />
-                {dueDate && <View style={[tb.dot, { backgroundColor: '#6366F1' }]} />}
-              </TouchableOpacity>
+              {!editMode && (
+                <>
+                  {/* Calendar */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => setShowDatePicker(true)}
+                  >
+                    <MaterialIcons
+                      name="calendar-month"
+                      size={22}
+                      color={dueDate ? '#6366F1' : theme.colors.textSecondary}
+                    />
+                    {dueDate && <View style={[tb.dot, { backgroundColor: '#6366F1' }]} />}
+                  </TouchableOpacity>
 
-              {/* Priority */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => togglePanel('priority')}
-              >
-                <MaterialIcons
-                  name={priority ? 'flag' : 'outlined-flag'}
-                  size={22}
-                  color={priority ? PRI_META[priority].color : theme.colors.textSecondary}
-                />
-                {priority && <View style={[tb.dot, { backgroundColor: PRI_META[priority].color }]} />}
-              </TouchableOpacity>
+                  {/* Priority */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => togglePanel('priority')}
+                  >
+                    <MaterialIcons
+                      name={priority ? 'flag' : 'outlined-flag'}
+                      size={22}
+                      color={priority ? PRI_META[priority].color : theme.colors.textSecondary}
+                    />
+                    {priority && <View style={[tb.dot, { backgroundColor: PRI_META[priority].color }]} />}
+                  </TouchableOpacity>
 
-              {/* Tags */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => togglePanel('tags')}
-              >
-                <MaterialIcons
-                  name={selectedTags.length > 0 ? 'local-offer' : 'local-offer'}
-                  size={22}
-                  color={selectedTags.length > 0 ? '#8B5CF6' : theme.colors.textSecondary}
-                />
-                {selectedTags.length > 0 && <View style={[tb.dot, { backgroundColor: '#8B5CF6' }]} />}
-              </TouchableOpacity>
+                  {/* Tags */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => togglePanel('tags')}
+                  >
+                    <MaterialIcons
+                      name={selectedTags.length > 0 ? 'local-offer' : 'local-offer'}
+                      size={22}
+                      color={selectedTags.length > 0 ? '#8B5CF6' : theme.colors.textSecondary}
+                    />
+                    {selectedTags.length > 0 && <View style={[tb.dot, { backgroundColor: '#8B5CF6' }]} />}
+                  </TouchableOpacity>
 
-              {/* Reminder */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => togglePanel('reminder')}
-              >
-                <MaterialIcons
-                  name={reminder ? 'notifications' : 'notifications-none'}
-                  size={22}
-                  color={reminder ? '#F97316' : theme.colors.textSecondary}
-                />
-                {reminder && <View style={[tb.dot, { backgroundColor: '#F97316' }]} />}
-              </TouchableOpacity>
+                  {/* Reminder */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => togglePanel('reminder')}
+                  >
+                    <MaterialIcons
+                      name={reminder ? 'notifications' : 'notifications-none'}
+                      size={22}
+                      color={reminder ? '#F97316' : theme.colors.textSecondary}
+                    />
+                    {reminder && <View style={[tb.dot, { backgroundColor: '#F97316' }]} />}
+                  </TouchableOpacity>
 
-              {/* Subtasks */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => togglePanel('subtasks')}
-              >
-                <MaterialIcons
-                  name="format-list-bulleted"
-                  size={22}
-                  color={subtasks.length > 0 ? theme.colors.primary : theme.colors.textSecondary}
-                />
-                {subtasks.length > 0 && (
-                  <View style={[tb.badge, { backgroundColor: theme.colors.primary }]}>
-                    <Text style={tb.badgeText}>{subtasks.length}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
+                  {/* Subtasks */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => togglePanel('subtasks')}
+                  >
+                    <MaterialIcons
+                      name="format-list-bulleted"
+                      size={22}
+                      color={subtasks.length > 0 ? theme.colors.primary : theme.colors.textSecondary}
+                    />
+                    {subtasks.length > 0 && (
+                      <View style={[tb.badge, { backgroundColor: theme.colors.primary }]}>
+                        <Text style={tb.badgeText}>{subtasks.length}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
 
-              {/* Attachment */}
-              <TouchableOpacity
-                style={tb.btn}
-                onPress={() => togglePanel('attachments')}
-              >
-                <MaterialIcons
-                  name="attach-file"
-                  size={22}
-                  color={attachments.length > 0 ? theme.colors.primary : theme.colors.textSecondary}
-                />
-                {attachments.length > 0 && <View style={[tb.dot, { backgroundColor: theme.colors.primary }]} />}
-              </TouchableOpacity>
+                  {/* Attachment */}
+                  <TouchableOpacity
+                    style={tb.btn}
+                    onPress={() => togglePanel('attachments')}
+                  >
+                    <MaterialIcons
+                      name="attach-file"
+                      size={22}
+                      color={attachments.length > 0 ? theme.colors.primary : theme.colors.textSecondary}
+                    />
+                    {attachments.length > 0 && <View style={[tb.dot, { backgroundColor: theme.colors.primary }]} />}
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
 
             {/* Save Button */}
@@ -1313,12 +1320,11 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '' }: {
               {isSubmitting ? (
                 <MaterialIcons name="hourglass-empty" size={18} color={theme.colors.textSecondary} />
               ) : (
-                <Text style={[s.saveBtnText, {
-                  color: title.trim() && !errors.title ? '#FFFFFF' : theme.colors.textSecondary,
-                  fontFamily: 'Inter_600SemiBold'
-                }]}>
-                  Add Task
-                </Text>
+                <MaterialIcons 
+                  name={editMode ? "check" : "arrow-upward"} 
+                  size={20} 
+                  color={title.trim() && !errors.title ? '#FFFFFF' : theme.colors.textSecondary} 
+                />
               )}
             </TouchableOpacity>
           </View>

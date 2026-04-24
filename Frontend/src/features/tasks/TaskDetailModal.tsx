@@ -201,13 +201,14 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const [activeTab, setActiveTab] = useState<Tab>('subtasks');
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [composerVisible, setComposerVisible] = useState(false);
+  const [editComposerVisible, setEditComposerVisible] = useState(false);
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const subtaskListRef = useRef<any>(null);
 
-  const snapPoints = useMemo(() => ['70%', '100%'], []);
+  const snapPoints = useMemo(() => ['70%', '80%', '90%', '100%'], []);
 
   const dismiss = useCallback(() => {
     unsavedTextRef.current = '';
@@ -261,12 +262,21 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   }, [taskGroups, taskId]);
 
   useEffect(() => {
+    let timer: NodeJS.Timeout;
     if (visible && task) {
-      setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      // Reset state so it always starts fresh on the subtasks tab
+      setActiveTab('subtasks');
+      unsavedTextRef.current = '';
+      setCommentAtt(null);
+
+      // 150ms gives the Modal and BottomSheet enough time to mount and attach the ref
+      // on slower devices before attempting to snap it open.
+      timer = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 150);
     } else if (!visible) {
       bottomSheetRef.current?.close();
     }
-  }, [visible, !!task]);
+    return () => clearTimeout(timer);
+  }, [visible, task?.id]);
 
   const priority = task?.priority ? PRIORITY_META[task.priority] : null;
   const tagColor = TAG_META[task?.tagType?.toLowerCase() ?? 'personal'] ?? TAG_META.personal;
@@ -332,7 +342,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   const actionItems: SheetItem[] = [
     { label: 'View Task History', icon: 'history', onPress: () => { setShowActionMenu(false); setTimeout(() => setShowHistoryModal(true), 200); } },
-    { label: 'Edit Task', icon: 'edit', onPress: () => Alert.alert('Edit Task', 'Editor coming soon.') },
+    { label: 'Edit Task', icon: 'edit', onPress: () => { setShowActionMenu(false); setTimeout(() => setEditComposerVisible(true), 200); } },
     { label: 'Duplicate Task', icon: 'content-copy', onPress: () => { if (!task) return; Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); handleComposerSave({ ...task, id: `t${Date.now()}`, title: `${task.title} (Copy)`, completed: false, commentsList: [] }); Alert.alert('Duplicated ✓'); } },
     { label: 'Move to List', icon: 'folder-open', onPress: () => Alert.alert('Move Task', 'Coming soon.') },
     { label: 'Save as Template', icon: 'bookmark-add', onPress: () => Alert.alert('Template Saved', 'Saved as reusable template.') },
@@ -411,12 +421,12 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 </View>
 
                 {/* Title */}
-                <Text 
+                <Text
                   style={[
-                    st.title, 
-                    { color: theme.colors.text }, 
+                    st.title,
+                    { color: theme.colors.text },
                     task.title.length > 60 && { fontSize: 18, lineHeight: 24 } // dynamically reduce text size for long titles
-                  ]} 
+                  ]}
                 >
                   {task.title}
                 </Text>
@@ -645,6 +655,22 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           const newChild: any = { ...taskData, id: `c_${Date.now()}`, text: taskData.title, done: false };
           updateTask(task.id, (t: any) => ({ ...t, subtasks: [...(t.subtasks ?? []), newChild] }));
           setTimeout(() => subtaskListRef.current?.scrollToEnd?.({ animated: true }), 100);
+        }}
+      />
+
+      <TaskComposer
+        visible={editComposerVisible}
+        onClose={() => setEditComposerVisible(false)}
+        initialTitle={task.title}
+        initialDescription={task.description}
+        editMode={true}
+        onSave={(taskData: any) => {
+          updateTask(task.id, (t: any) => ({
+            ...t,
+            title: taskData.title,
+            description: taskData.description,
+          }));
+          setEditComposerVisible(false);
         }}
       />
     </>
