@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import {
   Modal, StyleSheet, TouchableOpacity, Pressable, View, Text,
   Platform, KeyboardAvoidingView, Image, TextInput,
-  Alert, Dimensions, ScrollView, Keyboard, // <--- Added Keyboard import
+  Alert, Dimensions, ScrollView, Keyboard, Linking,
 } from 'react-native';
 import BottomSheet, {
   BottomSheetScrollView,
@@ -16,6 +16,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../themes/ThemeContext';
 import { Task, Subtask } from '../../core/dummyData';
@@ -60,11 +63,10 @@ const VersionItem = ({ entry, isLast, theme }: { entry: VersionEntry; isLast: bo
     <View style={vm.content}>
       <Text style={[vm.action, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>{entry.action}</Text>
       {entry.from && entry.to && (
-        <View style={vm.diffRow}>
+        <View style={vm.diffCol}>
           <View style={[vm.pill, { backgroundColor: '#FEF2F2' }]}>
             <Text style={[vm.diffTxt, { color: '#EF4444' }]}>− {entry.from}</Text>
           </View>
-          <MaterialIcons name="arrow-forward" size={12} color="#94A3B8" />
           <View style={[vm.pill, { backgroundColor: '#F0FDF4' }]}>
             <Text style={[vm.diffTxt, { color: '#22C55E' }]}>+ {entry.to}</Text>
           </View>
@@ -82,9 +84,9 @@ const vm = StyleSheet.create({
   line: { width: 2, flex: 1, marginTop: 4, marginBottom: 4, borderRadius: 1 },
   content: { flex: 1, paddingBottom: 20 },
   action: { fontSize: 13, lineHeight: 18, marginBottom: 4 },
-  diffRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  diffTxt: { fontSize: 11, fontFamily: 'Inter_500Medium' },
+  diffCol: { flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginBottom: 6 },
+  pill: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  diffTxt: { fontSize: 12, fontFamily: 'Inter_500Medium', lineHeight: 18 },
   date: { fontSize: 11 },
 });
 
@@ -123,9 +125,36 @@ const as = StyleSheet.create({
   cancelText: { fontSize: 16 },
 });
 
+const DocumentIcon = ({ fileName, theme, size = 36 }: { fileName: string, theme: any, size?: number }) => {
+  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toUpperCase() || 'FILE' : 'FILE';
+  const getColors = (e: string) => {
+    if (['PDF'].includes(e)) return { bg: '#FEF2F2', text: '#EF4444' };
+    if (['DOC', 'DOCX', 'TXT', 'RTF'].includes(e)) return { bg: '#EFF6FF', text: '#3B82F6' };
+    if (['XLS', 'XLSX', 'CSV'].includes(e)) return { bg: '#F0FDF4', text: '#22C55E' };
+    if (['ZIP', 'RAR', 'TAR'].includes(e)) return { bg: '#FEF3C7', text: '#D97706' };
+    return { bg: `${theme.colors.primary}15`, text: theme.colors.primary };
+  };
+  const colors = getColors(ext);
+  return (
+    <View style={{ width: size, height: size, borderRadius: 8, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: `${colors.text}20` }}>
+      <Text style={{ color: colors.text, fontSize: size * 0.28, fontFamily: 'Inter_700Bold' }} numberOfLines={1}>
+        {ext.slice(0, 4)}
+      </Text>
+    </View>
+  );
+};
+
+const formatBytes = (bytes?: number) => {
+  if (!bytes || bytes === 0) return 'Unknown size';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
 // ─── NEW COMPONENT: Isolated Comment Input ─────────────────────────────────────
 // By isolating this, typing text no longer causes the parent Modal to remount!
-const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onTextChange }: any) => {
+const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onClearAtt, onTextChange }: any) => {
   const [text, setText] = useState('');
   const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -143,10 +172,10 @@ const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onTextC
     onTextChange(''); // Clear parent's warning ref
   };
 
-  // If keyboard is visible, padding is 8px. If hidden, use the safe area inset!
-  const dynamicPaddingBottom = isKeyboardVisible
-    ? 8
-    : Math.max(insets.bottom, Platform.OS === 'ios' ? 8 : 16);
+  // Bulletproof spacing: Symmetric 10px when typing, generous 30px+ when closed
+  const dynamicBottomSpace = isKeyboardVisible
+    ? 10
+    : insets.bottom > 0 ? insets.bottom + 12 : 30;
 
   return (
     <View style={[
@@ -154,45 +183,85 @@ const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onTextC
       {
         backgroundColor: theme.colors.cardPrimary,
         borderTopColor: theme.colors.border,
-        paddingBottom: dynamicPaddingBottom,
-        paddingTop: 8
+        paddingTop: 10,
+        flexDirection: 'column'
       }
     ]}>
-      <TouchableOpacity style={st.attachBtn} onPress={onPickAtt}>
-        <MaterialIcons name="add-photo-alternate" size={24} color={theme.colors.textSecondary} />
-      </TouchableOpacity>
+      {commentAtt && (
+        <View style={[st.attPreview, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginHorizontal: 12, marginBottom: 8 }]}>
+          {commentAtt.type === 'image'
+            ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" />
+            : <DocumentIcon fileName={commentAtt.name} theme={theme} size={36} />
+          }
+          <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
+          <TouchableOpacity onPress={onClearAtt}>
+            <MaterialIcons name="close" size={16} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      )}
 
-      <BottomSheetTextInput
-        style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
-        placeholder="Add a comment…"
-        placeholderTextColor={theme.colors.textSecondary}
-        value={text}
-        onChangeText={(val) => {
-          setText(val);
-          onTextChange(val); // Keep parent updated for the "Discard" warning ONLY
-        }}
-        onSubmitEditing={handleSend}
-        returnKeyType="send"
-        multiline
-      />
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 8,
+        paddingHorizontal: 12,
+        width: '100%',
+      }}>
+        <TouchableOpacity style={st.attachBtn} onPress={onPickAtt}>
+          <MaterialIcons name="attach-file" size={24} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[st.sendBtn, { backgroundColor: (text.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]}
-        onPress={handleSend}
-        disabled={!text.trim() && !commentAtt}
-      >
-        <MaterialIcons name="send" size={16} color="#fff" />
-      </TouchableOpacity>
+        <BottomSheetTextInput
+          style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
+          placeholder="Add a comment…"
+          placeholderTextColor={theme.colors.textSecondary}
+          value={text}
+          onChangeText={(val) => {
+            setText(val);
+            onTextChange(val); // Keep parent updated for the "Discard" warning ONLY
+          }}
+          onSubmitEditing={handleSend}
+          returnKeyType="send"
+          multiline
+        />
+
+        <TouchableOpacity
+          style={[st.sendBtn, { backgroundColor: (text.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]}
+          onPress={handleSend}
+          disabled={!text.trim() && !commentAtt}
+        >
+          <MaterialIcons name="send" size={16} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Bulletproof Spacer: This View physically forces the space at the bottom */}
+      <View style={{ height: dynamicBottomSpace }} />
     </View>
   );
 };
 
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const formatHistoryDate = (timestamp: number): string => {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const mins = Math.floor(diff / 60000);
+  const hrs = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
+  if (days === 1) return 'Yesterday';
+  const d = new Date(timestamp);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalProps) => {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { taskGroups, updateTask, handleComposerSave } = useDashboard();
+  const { taskGroups, updateTask, handleComposerSave, addHistoryEvent, taskHistory } = useDashboard();
 
   // Replaced `newComment` state with a Ref to prevent re-renders when typing
   const unsavedTextRef = useRef('');
@@ -204,6 +273,8 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const [editComposerVisible, setEditComposerVisible] = useState(false);
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [attachmentToRename, setAttachmentToRename] = useState<any | null>(null);
+  const [renameInput, setRenameInput] = useState('');
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const subtaskListRef = useRef<any>(null);
@@ -280,43 +351,84 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   const priority = task?.priority ? PRIORITY_META[task.priority] : null;
   const tagColor = TAG_META[task?.tagType?.toLowerCase() ?? 'personal'] ?? TAG_META.personal;
-  const subtasksDone = task?.subtasks?.filter((s: any) => s.done).length ?? 0;
-  const subtasksTotal = task?.subtasks?.length ?? 0;
-  const progress = subtasksTotal > 0 ? subtasksDone / subtasksTotal : 0;
+  const { topDone, topTotal, nestedDone, nestedTotal } = useMemo(() => {
+    let td = 0; let tt = 0; let nd = 0; let nt = 0;
+    if (task?.subtasks) {
+      tt = task.subtasks.length;
+      task.subtasks.forEach((s: any) => {
+        if (s.done) td++;
+        const children = s.subtasks || s.children;
+        if (children && children.length > 0) {
+          nt += children.length;
+          nd += children.filter((ns: any) => ns.done).length;
+        }
+      });
+    }
+    return { topDone: td, topTotal: tt, nestedDone: nd, nestedTotal: nt };
+  }, [task?.subtasks]);
+
+  const overallTotal = topTotal + nestedTotal;
+  const overallDone = topDone + nestedDone;
+  const progress = overallTotal > 0 ? overallDone / overallTotal : 0;
 
   const toggleSubtask = (subId: string) => {
     if (!task) return;
     Haptics.selectionAsync();
+    const sub = (task.subtasks as any[])?.find((s: any) => s.id === subId);
+    const wasDone = sub?.done ?? false;
     updateTask(task.id, (t: any) => ({ ...t, subtasks: t.subtasks?.map((s: any) => s.id === subId ? { ...s, done: !s.done } : s) }));
+    addHistoryEvent(task.id, {
+      action: wasDone
+        ? `Unmarked subtask as done: "${sub?.text ?? ''}"`
+        : `Marked subtask as done: "${sub?.text ?? ''}"`,
+      icon: wasDone ? 'radio-button-unchecked' : 'check-circle',
+    });
   };
 
   const switchTab = (tab: Tab) => { Haptics.selectionAsync(); setActiveTab(tab); };
 
-  const pickCommentAtt = async (source: 'camera' | 'gallery' | 'file') => {
-    const MAX = 5 * 1024 * 1024;
-    if (source === 'file') {
-      try {
-        const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-        if (!res.canceled && res.assets?.[0]) {
-          const a = res.assets[0];
-          if (a.size && a.size > MAX) { Alert.alert('Too Large', 'Max 5MB per comment attachment.'); return; }
-          if (a.mimeType?.startsWith('video/')) { Alert.alert('Not Allowed', 'Videos cannot be attached.'); return; }
-          setCommentAtt({ uri: a.uri, name: a.name || 'File', type: 'file' });
+  const pickCommentAtt = async () => {
+    const MAX = 3 * 1024 * 1024; // 3MB limit
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (!res.canceled && res.assets?.[0]) {
+        const a = res.assets[0];
+        if (a.size && a.size > MAX) { Alert.alert('Too Large', 'Max 3MB per comment attachment.'); return; }
+        const isImage = a.mimeType?.startsWith('image/');
+        setCommentAtt({ uri: a.uri, name: a.name || 'File', type: isImage ? 'image' : 'file', size: a.size, mimeType: a.mimeType });
+      }
+    } catch { Alert.alert('Error', 'Could not pick file.'); }
+  };
+
+  const handleOpenAtt = async (att: any) => {
+    try {
+      if (Platform.OS === 'android') {
+        let contentUri = att.uri;
+        if (contentUri.startsWith('file://')) {
+          contentUri = await FileSystem.getContentUriAsync(contentUri);
         }
-      } catch { Alert.alert('Error', 'Could not pick file.'); }
-      return;
-    }
-    const { status } = source === 'camera'
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission Required', 'Enable it in Settings.'); return; }
-    const res = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (!res.canceled && res.assets?.[0]) {
-      const a = res.assets[0];
-      if (a.fileSize && a.fileSize > MAX) { Alert.alert('Too Large', 'Max 5MB per attachment.'); return; }
-      setCommentAtt({ uri: a.uri, name: a.fileName || 'Photo', type: 'image' });
+        try {
+          await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: contentUri,
+            flags: 1,
+            type: att.mimeType || '*/*'
+          });
+        } catch (innerErr) {
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(contentUri);
+          } else {
+            throw innerErr;
+          }
+        }
+      } else {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(att.uri, { UTI: att.mimeType });
+        } else {
+          await Linking.openURL(att.uri);
+        }
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not open file');
     }
   };
 
@@ -328,8 +440,61 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       ...t,
       commentsList: [...(t.commentsList ?? []), { id: Date.now().toString(), text: text.trim(), date: 'Just now', attachment: att ?? undefined }],
     }));
+    addHistoryEvent(task.id, { action: 'Added a comment', icon: 'chat-bubble-outline' });
     setCommentAtt(null);
-  }, [task, updateTask]);
+  }, [task, updateTask, addHistoryEvent]);
+
+  const handleAddTaskAttachment = async () => {
+    if (!task) return;
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (!res.canceled && res.assets?.[0]) {
+        const a = res.assets[0];
+        const isImage = a.mimeType?.startsWith('image/');
+        const newAtt = { id: Date.now().toString(), uri: a.uri, name: a.name || 'File', type: isImage ? 'image' : 'document', size: a.size, mimeType: a.mimeType };
+
+        updateTask(task.id, (t: any) => ({
+          ...t,
+          attachments: [...(t.attachments ?? []), newAtt]
+        }));
+        addHistoryEvent(task.id, { action: `Attached file: "${a.name}"`, icon: 'attach-file' });
+      }
+    } catch { Alert.alert('Error', 'Could not pick file.'); }
+  };
+
+  const handleAttachmentOptions = (att: any) => {
+    if (!task) return;
+    Haptics.selectionAsync();
+    Alert.alert(
+      att.name,
+      'Select an option',
+      [
+        { text: 'Open', onPress: () => handleOpenAtt(att) },
+        { text: 'Rename', onPress: () => { setAttachmentToRename(att); setRenameInput(att.name); } },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setTimeout(() => {
+              Alert.alert('Delete Attachment', 'Are you sure you want to delete this attachment?', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete', style: 'destructive', onPress: () => {
+                    updateTask(task.id, (t: any) => ({
+                      ...t,
+                      attachments: t.attachments?.filter((a: any) => a.id !== att.id)
+                    }));
+                    addHistoryEvent(task.id, { action: `Removed attachment: "${att.name}"`, icon: 'delete-outline' });
+                  }
+                }
+              ]);
+            }, 300); // Small delay required on iOS when showing alert from an alert
+          }
+        },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
 
   const handleClose = () => {
     if (unsavedTextRef.current.trim()) {
@@ -351,12 +516,17 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     { label: 'Delete Task', icon: 'delete-outline', destructive: true, onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); dismiss(); } }]) },
   ];
 
-  const versionHistory: VersionEntry[] = [
-    { id: 'v4', action: 'You marked a subtask as done', date: '5 min ago', icon: 'check-circle' },
-    { id: 'v3', action: 'You changed priority', from: 'LOW', to: 'HIGH', date: '1 hour ago', icon: 'flag' },
-    { id: 'v2', action: 'You added 2 subtasks', date: 'Yesterday, 4:30 PM', icon: 'add-circle' },
-    { id: 'v1', action: 'You created this task', date: 'Apr 5, 10:30 AM', icon: 'add-task' },
-  ];
+  const versionHistory: VersionEntry[] = useMemo(() => {
+    const events = taskHistory[task?.id ?? ''] ?? [];
+    return [...events].reverse().map(e => ({
+      id: e.id,
+      action: e.action,
+      from: e.from,
+      to: e.to,
+      date: formatHistoryDate(e.timestamp),
+      icon: e.icon,
+    }));
+  }, [taskHistory, task?.id]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const renderFooter = useCallback(
@@ -369,8 +539,9 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             theme={theme}
             insets={insets}
             onSend={handleAddComment}
-            onPickAtt={() => pickCommentAtt('gallery')}
+            onPickAtt={pickCommentAtt}
             commentAtt={commentAtt}
+            onClearAtt={() => setCommentAtt(null)}
             onTextChange={(val: string) => { unsavedTextRef.current = val; }}
           />
         </BottomSheetFooter>
@@ -464,14 +635,18 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 )}
 
                 {/* Progress */}
-                {subtasksTotal > 0 && (
+                {overallTotal > 0 && (
                   <View style={st.progressWrap}>
                     <View style={st.progressRow}>
-                      <Text style={[st.progressLabel, { color: theme.colors.textSecondary }]}>{subtasksDone}/{subtasksTotal} completed</Text>
+                      <Text style={[st.progressLabel, { color: theme.colors.textSecondary }]}>
+                        {overallDone}/{overallTotal} completed
+                        {nestedTotal > 0 ? ` (${nestedDone}/${nestedTotal} nested)` : ''}
+                      </Text>
                       <Text style={[st.progressPct, { color: theme.colors.primary }]}>{Math.round(progress * 100)}%</Text>
                     </View>
-                    <View style={[st.progressTrack, { backgroundColor: `${theme.colors.primary}22` }]}>
-                      <View style={[st.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.colors.primary }]} />
+                    <View style={[st.progressTrack, { backgroundColor: `${theme.colors.primary}22`, flexDirection: 'row' }]}>
+                      {topDone > 0 && <View style={[st.progressFill, { width: `${(topDone / overallTotal) * 100}%`, backgroundColor: theme.colors.primary }]} />}
+                      {nestedDone > 0 && <View style={[st.progressFill, { width: `${(nestedDone / overallTotal) * 100}%`, backgroundColor: '#38BDF8' }]} />}
                     </View>
                   </View>
                 )}
@@ -562,6 +737,19 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                                 <View style={[st.bubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
                                   <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham · {c.date}</Text>
                                   {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
+                                  {c.attachment && (
+                                    <TouchableOpacity
+                                      activeOpacity={0.8}
+                                      onPress={() => handleOpenAtt(c.attachment)}
+                                      style={[st.attPreview, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, marginTop: c.text ? 8 : 0 }]}
+                                    >
+                                      {c.attachment.type === 'image'
+                                        ? <Image source={{ uri: c.attachment.uri }} style={st.attPreviewImg} resizeMode="cover" />
+                                        : <DocumentIcon fileName={c.attachment.name} theme={theme} size={36} />
+                                      }
+                                      <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{c.attachment.name}</Text>
+                                    </TouchableOpacity>
+                                  )}
                                 </View>
                               </View>
                             </View>
@@ -574,19 +762,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                           <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Start the conversation below</Text>
                         </View>
                       )}
-
-                      {commentAtt && (
-                        <View style={[st.attPreview, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginTop: 12 }]}>
-                          {commentAtt.type === 'image'
-                            ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" />
-                            : <MaterialIcons name="insert-drive-file" size={20} color={theme.colors.primary} />
-                          }
-                          <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
-                          <TouchableOpacity onPress={() => setCommentAtt(null)}>
-                            <MaterialIcons name="close" size={16} color={theme.colors.textSecondary} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
                     </BottomSheetScrollView>
                   </View>
                 )}
@@ -597,16 +772,33 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                     {(task.attachments?.length ?? 0) > 0 ? (
                       <View style={{ gap: 16 }}>
                         <Text style={[st.sectionLabel, { color: theme.colors.textSecondary }]}>TASK ATTACHMENTS ({task.attachments?.length})</Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                        <View style={{ gap: 12 }}>
                           {task.attachments!.map((att: any) => (
-                            <TouchableOpacity key={att.id} style={[st.attCard, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, width: (SW - 44) / 2 }]} activeOpacity={0.8}>
-                              {att.type === 'image'
-                                ? <Image source={{ uri: att.uri }} style={st.attImg} resizeMode="cover" />
-                                : <View style={[st.attIconBox, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name={att.type === 'link' ? 'link' : 'description'} size={28} color={theme.colors.primary} /></View>
-                              }
-                              <View style={{ padding: 8, borderTopWidth: 1, borderColor: theme.colors.border }}>
-                                <Text style={[st.attName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]} numberOfLines={1}>{att.name}</Text>
+                            <TouchableOpacity
+                              key={att.id}
+                              style={[st.attListItem, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}
+                              activeOpacity={0.7}
+                              onPress={() => handleOpenAtt(att)}
+                            >
+                              <View style={st.attListThumb}>
+                                {att.type === 'image'
+                                  ? <Image source={{ uri: att.uri }} style={st.attListImg} resizeMode="cover" />
+                                  : <DocumentIcon fileName={att.name} theme={theme} size={40} />
+                                }
                               </View>
+                              <View style={st.attListInfo}>
+                                <Text style={[st.attListName, { color: theme.colors.text }]} numberOfLines={1}>{att.name}</Text>
+                                <Text style={[st.attListMeta, { color: theme.colors.textSecondary }]}>
+                                  {att.type === 'image' ? 'Image' : 'Document'} · {formatBytes(att.size)}
+                                </Text>
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => handleAttachmentOptions(att)}
+                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                                style={{ padding: 4 }}
+                              >
+                                <MaterialIcons name="more-vert" size={20} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
                             </TouchableOpacity>
                           ))}
                         </View>
@@ -618,6 +810,13 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                         <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>No files attached to this task</Text>
                       </View>
                     )}
+
+                    <View style={{ paddingTop: 16 }}>
+                      <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={handleAddTaskAttachment} activeOpacity={0.75}>
+                        <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
+                        <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add attachment</Text>
+                      </TouchableOpacity>
+                    </View>
                   </BottomSheetScrollView>
                 )}
               </View>
@@ -640,7 +839,17 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
           </View>
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 20 }} showsVerticalScrollIndicator={false}>
             <Text style={[st.historyNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>All changes to this task are recorded below.</Text>
-            {versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)}
+            {versionHistory.length === 0 ? (
+              <View style={[st.emptyState, { paddingVertical: 40 }]}>
+                <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}>
+                  <MaterialIcons name="history" size={30} color={theme.colors.primary} />
+                </View>
+                <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No history yet</Text>
+                <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Actions you take on this task will appear here</Text>
+              </View>
+            ) : (
+              versionHistory.map((entry, i) => <VersionItem key={entry.id} entry={entry} isLast={i === versionHistory.length - 1} theme={theme} />)
+            )}
           </ScrollView>
         </View>
       </Modal>
@@ -654,6 +863,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         onSave={(taskData: any) => {
           const newChild: any = { ...taskData, id: `c_${Date.now()}`, text: taskData.title, done: false };
           updateTask(task.id, (t: any) => ({ ...t, subtasks: [...(t.subtasks ?? []), newChild] }));
+          addHistoryEvent(task.id, { action: `Added subtask: "${taskData.title}"`, icon: 'add-circle' });
           setTimeout(() => subtaskListRef.current?.scrollToEnd?.({ animated: true }), 100);
         }}
       />
@@ -663,16 +873,69 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         onClose={() => setEditComposerVisible(false)}
         initialTitle={task.title}
         initialDescription={task.description}
+        initialPriority={task.priority}
+        initialDueDate={task.dueDate}
+        initialDueTime={task.dueTime}
+        initialReminder={task.hasReminder ? 'At due time' : ''}
+        initialTags={task.tag ? [task.tag.toLowerCase().replace(/\s+/g, '-')] : []}
         editMode={true}
         onSave={(taskData: any) => {
+          addHistoryEvent(task.id, {
+            action: task.title !== taskData.title ? 'Edited task title' : 'Edited task details',
+            from: task.title !== taskData.title ? task.title : undefined,
+            to: task.title !== taskData.title ? taskData.title : undefined,
+            icon: 'edit',
+          });
           updateTask(task.id, (t: any) => ({
             ...t,
             title: taskData.title,
             description: taskData.description,
+            priority: taskData.priority,
+            dueDate: taskData.dueDate,
+            dueTime: taskData.dueTime,
+            hasReminder: !!taskData.reminder,
+            tag: taskData.tags?.[0]?.label,
+            tagType: taskData.tags?.[0]?.label,
           }));
           setEditComposerVisible(false);
         }}
       />
+      {/* Rename Attachment Modal */}
+      <Modal visible={!!attachmentToRename} transparent animationType="fade" onRequestClose={() => setAttachmentToRename(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '80%', backgroundColor: theme.colors.cardPrimary, padding: 20, borderRadius: 16 }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Inter_600SemiBold', marginBottom: 12, color: theme.colors.text }}>Rename Attachment</Text>
+            <TextInput
+              style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 8, padding: 12, color: theme.colors.text, marginBottom: 20, fontFamily: 'Inter_400Regular' }}
+              value={renameInput}
+              onChangeText={setRenameInput}
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+              <TouchableOpacity onPress={() => setAttachmentToRename(null)} style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (renameInput.trim() && task && attachmentToRename) {
+                    updateTask(task.id, (t: any) => ({
+                      ...t,
+                      attachments: t.attachments?.map((a: any) => a.id === attachmentToRename.id ? { ...a, name: renameInput.trim() } : a)
+                    }));
+                    addHistoryEvent(task.id, { action: `Renamed attachment to "${renameInput.trim()}"`, icon: 'edit' });
+                  }
+                  setAttachmentToRename(null);
+                }}
+                style={{ paddingVertical: 8, paddingHorizontal: 16, backgroundColor: theme.colors.primary, borderRadius: 8 }}
+              >
+                <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold' }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </>
   );
 };
@@ -723,19 +986,21 @@ const st = StyleSheet.create({
   commentTxt: { fontSize: 14, lineHeight: 20 },
 
   // NOTE: paddingBottom is intentionally removed here, we apply it dynamically in the component!
-  commentBar: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  commentBar: { borderTopWidth: StyleSheet.hairlineWidth },
 
-  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
-  commentInput: { flex: 1, fontSize: 14, paddingHorizontal: 14, paddingTop: Platform.OS === 'ios' ? 9 : 7, paddingBottom: Platform.OS === 'ios' ? 9 : 7, borderRadius: 20, minHeight: 38, maxHeight: 110, marginBottom: 3 },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
+  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  commentInput: { flex: 1, fontSize: 14, paddingHorizontal: 14, paddingTop: Platform.OS === 'ios' ? 9 : 7, paddingBottom: Platform.OS === 'ios' ? 9 : 7, borderRadius: 20, minHeight: 38, maxHeight: 110 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   attPreview: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 10, borderWidth: 1 },
   attPreviewImg: { width: 36, height: 36, borderRadius: 6 },
   attPreviewName: { flex: 1, fontSize: 12 },
   sectionLabel: { fontSize: 11, letterSpacing: 0.8 },
-  attCard: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
-  attIconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', margin: 12 },
-  attImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
-  attName: { fontSize: 12, lineHeight: 16 },
+  attListItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, borderWidth: 1, gap: 14 },
+  attListThumb: { width: 44, height: 44, borderRadius: 10, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  attListImg: { width: '100%', height: '100%' },
+  attListInfo: { flex: 1, gap: 4 },
+  attListName: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  attListMeta: { fontSize: 12, fontFamily: 'Inter_400Regular' },
   historyNote: { fontSize: 13, lineHeight: 20, marginBottom: 20 },
 });
 

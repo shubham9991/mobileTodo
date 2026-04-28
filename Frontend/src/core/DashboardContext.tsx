@@ -31,18 +31,29 @@ export interface TaskGroup {
   tasks: Task[];
 }
 
+export interface HistoryEvent {
+  id: string;
+  action: string;
+  from?: string;
+  to?: string;
+  timestamp: number;
+  icon: string;
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface DashboardContextType {
   sectionOrder:         SectionId[];
   sectionVisibility:    Record<SectionId, boolean>;
   layoutMode:           LayoutMode;
   taskGroups:           TaskGroup[];
+  taskHistory:          Record<string, HistoryEvent[]>;
   setSectionOrder:      (order: SectionId[]) => void;
   toggleSectionVisibility: (id: SectionId) => void;
   setLayoutMode:        (mode: LayoutMode) => void;
   setTaskGroups:        React.Dispatch<React.SetStateAction<TaskGroup[]>>;
   handleComposerSave:   (taskData: any) => void;
   updateTask:           (taskId: string, updater: (t: Task) => Task) => void;
+  addHistoryEvent:      (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType>({
@@ -50,12 +61,14 @@ const DashboardContext = createContext<DashboardContextType>({
   sectionVisibility:       DEFAULT_VIS,
   layoutMode:              'comfortable',
   taskGroups:              [],
+  taskHistory:             {},
   setSectionOrder:         () => {},
   toggleSectionVisibility: () => {},
   setLayoutMode:           () => {},
   setTaskGroups:           () => {},
   handleComposerSave:      () => {},
   updateTask:              () => {},
+  addHistoryEvent:         () => {},
 });
 
 export const DashboardProvider = ({ children }: { children: ReactNode }) => {
@@ -63,6 +76,19 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [sectionVisibility, setSectionVisibility] = useState<Record<SectionId, boolean>>(DEFAULT_VIS);
   const [layoutMode, setLayoutMode]               = useState<LayoutMode>('comfortable');
   const [taskGroups, setTaskGroups]               = useState<TaskGroup[]>(dummyData.taskGroups as any);
+  const [taskHistory, setTaskHistory]             = useState<Record<string, HistoryEvent[]>>({});
+
+  const addHistoryEvent = (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => {
+    const newEvent: HistoryEvent = {
+      ...event,
+      id: `h_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+    };
+    setTaskHistory(prev => ({
+      ...prev,
+      [taskId]: [...(prev[taskId] ?? []), newEvent],
+    }));
+  };
 
   const toggleSectionVisibility = (id: SectionId) =>
     setSectionVisibility((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -90,6 +116,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
           : g
       );
     });
+    addHistoryEvent(newTask.id, { action: 'Task created', icon: 'add-task' });
   };
 
   const updateTask = (taskId: string, updater: (t: Task) => Task) => {
@@ -139,9 +166,9 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <DashboardContext.Provider value={{
-      sectionOrder, sectionVisibility, layoutMode, taskGroups,
+      sectionOrder, sectionVisibility, layoutMode, taskGroups, taskHistory,
       setSectionOrder, toggleSectionVisibility, setLayoutMode,
-      setTaskGroups, handleComposerSave, updateTask,
+      setTaskGroups, handleComposerSave, updateTask, addHistoryEvent,
     }}>
       {children}
     </DashboardContext.Provider>

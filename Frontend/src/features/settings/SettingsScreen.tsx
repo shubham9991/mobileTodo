@@ -8,27 +8,27 @@ import { useTheme, ACCENT_COLORS } from '../../themes/ThemeContext';
 import {
   useDashboard, SectionId, SECTION_META, LAYOUT_MODES, DEFAULT_ORDER,
 } from '../../core/DashboardContext';
-import { TopNavbar } from '../../layout/TopNavbar';
+// Removed TopNavbar import to break the require cycle
 import { BottomNavbar } from '../../layout/BottomNavbar';
 import { SettingRow, ToggleRow, SectionHeader, SettingsCard } from './components/SettingRow';
 
 // ─── Owned data ───────────────────────────────────────────────────────────────
 const OWNED_THEMES = [
   { id: 'default', name: 'Default', bg: '#FFFFFF', accent: '#18181B' },
-  { id: 'dusk',    name: 'Dusk',    bg: '#1C1C2E', accent: '#7C3AED' },
-  { id: 'forest',  name: 'Forest',  bg: '#0D1F0F', accent: '#22C55E' },
+  { id: 'dusk', name: 'Dusk', bg: '#1C1C2E', accent: '#7C3AED' },
+  { id: 'forest', name: 'Forest', bg: '#0D1F0F', accent: '#22C55E' },
 ];
 const OWNED_PLUGINS = [
-  { id: 'finance', name: 'Finance Tracker', icon: 'account-balance', enabled: true,  desc: 'Budget, expenses & goals' },
-  { id: 'retail',  name: 'Retail Manager',  icon: 'storefront',      enabled: false, desc: 'Inventory & order tracking'},
+  { id: 'finance', name: 'Finance Tracker', icon: 'account-balance', enabled: true, desc: 'Budget, expenses & goals' },
+  { id: 'retail', name: 'Retail Manager', icon: 'storefront', enabled: false, desc: 'Inventory & order tracking' },
 ];
 const WIDGETS = [
-  { id: 'focus',   label: 'Focus Timer',     icon: 'timer'                 },
-  { id: 'ring',    label: 'Progress Ring',   icon: 'donut-large'           },
-  { id: 'quote',   label: 'Quote of Day',    icon: 'format-quote'          },
-  { id: 'weather', label: 'Weather',         icon: 'wb-sunny'              },
-  { id: 'habit',   label: 'Habit Tracker',   icon: 'repeat'                },
-  { id: 'streak',  label: 'Streak Counter',  icon: 'local-fire-department' },
+  { id: 'focus', label: 'Focus Timer', icon: 'timer' },
+  { id: 'ring', label: 'Progress Ring', icon: 'donut-large' },
+  { id: 'quote', label: 'Quote of Day', icon: 'format-quote' },
+  { id: 'weather', label: 'Weather', icon: 'wb-sunny' },
+  { id: 'habit', label: 'Habit Tracker', icon: 'repeat' },
+  { id: 'streak', label: 'Streak Counter', icon: 'local-fire-department' },
 ];
 
 // ─── Bottom Sheet wrapper ─────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ const Sheet = ({ visible, onClose, title, children }: {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.overlay} onPress={onClose}>
-        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => {}}>
+        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => { }}>
           <View style={[s.handle, { backgroundColor: theme.colors.border }]} />
           <Text style={[s.sheetTitle, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>{title}</Text>
           <View style={[s.divider, { backgroundColor: theme.colors.border }]} />
@@ -55,16 +55,16 @@ const Sheet = ({ visible, onClose, title, children }: {
 
 // ─── Section Visibility Modal ─────────────────────────────────────────────────
 const VisibilityModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
-  const { theme }                                          = useTheme();
-  const { sectionVisibility, toggleSectionVisibility }     = useDashboard();
-  const sections                                           = DEFAULT_ORDER;
+  const { theme } = useTheme();
+  const { sectionVisibility, toggleSectionVisibility } = useDashboard();
+  const sections = DEFAULT_ORDER;
 
   return (
     <Sheet visible={visible} onClose={onClose} title="Section Visibility">
       {sections.map((id, i) => {
-        const meta    = SECTION_META[id as SectionId];
+        const meta = SECTION_META[id as SectionId];
         if (!meta) return null;
-        const isOn    = sectionVisibility[id as SectionId];
+        const isOn = sectionVisibility[id as SectionId];
         return (
           <TouchableOpacity
             key={id}
@@ -96,12 +96,12 @@ const VisibilityModal = ({ visible, onClose }: { visible: boolean; onClose: () =
 
 // ─── Section Order Modal ──────────────────────────────────────────────────────
 const OrderModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
-  const { theme }                         = useTheme();
+  const { theme } = useTheme();
   const { sectionOrder, setSectionOrder } = useDashboard();
-  const [localOrder, setLocalOrder]       = useState<SectionId[]>([...sectionOrder]);
+  const [localOrder, setLocalOrder] = useState<SectionId[]>([...sectionOrder]);
 
   const move = (index: number, dir: 1 | -1) => {
-    const arr    = [...localOrder];
+    const arr = [...localOrder];
     const target = index + dir;
     if (target < 0 || target >= arr.length) return;
     [arr[index], arr[target]] = [arr[target], arr[index]];
@@ -113,7 +113,7 @@ const OrderModal = ({ visible, onClose }: { visible: boolean; onClose: () => voi
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.overlay} onPress={onClose}>
-        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => {}}>
+        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => { }}>
           <View style={[s.handle, { backgroundColor: theme.colors.border }]} />
           <Text style={[s.sheetTitle, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>Section Order</Text>
           <Text style={[s.sheetNote, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
@@ -195,13 +195,13 @@ const WidgetsModal = ({ visible, onClose }: { visible: boolean; onClose: () => v
 
 // ─── Layout Mode Modal ────────────────────────────────────────────────────────
 const LayoutModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
-  const { theme }                     = useTheme();
+  const { theme } = useTheme();
   const { layoutMode, setLayoutMode } = useDashboard();
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.overlay} onPress={onClose}>
-        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => {}}>
+        <Pressable style={[s.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => { }}>
           <View style={[s.handle, { backgroundColor: theme.colors.border }]} />
           <Text style={[s.sheetTitle, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>Layout Mode</Text>
           <View style={[s.divider, { backgroundColor: theme.colors.border }]} />
@@ -255,8 +255,8 @@ const LayoutModal = ({ visible, onClose }: { visible: boolean; onClose: () => vo
 // ─── Appearance Section ───────────────────────────────────────────────────────
 const AppearanceSection = () => {
   const { theme, isDark, toggleDark, accentId, setAccent } = useTheme();
-  const [activeTheme, setActiveTheme]                      = useState('default');
-  const thumbColor                                         = isDark ? '#FFFFFF' : '#18181B';
+  const [activeTheme, setActiveTheme] = useState('default');
+  const thumbColor = isDark ? '#FFFFFF' : '#18181B';
 
   return (
     <SettingsCard>
@@ -423,23 +423,32 @@ const ProfileCard = () => {
 };
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-export const SettingsScreen = () => {
-  const { theme }                           = useTheme();
-  const { sectionVisibility, layoutMode }   = useDashboard();
-  const [notif, setNotif]                   = useState(true);
-  const [remind, setRemind]                 = useState(true);
-  const [sync, setSync]                     = useState(false);
-  const [showVis, setShowVis]              = useState(false);
-  const [showOrder, setShowOrder]           = useState(false);
-  const [showWidgets, setShowWidgets]       = useState(false);
-  const [showLayout, setShowLayout]         = useState(false);
+export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
+  const { theme } = useTheme();
+  const { sectionVisibility, layoutMode } = useDashboard();
+  const [notif, setNotif] = useState(true);
+  const [remind, setRemind] = useState(true);
+  const [sync, setSync] = useState(false);
+  const [showVis, setShowVis] = useState(false);
+  const [showOrder, setShowOrder] = useState(false);
+  const [showWidgets, setShowWidgets] = useState(false);
+  const [showLayout, setShowLayout] = useState(false);
 
-  const visibleCount   = Object.values(sectionVisibility).filter(Boolean).length;
-  const activeMode     = LAYOUT_MODES.find((m) => m.id === layoutMode)?.label ?? 'Comfortable';
+  const visibleCount = Object.values(sectionVisibility).filter(Boolean).length;
+  const activeMode = LAYOUT_MODES.find((m) => m.id === layoutMode)?.label ?? 'Comfortable';
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: theme.colors.background }]} edges={['top','left','right']}>
-      <TopNavbar />
+    <SafeAreaView style={[s.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }}>
+        {onClose && (
+          <TouchableOpacity onPress={onClose} style={{ padding: 4, marginLeft: -4, marginRight: 8 }}>
+            <MaterialIcons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        )}
+        <Text style={{ fontSize: 20, letterSpacing: -0.4, color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }}>
+          Settings
+        </Text>
+      </View>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
 
         <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
@@ -451,10 +460,10 @@ export const SettingsScreen = () => {
 
         <SectionHeader label="DASHBOARD" />
         <SettingsCard>
-          <SettingRow icon="dashboard"       label="Customize Widgets"  value="3 active"       onPress={() => setShowWidgets(true)} />
-          <SettingRow icon="view-list"       label="Section Visibility" value={`${visibleCount} / 6 on`} onPress={() => setShowVis(true)} />
-          <SettingRow icon="swap-vert"       label="Section Order"                             onPress={() => setShowOrder(true)} />
-          <SettingRow icon="space-dashboard" label="Layout Mode"        value={activeMode}     onPress={() => setShowLayout(true)} isLast />
+          <SettingRow icon="dashboard" label="Customize Widgets" value="3 active" onPress={() => setShowWidgets(true)} />
+          <SettingRow icon="view-list" label="Section Visibility" value={`${visibleCount} / 6 on`} onPress={() => setShowVis(true)} />
+          <SettingRow icon="swap-vert" label="Section Order" onPress={() => setShowOrder(true)} />
+          <SettingRow icon="space-dashboard" label="Layout Mode" value={activeMode} onPress={() => setShowLayout(true)} isLast />
         </SettingsCard>
 
         <SectionHeader label="PLUGINS" />
@@ -462,18 +471,18 @@ export const SettingsScreen = () => {
 
         <SectionHeader label="APP SETTINGS" />
         <SettingsCard>
-          <ToggleRow icon="notifications-none" label="Push Notifications" subtitle="Task reminders and updates" value={notif}   onChange={setNotif}   />
-          <ToggleRow icon="alarm"              label="Default Reminders"  subtitle="30 min before due time"     value={remind}  onChange={setRemind}  />
-          <ToggleRow icon="cloud-sync"         label="Sync & Backup"      subtitle="Auto-sync every 6 hours"    value={sync}    onChange={setSync}    />
-          <SettingRow icon="lock"         label="Privacy & Data"  onPress={() => {}} />
-          <SettingRow icon="help-outline" label="Help & Support"  onPress={() => {}} isLast />
+          <ToggleRow icon="notifications-none" label="Push Notifications" subtitle="Task reminders and updates" value={notif} onChange={setNotif} />
+          <ToggleRow icon="alarm" label="Default Reminders" subtitle="30 min before due time" value={remind} onChange={setRemind} />
+          <ToggleRow icon="cloud-sync" label="Sync & Backup" subtitle="Auto-sync every 6 hours" value={sync} onChange={setSync} />
+          <SettingRow icon="lock" label="Privacy & Data" onPress={() => { }} />
+          <SettingRow icon="help-outline" label="Help & Support" onPress={() => { }} isLast />
         </SettingsCard>
 
         <SectionHeader label="ACCOUNT" />
         <SettingsCard>
-          <SettingRow icon="inventory-2"     label="My Purchases"    value="5 items" onPress={() => {}} />
-          <SettingRow icon="manage-accounts" label="Manage Account"                  onPress={() => {}} />
-          <SettingRow icon="logout"          label="Log Out"                         onPress={() => {}} danger isLast />
+          <SettingRow icon="inventory-2" label="My Purchases" value="5 items" onPress={() => { }} />
+          <SettingRow icon="manage-accounts" label="Manage Account" onPress={() => { }} />
+          <SettingRow icon="logout" label="Log Out" onPress={() => { }} danger isLast />
         </SettingsCard>
 
         <Text style={[s.version, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
@@ -481,12 +490,10 @@ export const SettingsScreen = () => {
         </Text>
       </ScrollView>
 
-      <BottomNavbar />
-
-      <VisibilityModal visible={showVis}    onClose={() => setShowVis(false)} />
-      <OrderModal      visible={showOrder}  onClose={() => setShowOrder(false)} />
-      <WidgetsModal    visible={showWidgets} onClose={() => setShowWidgets(false)} />
-      <LayoutModal     visible={showLayout} onClose={() => setShowLayout(false)} />
+      <VisibilityModal visible={showVis} onClose={() => setShowVis(false)} />
+      <OrderModal visible={showOrder} onClose={() => setShowOrder(false)} />
+      <WidgetsModal visible={showWidgets} onClose={() => setShowWidgets(false)} />
+      <LayoutModal visible={showLayout} onClose={() => setShowLayout(false)} />
     </SafeAreaView>
   );
 };

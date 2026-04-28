@@ -5,6 +5,7 @@ import { usePathname } from 'expo-router';
 import { useTheme } from '../../themes/ThemeContext';
 import { MarketplaceScreen } from '../../features/marketplace/MarketplaceScreen';
 import { GlobalSearchModal } from '../../features/search/GlobalSearchModal';
+import { SettingsScreen } from '../../features/settings/SettingsScreen';
 
 // Maps route pathname → display title
 const PAGE_TITLES: Record<string, string> = {
@@ -12,17 +13,18 @@ const PAGE_TITLES: Record<string, string> = {
   '/index':    'Modular',
   '/tasks':    'Tasks',
   '/events':   'Events',
-  '/settings': 'Settings',
+  '/manage':   'Manage',
 };
 
-export const TopNavbar = () => {
+export const TopNavbar = ({ onClose, title: propTitle }: { onClose?: () => void, title?: string }) => {
   const { theme } = useTheme();
   const pathname = usePathname();
   const [showMarketplace, setShowMarketplace] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Dynamic title — default to 'Modular' for unknown routes
-  const title = PAGE_TITLES[pathname] ?? 'Modular';
+  const title = propTitle || PAGE_TITLES[pathname] || 'Modular';
   const isHome = title === 'Modular';
 
   return (
@@ -33,7 +35,11 @@ export const TopNavbar = () => {
       }]}>
         {/* Logo box only on Home; other pages show back/title */}
         <View style={styles.left}>
-          {isHome && (
+          {onClose ? (
+            <TouchableOpacity onPress={onClose} style={{ padding: 4, marginLeft: -4, marginRight: 4 }}>
+              <MaterialIcons name="arrow-back" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          ) : isHome && (
             <View style={[styles.logoBox, { backgroundColor: theme.colors.text }]}>
               <MaterialIcons name="dashboard" size={14} color={theme.colors.background} />
             </View>
@@ -55,7 +61,7 @@ export const TopNavbar = () => {
           <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(true)}>
             <MaterialIcons name="search" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSettings(true)}>
             <MaterialIcons name="settings" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -74,6 +80,19 @@ export const TopNavbar = () => {
 
       {/* Global Search Modal */}
       <GlobalSearchModal visible={showSearch} onClose={() => setShowSearch(false)} />
+
+      {/* Settings Modal — full screen slide up */}
+      <Modal
+        visible={showSettings}
+        animationType="fade"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowSettings(false)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, position: 'relative' }}>
+          <SettingsScreen onClose={() => setShowSettings(false)} />
+        </View>
+      </Modal>
     </>
   );
 };
@@ -115,5 +134,18 @@ const styles = StyleSheet.create({
   iconBtn: {
     padding: 6,
     marginLeft: 2,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 52,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+    elevation: 10,
   },
 });

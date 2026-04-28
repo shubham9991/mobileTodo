@@ -4,6 +4,9 @@ import {
   Modal, Pressable, ScrollView, Platform,
   Animated, LayoutAnimation, Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+
 
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -13,6 +16,9 @@ import { Attachment, Subtask } from '../dummyData';
 import DateTimePicker from './DateTimePicker';
 import AttachmentPreview from './AttachmentPreview';
 import { parseTaskText } from '../utils/taskParser';
+import { scheduleReminder, cancelReminder, requestNotificationPermission } from '../utils/notifications';
+import LottieView from 'lottie-react-native';
+import { useManage } from '../ManageContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Priority = 'HIGH' | 'MED' | 'LOW';
@@ -64,7 +70,7 @@ function detectIntent(
   setTime: (v: string) => void,
   setReminder: (v: string) => void,
   addSmartTag: (id: string, label: string) => void,
-  setPriority: (v: Priority) => void,
+  setPriority: (v: string) => void,
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
   const parsed = parseTaskText(text);
@@ -88,7 +94,7 @@ function detectIntent(
   }
 
   if (parsed.priority) {
-    const pKey: Priority = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : 'LOW';
+    const pKey: string = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : 'LOW';
     suggestions.push({
       key: 'pri',
       icon: 'flag',
@@ -171,19 +177,21 @@ const cs = StyleSheet.create({
 });
 
 // ─── Priority Panel ───────────────────────────────────────────────────────────
-const PriorityPanel = ({ priority, onChange }: { priority: Priority | null; onChange: (p: Priority | null) => void }) => {
+const PriorityPanel = ({ priority, onChange }: { priority: string | null; onChange: (p: string | null) => void }) => {
   const { theme } = useTheme();
-  const opts: (Priority | null)[] = ['HIGH', 'MED', 'LOW', null];
+  const { priorities } = useManage();
+  // Build opts: all managed priority ids + null for "None"
+  const managedOpts = priorities.map(p => p.id);
   return (
     <View style={[panel.wrap, { borderTopColor: theme.colors.border }]}>
       <Text style={[panel.title, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>PRIORITY</Text>
       <View style={panel.row}>
-        {opts.map((opt) => {
-          const isActive = priority === opt;
-          const meta = opt ? PRI_META[opt] : null;
+        {[...managedOpts, null].map((optId) => {
+          const isActive = priority === optId;
+          const meta = optId ? priorities.find(p => p.id === optId) : null;
           return (
             <TouchableOpacity
-              key={opt ?? 'none'}
+              key={optId ?? 'none'}
               style={[panel.priBtn, {
                 backgroundColor: isActive
                   ? (meta ? `${meta.color}15` : theme.colors.secondary)
@@ -192,10 +200,10 @@ const PriorityPanel = ({ priority, onChange }: { priority: Priority | null; onCh
                   ? (meta ? meta.color : theme.colors.textSecondary)
                   : theme.colors.border,
               }]}
-              onPress={() => onChange(isActive ? null : opt)}
+              onPress={() => onChange(isActive ? null : optId)}
             >
               <MaterialIcons
-                name={meta ? "flag" : "outlined-flag"}
+                name={meta ? 'flag' : 'outlined-flag'}
                 size={16}
                 color={isActive
                   ? (meta ? meta.color : theme.colors.text)
@@ -220,10 +228,11 @@ const PriorityPanel = ({ priority, onChange }: { priority: Priority | null; onCh
 // ─── Reminder Panel ───────────────────────────────────────────────────────────
 const ReminderPanel = ({ reminder, setReminder }: { reminder: string; setReminder: (v: string) => void }) => {
   const { theme } = useTheme();
+  const { reminderPresets } = useManage();
   return (
     <View style={[panel.wrap, { borderTopColor: theme.colors.border }]}>
       <Text style={[panel.title, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>REMIND ME</Text>
-      <ChipStrip options={REM_CHIPS} active={reminder} onSelect={setReminder} color="#F97316" />
+      <ChipStrip options={reminderPresets} active={reminder} onSelect={setReminder} color="#F97316" />
     </View>
   );
 };
@@ -693,27 +702,40 @@ const attachPanelStyles = StyleSheet.create({
 });
 
 // ─── Main Composer ────────────────────────────────────────────────────────────
-export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', initialDescription = '', editMode = false }: {
+export const TaskComposer = ({
+  visible, onClose, onSave,
+  initialTitle = '', initialDescription = '',
+  initialPriority = null, initialDueDate = '', initialDueTime = '', initialReminder = '', initialTags = [],
+  editMode = false
+}: {
   visible: boolean;
   onClose: () => void;
   onSave?: (task: any) => void;
   initialTitle?: string;
   initialDescription?: string;
+  initialPriority?: string | null;
+  initialDueDate?: string;
+  initialDueTime?: string;
+  initialReminder?: string;
+  initialTags?: string[];
   editMode?: boolean;
 }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+
 
   // Core
   const [title, setTitle] = useState(initialTitle);
-  const [priority, setPriority] = useState<Priority | null>(null);
-  const [dueDate, setDueDate] = useState('');
-  const [dueTime, setDueTime] = useState('');
-  const [reminder, setReminder] = useState('');
+  const manage = useManage();
+  const [priority, setPriority] = useState<string | null>(initialPriority ?? manage.defaultPriority);
+  const [dueDate, setDueDate] = useState(initialDueDate);
+  const [dueTime, setDueTime] = useState(initialDueTime);
+  const [reminder, setReminder] = useState(initialReminder);
   const [description, setDesc] = useState(initialDescription);
 
   // Tags
-  const [allTags, setAllTags] = useState<Tag[]>(DEFAULT_TAGS);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>(() => manage.tags);
+  const [selectedTags, setSelectedTags] = useState<string[]>(initialTags);
   const [newTagInput, setNewTagInput] = useState('');
 
   // Subtasks
@@ -739,6 +761,7 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
   const appliedRef = useRef(new Set<string>());
   const titleInputRef = useRef<TextInput>(null);
   const subtaskInputRef = useRef<TextInput>(null);
+  const lottieRef = useRef<LottieView>(null);
 
   // Tag helpers
   const addTag = (id: string) => setSelectedTags((p) => p.includes(id) ? p : [...p, id]);
@@ -807,11 +830,27 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
     setSuggestions(found);
   }, [title, applySmartTag, suggestions.length, dueDate, dueTime, priority, reminder, selectedTags]);
 
-  // Update title and description when initial values change
+  // Initialize internal states when modal opens
   useEffect(() => {
-    if (initialTitle) setTitle(initialTitle);
-    if (initialDescription) setDesc(initialDescription);
-  }, [initialTitle, initialDescription]);
+    requestNotificationPermission();
+    if (visible) {
+      setTitle(initialTitle);
+      setDesc(initialDescription);
+      setPriority(initialPriority);
+      setDueDate(initialDueDate);
+      setDueTime(initialDueTime);
+      setReminder(initialReminder);
+      setSelectedTags(initialTags);
+
+      if (initialTags.length > 0 && initialTags[0]) {
+        const tId = initialTags[0];
+        setAllTags((prev) => {
+          if (prev.find((t) => t.id === tId)) return prev;
+          return [...prev, { id: tId, label: tId.charAt(0).toUpperCase() + tId.slice(1).replace('-', ' '), color: '#8B5CF6' }];
+        });
+      }
+    }
+  }, [visible]);
 
   // Focus title input when modal opens
   useEffect(() => {
@@ -840,12 +879,14 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
     const hasUnsavedChanges =
       title.trim() !== initialTitle.trim() ||
       description.trim() !== initialDescription.trim() ||
+      priority !== initialPriority ||
+      dueDate !== initialDueDate ||
+      dueTime !== initialDueTime ||
+      reminder !== initialReminder ||
+      JSON.stringify(selectedTags.slice().sort()) !== JSON.stringify(initialTags.slice().sort()) ||
       (!editMode && (
         subtasks.length > 0 ||
-        attachments.length > 0 ||
-        selectedTags.length > 0 ||
-        priority !== null ||
-        dueDate !== ''
+        attachments.length > 0
       ));
 
     if (hasUnsavedChanges) {
@@ -870,8 +911,8 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
         ]
       );
     } else {
-      setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
-      setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
+      setTitle(initialTitle); setPriority(initialPriority); setDueDate(initialDueDate); setDueTime(initialDueTime); setReminder(initialReminder);
+      setSelectedTags(initialTags); setSubtasks([]); setDesc(initialDescription); setAttachments([]);
       setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
       setIsSubmitting(false); setSubInput('');
       setShowDatePicker(false);
@@ -915,18 +956,65 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
       tagType: selectedTags.length > 0 ? selectedTags[0] : undefined,
     };
 
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    if (onSave) {
-      onSave(taskData);
+    if (lottieRef.current && !editMode) {
+      // The Lottie animation loading phase is between frames 60 and 270
+      lottieRef.current.play(60, 270);
     }
 
-    // Reset without showing the discard alert
-    resetForm();
-    // Do not call onClose() so composer stays open to add the next task
-    setTimeout(() => {
-      titleInputRef.current?.focus();
-    }, 100);
+    const startTime = Date.now();
+
+    // Simulate the loading phase for a minimum of 700ms
+    // (If you add real API calls later, start them before this timer and await them here)
+    const elapsed = Date.now() - startTime;
+    const remainingTime = Math.max(0, 700 - elapsed);
+    if (remainingTime > 0) {
+      await new Promise(resolve => setTimeout(resolve, remainingTime));
+    }
+
+    if (lottieRef.current && !editMode) {
+      // Play the success phase (checkmark popping up and plane flying)
+      lottieRef.current.play(270, 372);
+      // Wait ~400ms for the checkmark to fully appear on screen before adding the task
+      await new Promise(resolve => setTimeout(resolve, 400));
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // Now that the tick mark has appeared, the task "goes" (saves to the list)
+    if (onSave) {
+      await Promise.resolve(onSave(taskData));
+      
+      if (taskData.dueDate && taskData.dueTime && taskData.reminder) {
+        try {
+          await scheduleReminder(
+            taskData.id,
+            taskData.title,
+            taskData.dueDate,
+            taskData.dueTime,
+            taskData.reminder
+          );
+        } catch (e) {
+          console.error('Failed to schedule reminder', e);
+        }
+      } else if (editMode) {
+        try {
+          await cancelReminder(taskData.id);
+        } catch (e) {
+          console.error('Failed to cancel reminder', e);
+        }
+      }
+    }
+
+    if (editMode) {
+      // In edit mode — close the composer after saving
+      onClose();
+    } else {
+      // In create mode — stay open to add the next task
+      resetForm();
+      setTimeout(() => {
+        titleInputRef.current?.focus();
+      }, 100);
+    }
   };
 
   const togglePanel = (panelName: ActivePanel) => {
@@ -941,338 +1029,348 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <View style={s.flex}>
-        <Pressable style={s.backdrop} onPress={handleClose} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
 
-        <View style={[s.sheet, { backgroundColor: theme.colors.cardPrimary }]}>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            style={{ flexShrink: 1 }}
-          >
-            {/* Title input */}
-            <View>
-              <TextInput
-                ref={titleInputRef}
-                style={[
-                  s.titleInput,
-                  { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
-                  touched.title && errors.title && { borderBottomWidth: 2, borderBottomColor: '#EF4444' }
-                ]}
-                placeholder="Task name"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={title}
-                onChangeText={(text) => {
-                  const cleaned = text.replace(/\n/g, '');
-                  setTitle(cleaned);
-                  if (touched.title) {
-                    const error = validateTitle(cleaned);
+        <View style={s.flex}>
+          <Pressable style={s.backdrop} onPress={handleClose} />
+
+          <View style={[s.sheet, {
+            backgroundColor: theme.colors.cardPrimary,
+            paddingBottom: Math.max(insets.bottom, 12)
+          }]}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              style={{ flexShrink: 1 }}
+            >
+              {/* Title input */}
+              <View>
+                <TextInput
+                  ref={titleInputRef}
+                  style={[
+                    s.titleInput,
+                    { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
+                    touched.title && errors.title && { borderBottomWidth: 2, borderBottomColor: '#EF4444' }
+                  ]}
+                  placeholder="Task name"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={title}
+                  onChangeText={(text) => {
+                    const cleaned = text.replace(/\n/g, '');
+                    setTitle(cleaned);
+                    if (touched.title) {
+                      const error = validateTitle(cleaned);
+                      setErrors(prev => ({ ...prev, title: error }));
+                    }
+                  }}
+                  onBlur={() => {
+                    setTouched(prev => ({ ...prev, title: true }));
+                    const error = validateTitle(title);
                     setErrors(prev => ({ ...prev, title: error }));
-                  }
-                }}
-                onBlur={() => {
-                  setTouched(prev => ({ ...prev, title: true }));
-                  const error = validateTitle(title);
-                  setErrors(prev => ({ ...prev, title: error }));
-                }}
-                multiline={true}
-                returnKeyType="send"
-                blurOnSubmit={true}
-                onSubmitEditing={handleSave}
-                maxLength={500}
-              />
-              {touched.title && errors.title && (
-                <View style={s.errorRow}>
-                  <MaterialIcons name="error-outline" size={14} color="#EF4444" />
-                  <Text style={[s.errorText, { color: '#EF4444' }]}>{errors.title}</Text>
+                  }}
+                  multiline={true}
+                  returnKeyType="send"
+                  blurOnSubmit={true}
+                  onSubmitEditing={handleSave}
+                  maxLength={500}
+                />
+                {touched.title && errors.title && (
+                  <View style={s.errorRow}>
+                    <MaterialIcons name="error-outline" size={14} color="#EF4444" />
+                    <Text style={[s.errorText, { color: '#EF4444' }]}>{errors.title}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Description input */}
+              <View style={s.descriptionContainer}>
+                <TextInput
+                  style={[
+                    s.descriptionInput,
+                    { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }
+                  ]}
+                  placeholder="Description"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={description}
+                  onChangeText={setDesc}
+                  multiline
+                  blurOnSubmit={false}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              {/* Subtasks - inline compact list */}
+              {subtasks.length > 0 && activePanel !== 'subtasks' && (
+                <View style={s.inlineSubtasksSection}>
+                  {subtasks.map((st) => {
+                    const hasChildren = (st.children?.length ?? 0) > 0;
+                    const isExpanded = expandedSubIds.has(st.id);
+                    const isAddingHere = addingChildFor === st.id;
+                    return (
+                      <View key={st.id}>
+                        {/* Parent row */}
+                        <View style={s.inlineSubtaskRow}>
+                          <TouchableOpacity
+                            style={[s.inlineSubtaskCheck, { borderColor: st.done ? theme.colors.primary : theme.colors.border, backgroundColor: st.done ? theme.colors.primary : 'transparent' }]}
+                            onPress={() => toggleSubtask(st.id)}
+                          >
+                            {st.done && <MaterialIcons name="check" size={10} color="#FFF" />}
+                          </TouchableOpacity>
+                          <Text style={[s.inlineSubtaskText, {
+                            color: theme.colors.text, opacity: st.done ? 0.5 : 1,
+                            textDecorationLine: st.done ? 'line-through' : 'none',
+                            fontFamily: 'Inter_500Medium',
+                          }]}>{st.text}</Text>
+                          {/* Expand/add nested button */}
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (!hasChildren && !isAddingHere) {
+                                setAddingChildFor(st.id);
+                                setChildInput('');
+                              } else {
+                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                setExpandedSubIds(prev => {
+                                  const next = new Set(prev);
+                                  next.has(st.id) ? next.delete(st.id) : next.add(st.id);
+                                  return next;
+                                });
+                              }
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <MaterialIcons
+                              name={isExpanded || isAddingHere ? 'expand-less' : (hasChildren ? 'expand-more' : 'add-circle-outline')}
+                              size={16}
+                              color={theme.colors.primary}
+                            />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Nested children */}
+                        {(isExpanded || isAddingHere) && (
+                          <View style={[s.nestedContainer, { borderColor: theme.colors.border }]}>
+                            {(st.children ?? []).map(child => (
+                              <View key={child.id} style={s.nestedChildRow}>
+                                <View style={[s.nestedLine, { backgroundColor: theme.colors.border }]} />
+                                <TouchableOpacity
+                                  style={[s.inlineSubtaskCheck, { borderColor: child.done ? theme.colors.primary : theme.colors.border, backgroundColor: child.done ? theme.colors.primary : 'transparent', width: 16, height: 16, borderRadius: 4 }]}
+                                  onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.map(c => c.id === child.id ? { ...c, done: !c.done } : c) } : p))}
+                                >
+                                  {child.done && <MaterialIcons name="check" size={9} color="#FFF" />}
+                                </TouchableOpacity>
+                                <Text style={[s.inlineSubtaskText, { color: theme.colors.text, opacity: child.done ? 0.5 : 1, fontSize: 13, textDecorationLine: child.done ? 'line-through' : 'none', fontFamily: 'Inter_400Regular' }]}>{child.text}</Text>
+                                <TouchableOpacity onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.filter(c => c.id !== child.id) } : p))}>
+                                  <MaterialIcons name="close" size={13} color={theme.colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+
+                            {/* Add child input */}
+                            {isAddingHere && (
+                              <View style={s.addChildInputRow}>
+                                <MaterialIcons name="subdirectory-arrow-right" size={13} color={theme.colors.primary} />
+                                <TextInput
+                                  style={[s.addChildInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
+                                  placeholder="Nested subtask…"
+                                  placeholderTextColor={theme.colors.textSecondary}
+                                  value={childInput}
+                                  onChangeText={setChildInput}
+                                  autoFocus
+                                  returnKeyType="done"
+                                  onSubmitEditing={() => {
+                                    if (!childInput.trim()) return;
+                                    setSubtasks(prev => prev.map(p => p.id === st.id
+                                      ? { ...p, children: [...(p.children ?? []), { id: `c_${Date.now()}`, text: childInput.trim(), done: false }] }
+                                      : p
+                                    ));
+                                    setChildInput('');
+                                    setAddingChildFor(null);
+                                    setExpandedSubIds(prev => new Set([...prev, st.id]));
+                                  }}
+                                />
+                                <TouchableOpacity onPress={() => { setAddingChildFor(null); setChildInput(''); }}>
+                                  <MaterialIcons name="close" size={14} color={theme.colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {!isAddingHere && (
+                              <TouchableOpacity style={s.addMoreNested} onPress={() => { setAddingChildFor(st.id); setChildInput(''); }}>
+                                <MaterialIcons name="add" size={13} color={theme.colors.primary} />
+                                <Text style={[s.addMoreNestedTxt, { color: theme.colors.primary }]}>Add nested</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
                 </View>
               )}
-            </View>
 
-            {/* Description input */}
-            <View style={s.descriptionContainer}>
-              <TextInput
-                style={[
-                  s.descriptionInput,
-                  { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }
-                ]}
-                placeholder="Description"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={description}
-                onChangeText={setDesc}
-                multiline
-                blurOnSubmit={false}
-                textAlignVertical="top"
-              />
-            </View>
-
-            {/* Subtasks - inline compact list */}
-            {subtasks.length > 0 && activePanel !== 'subtasks' && (
-              <View style={s.inlineSubtasksSection}>
-                {subtasks.map((st) => {
-                  const hasChildren = (st.children?.length ?? 0) > 0;
-                  const isExpanded = expandedSubIds.has(st.id);
-                  const isAddingHere = addingChildFor === st.id;
-                  return (
-                    <View key={st.id}>
-                      {/* Parent row */}
-                      <View style={s.inlineSubtaskRow}>
-                        <TouchableOpacity
-                          style={[s.inlineSubtaskCheck, { borderColor: st.done ? theme.colors.primary : theme.colors.border, backgroundColor: st.done ? theme.colors.primary : 'transparent' }]}
-                          onPress={() => toggleSubtask(st.id)}
-                        >
-                          {st.done && <MaterialIcons name="check" size={10} color="#FFF" />}
-                        </TouchableOpacity>
-                        <Text style={[s.inlineSubtaskText, {
-                          color: theme.colors.text, opacity: st.done ? 0.5 : 1,
-                          textDecorationLine: st.done ? 'line-through' : 'none',
-                          fontFamily: 'Inter_500Medium',
-                        }]}>{st.text}</Text>
-                        {/* Expand/add nested button */}
-                        <TouchableOpacity
-                          onPress={() => {
-                            if (!hasChildren && !isAddingHere) {
-                              setAddingChildFor(st.id);
-                              setChildInput('');
-                            } else {
-                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                              setExpandedSubIds(prev => {
-                                const next = new Set(prev);
-                                next.has(st.id) ? next.delete(st.id) : next.add(st.id);
-                                return next;
-                              });
-                            }
-                          }}
-                          style={{ padding: 4 }}
-                        >
-                          <MaterialIcons
-                            name={isExpanded || isAddingHere ? 'expand-less' : (hasChildren ? 'expand-more' : 'add-circle-outline')}
-                            size={16}
-                            color={theme.colors.primary}
-                          />
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Nested children */}
-                      {(isExpanded || isAddingHere) && (
-                        <View style={[s.nestedContainer, { borderColor: theme.colors.border }]}>
-                          {(st.children ?? []).map(child => (
-                            <View key={child.id} style={s.nestedChildRow}>
-                              <View style={[s.nestedLine, { backgroundColor: theme.colors.border }]} />
-                              <TouchableOpacity
-                                style={[s.inlineSubtaskCheck, { borderColor: child.done ? theme.colors.primary : theme.colors.border, backgroundColor: child.done ? theme.colors.primary : 'transparent', width: 16, height: 16, borderRadius: 4 }]}
-                                onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.map(c => c.id === child.id ? { ...c, done: !c.done } : c) } : p))}
-                              >
-                                {child.done && <MaterialIcons name="check" size={9} color="#FFF" />}
-                              </TouchableOpacity>
-                              <Text style={[s.inlineSubtaskText, { color: theme.colors.text, opacity: child.done ? 0.5 : 1, fontSize: 13, textDecorationLine: child.done ? 'line-through' : 'none', fontFamily: 'Inter_400Regular' }]}>{child.text}</Text>
-                              <TouchableOpacity onPress={() => setSubtasks(prev => prev.map(p => p.id === st.id ? { ...p, children: p.children?.filter(c => c.id !== child.id) } : p))}>
-                                <MaterialIcons name="close" size={13} color={theme.colors.textSecondary} />
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-
-                          {/* Add child input */}
-                          {isAddingHere && (
-                            <View style={s.addChildInputRow}>
-                              <MaterialIcons name="subdirectory-arrow-right" size={13} color={theme.colors.primary} />
-                              <TextInput
-                                style={[s.addChildInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
-                                placeholder="Nested subtask…"
-                                placeholderTextColor={theme.colors.textSecondary}
-                                value={childInput}
-                                onChangeText={setChildInput}
-                                autoFocus
-                                returnKeyType="done"
-                                onSubmitEditing={() => {
-                                  if (!childInput.trim()) return;
-                                  setSubtasks(prev => prev.map(p => p.id === st.id
-                                    ? { ...p, children: [...(p.children ?? []), { id: `c_${Date.now()}`, text: childInput.trim(), done: false }] }
-                                    : p
-                                  ));
-                                  setChildInput('');
-                                  setAddingChildFor(null);
-                                  setExpandedSubIds(prev => new Set([...prev, st.id]));
-                                }}
-                              />
-                              <TouchableOpacity onPress={() => { setAddingChildFor(null); setChildInput(''); }}>
-                                <MaterialIcons name="close" size={14} color={theme.colors.textSecondary} />
-                              </TouchableOpacity>
-                            </View>
-                          )}
-
-                          {!isAddingHere && (
-                            <TouchableOpacity style={s.addMoreNested} onPress={() => { setAddingChildFor(st.id); setChildInput(''); }}>
-                              <MaterialIcons name="add" size={13} color={theme.colors.primary} />
-                              <Text style={[s.addMoreNestedTxt, { color: theme.colors.primary }]}>Add nested</Text>
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-
-            {/* Attachment preview */}
-            {attachments.length > 0 && (
-              <>
-                <Divider />
-                <View style={s.attachmentSection}>
-                  <AttachmentPreview
-                    attachments={attachments}
-                    onRemove={removeAttachment}
-                  />
-                </View>
-              </>
-            )}
-
-            {/* Active selections pills */}
-            {(priority || dueDate || dueTime || reminder || selectedTags.length > 0) && (
-              <>
-                <Divider />
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.pillsRow} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, flexDirection: 'row', alignItems: 'center' }}>
-                  {priority && (
-                    <Pill
-                      color={PRI_META[priority].color}
-                      icon="flag"
-                      label={PRI_META[priority].label}
-                      onRemove={() => setPriority(null)}
-                    />
-                  )}
-                  {dueDate && (
-                    <Pill color="#6366F1" icon="calendar-month" label={dueTime ? `${dueDate} · ${dueTime}` : dueDate} onRemove={() => { setDueDate(''); setDueTime(''); }} />
-                  )}
-                  {reminder && (
-                    <Pill color="#F97316" icon="notifications" label={reminder} onRemove={() => setReminder('')} />
-                  )}
-                  {selectedTags.map((id) => {
-                    const tag = allTags.find((t) => t.id === id);
-                    if (!tag) return null;
-                    return <Pill key={id} color={tag.color} label={tag.label} onRemove={() => removeTag(id)} />;
-                  })}
-                </ScrollView>
-              </>
-            )}
-
-            {/* Smart suggestions */}
-            {suggestions.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyboardShouldPersistTaps="always"
-                contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginVertical: 12 }}
-              >
-                {suggestions.map((sg) => (
-                  <TouchableOpacity
-                    key={sg.key}
-                    style={[s.suggChip, { backgroundColor: `${theme.colors.primary}18`, borderColor: `${theme.colors.primary}30` }]}
-                    onPress={() => applyS(sg)}
-                  >
-                    <MaterialIcons name="auto-awesome" size={14} color={theme.colors.primary} />
-                    <MaterialIcons name={sg.icon as any} size={15} color={theme.colors.primary} />
-                    <Text style={[s.suggTxt, { color: theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>{sg.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
-            {/* Active panel - appears above toolbar */}
-            {activePanel === 'priority' && (
-              <PriorityPanel priority={priority} onChange={setPriority} />
-            )}
-            {activePanel === 'reminder' && (
-              <ReminderPanel reminder={reminder} setReminder={setReminder} />
-            )}
-            {activePanel === 'tags' && (
-              <TagsPanel
-                allTags={allTags} selected={selectedTags} onToggle={toggleTag}
-                newInput={newTagInput} setNewInput={setNewTagInput} onCreate={createTag}
-              />
-            )}
-            {activePanel === 'subtasks' && (
-              <SubtasksPanel
-                subtasks={subtasks}
-                subInput={subInput}
-                setSubInput={setSubInput}
-                onAdd={addSubtask}
-                onToggle={toggleSubtask}
-                onDelete={deleteSubtask}
-                inputRef={subtaskInputRef}
-              />
-            )}
-            {activePanel === 'attachments' && (
-              <AttachmentsPanel
-                onAttach={(att) => {
-                  setAttachments((prev) => [...prev, att]);
-                  setActivePanel(null);
-                }}
-                onClose={() => setActivePanel(null)}
-              />
-            )}
-
-          </ScrollView>
-
-          {/* Bottom Toolbar */}
-          <View style={[s.toolbar, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.cardPrimary }]}>
-            <View style={s.toolLeft}>
-              {!editMode && (
+              {/* Attachment preview */}
+              {attachments.length > 0 && (
                 <>
-                  {/* Calendar */}
-                  <TouchableOpacity
-                    style={tb.btn}
-                    onPress={() => setShowDatePicker(true)}
-                  >
-                    <MaterialIcons
-                      name="calendar-month"
-                      size={22}
-                      color={dueDate ? '#6366F1' : theme.colors.textSecondary}
+                  <Divider />
+                  <View style={s.attachmentSection}>
+                    <AttachmentPreview
+                      attachments={attachments}
+                      onRemove={removeAttachment}
                     />
-                    {dueDate && <View style={[tb.dot, { backgroundColor: '#6366F1' }]} />}
-                  </TouchableOpacity>
+                  </View>
+                </>
+              )}
 
-                  {/* Priority */}
-                  <TouchableOpacity
-                    style={tb.btn}
-                    onPress={() => togglePanel('priority')}
-                  >
-                    <MaterialIcons
-                      name={priority ? 'flag' : 'outlined-flag'}
-                      size={22}
-                      color={priority ? PRI_META[priority].color : theme.colors.textSecondary}
-                    />
-                    {priority && <View style={[tb.dot, { backgroundColor: PRI_META[priority].color }]} />}
-                  </TouchableOpacity>
+              {/* Active selections pills */}
+              {(priority || dueDate || dueTime || reminder || selectedTags.length > 0) && (
+                <>
+                  <Divider />
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.pillsRow} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, flexDirection: 'row', alignItems: 'center' }}>
+                    {priority && (() => {
+                      const priMeta = manage.priorities.find(p => p.id === priority);
+                      return priMeta ? (
+                        <Pill
+                          color={priMeta.color}
+                          icon="flag"
+                          label={priMeta.label}
+                          onRemove={() => setPriority(null)}
+                        />
+                      ) : null;
+                    })()}
+                    {dueDate && (
+                      <Pill color="#6366F1" icon="calendar-month" label={dueTime ? `${dueDate} · ${dueTime}` : dueDate} onRemove={() => { setDueDate(''); setDueTime(''); }} />
+                    )}
+                    {reminder && (
+                      <Pill color="#F97316" icon="notifications" label={reminder} onRemove={() => setReminder('')} />
+                    )}
+                    {selectedTags.map((id) => {
+                      const tag = allTags.find((t) => t.id === id);
+                      if (!tag) return null;
+                      return <Pill key={id} color={tag.color} label={tag.label} onRemove={() => removeTag(id)} />;
+                    })}
+                  </ScrollView>
+                </>
+              )}
 
-                  {/* Tags */}
-                  <TouchableOpacity
-                    style={tb.btn}
-                    onPress={() => togglePanel('tags')}
-                  >
-                    <MaterialIcons
-                      name={selectedTags.length > 0 ? 'local-offer' : 'local-offer'}
-                      size={22}
-                      color={selectedTags.length > 0 ? '#8B5CF6' : theme.colors.textSecondary}
-                    />
-                    {selectedTags.length > 0 && <View style={[tb.dot, { backgroundColor: '#8B5CF6' }]} />}
-                  </TouchableOpacity>
+              {/* Smart suggestions */}
+              {suggestions.length > 0 && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyboardShouldPersistTaps="always"
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginVertical: 12 }}
+                >
+                  {suggestions.map((sg) => (
+                    <TouchableOpacity
+                      key={sg.key}
+                      style={[s.suggChip, { backgroundColor: `${theme.colors.primary}18`, borderColor: `${theme.colors.primary}30` }]}
+                      onPress={() => applyS(sg)}
+                    >
+                      <MaterialIcons name="auto-awesome" size={14} color={theme.colors.primary} />
+                      <MaterialIcons name={sg.icon as any} size={15} color={theme.colors.primary} />
+                      <Text style={[s.suggTxt, { color: theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>{sg.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
 
-                  {/* Reminder */}
-                  <TouchableOpacity
-                    style={tb.btn}
-                    onPress={() => togglePanel('reminder')}
-                  >
-                    <MaterialIcons
-                      name={reminder ? 'notifications' : 'notifications-none'}
-                      size={22}
-                      color={reminder ? '#F97316' : theme.colors.textSecondary}
-                    />
-                    {reminder && <View style={[tb.dot, { backgroundColor: '#F97316' }]} />}
-                  </TouchableOpacity>
+              {/* Active panel - appears above toolbar */}
+              {activePanel === 'priority' && (
+                <PriorityPanel priority={priority} onChange={setPriority} />
+              )}
+              {activePanel === 'reminder' && (
+                <ReminderPanel reminder={reminder} setReminder={setReminder} />
+              )}
+              {activePanel === 'tags' && (
+                <TagsPanel
+                  allTags={allTags} selected={selectedTags} onToggle={toggleTag}
+                  newInput={newTagInput} setNewInput={setNewTagInput} onCreate={createTag}
+                />
+              )}
+              {activePanel === 'subtasks' && (
+                <SubtasksPanel
+                  subtasks={subtasks}
+                  subInput={subInput}
+                  setSubInput={setSubInput}
+                  onAdd={addSubtask}
+                  onToggle={toggleSubtask}
+                  onDelete={deleteSubtask}
+                  inputRef={subtaskInputRef}
+                />
+              )}
+              {activePanel === 'attachments' && (
+                <AttachmentsPanel
+                  onAttach={(att) => {
+                    setAttachments((prev) => [...prev, att]);
+                    setActivePanel(null);
+                  }}
+                  onClose={() => setActivePanel(null)}
+                />
+              )}
 
-                  {/* Subtasks */}
+            </ScrollView>
+
+            {/* Bottom Toolbar */}
+            <View style={[s.toolbar, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.cardPrimary }]}>
+              <View style={s.toolLeft}>
+                {/* Calendar - available in both create and edit mode */}
+                <TouchableOpacity
+                  style={tb.btn}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <MaterialIcons
+                    name="calendar-month"
+                    size={22}
+                    color={dueDate ? '#6366F1' : theme.colors.textSecondary}
+                  />
+                  {dueDate && <View style={[tb.dot, { backgroundColor: '#6366F1' }]} />}
+                </TouchableOpacity>
+
+                {/* Priority - available in both create and edit mode */}
+                <TouchableOpacity
+                  style={tb.btn}
+                  onPress={() => togglePanel('priority')}
+                >
+                  <MaterialIcons
+                    name={priority ? 'flag' : 'outlined-flag'}
+                    size={22}
+                    color={priority ? (manage.priorities.find(p => p.id === priority)?.color ?? theme.colors.textSecondary) : theme.colors.textSecondary}
+                  />
+                  {priority && <View style={[tb.dot, { backgroundColor: manage.priorities.find(p => p.id === priority)?.color ?? theme.colors.primary }]} />}
+                </TouchableOpacity>
+
+                {/* Tags - available in both create and edit mode */}
+                <TouchableOpacity
+                  style={tb.btn}
+                  onPress={() => togglePanel('tags')}
+                >
+                  <MaterialIcons
+                    name="local-offer"
+                    size={22}
+                    color={selectedTags.length > 0 ? '#8B5CF6' : theme.colors.textSecondary}
+                  />
+                  {selectedTags.length > 0 && <View style={[tb.dot, { backgroundColor: '#8B5CF6' }]} />}
+                </TouchableOpacity>
+
+                {/* Reminder - available in both create and edit mode */}
+                <TouchableOpacity
+                  style={tb.btn}
+                  onPress={() => togglePanel('reminder')}
+                >
+                  <MaterialIcons
+                    name={reminder ? 'notifications' : 'notifications-none'}
+                    size={22}
+                    color={reminder ? '#F97316' : theme.colors.textSecondary}
+                  />
+                  {reminder && <View style={[tb.dot, { backgroundColor: '#F97316' }]} />}
+                </TouchableOpacity>
+
+                {/* Subtasks - create mode only */}
+                {!editMode && (
                   <TouchableOpacity
                     style={tb.btn}
                     onPress={() => togglePanel('subtasks')}
@@ -1288,8 +1386,10 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
                       </View>
                     )}
                   </TouchableOpacity>
+                )}
 
-                  {/* Attachment */}
+                {/* Attachments - create mode only */}
+                {!editMode && (
                   <TouchableOpacity
                     style={tb.btn}
                     onPress={() => togglePanel('attachments')}
@@ -1301,29 +1401,85 @@ export const TaskComposer = ({ visible, onClose, onSave, initialTitle = '', init
                     />
                     {attachments.length > 0 && <View style={[tb.dot, { backgroundColor: theme.colors.primary }]} />}
                   </TouchableOpacity>
-                </>
-              )}
-            </View>
+                )}
+              </View>
 
-            {/* Save Button */}
-            <TouchableOpacity
-              style={[
-                s.saveBtn,
-                {
-                  backgroundColor: title.trim() && !errors.title ? theme.colors.primary : theme.colors.secondary,
-                  opacity: isSubmitting ? 0.6 : 1
+              {/* Save Button */}
+              <TouchableOpacity
+                style={
+                  !editMode
+                    ? {
+                      width: 54,
+                      height: 54,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: 1
+                    }
+                    : [
+                      s.saveBtn,
+                      {
+                        backgroundColor: (editMode || title.trim()) && !errors.title ? theme.colors.primary : theme.colors.secondary,
+                        opacity: isSubmitting ? 0.6 : (!title.trim() ? 0.5 : 1)
+                      }
+                    ]
                 }
-              ]}
+                onPress={handleSave}
+                disabled={(!editMode && !title.trim()) || !!errors.title || isSubmitting}
+              >
+                {!editMode ? (
+                  <LottieView
+                    ref={lottieRef}
+                    source={(!title.trim() && !isSubmitting) ? require('../../../assets/images/sendBtnDisabled.json') : require('../../../assets/images/sendBtn.json')}
+                    style={{ width: 300, height: 300, transform: [{ scale: 1.1 }] }}
+                    loop={false}
+                    autoPlay={false}
+                    speed={2}
+                  />
+                ) : (
+                  <MaterialIcons
+                    name="check"
+                    size={20}
+                    color={(editMode || title.trim()) && !errors.title ? '#FFFFFF' : theme.colors.textSecondary}
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+     ? {
+                    width: 54,
+                    height: 54,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: 1
+                  }
+                  : [
+                    s.saveBtn,
+                    {
+                      backgroundColor: (editMode || title.trim()) && !errors.title ? theme.colors.primary : theme.colors.secondary,
+                      opacity: isSubmitting ? 0.6 : (!title.trim() ? 0.5 : 1)
+                    }
+                  ]
+              }
               onPress={handleSave}
-              disabled={!title.trim() || !!errors.title || isSubmitting}
+              disabled={(!editMode && !title.trim()) || !!errors.title || isSubmitting}
             >
-              {isSubmitting ? (
-                <MaterialIcons name="hourglass-empty" size={18} color={theme.colors.textSecondary} />
+              {!editMode ? (
+                <LottieView
+                  ref={lottieRef}
+                  source={(!title.trim() && !isSubmitting) ? require('../../../assets/images/sendBtnDisabled.json') : require('../../../assets/images/sendBtn.json')}
+                  style={{ width: 300, height: 300, transform: [{ scale: 1.1 }] }}
+                  loop={false}
+                  autoPlay={false}
+                  speed={2}
+                />
               ) : (
-                <MaterialIcons 
-                  name={editMode ? "check" : "arrow-upward"} 
-                  size={20} 
-                  color={title.trim() && !errors.title ? '#FFFFFF' : theme.colors.textSecondary} 
+                <MaterialIcons
+                  name="check"
+                  size={20}
+                  color={(editMode || title.trim()) && !errors.title ? '#FFFFFF' : theme.colors.textSecondary}
                 />
               )}
             </TouchableOpacity>

@@ -12,6 +12,8 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { View, ActivityIndicator } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
+
 
 // Inner shell that has access to ThemeContext
 function AppShell() {
@@ -46,8 +48,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
         <DashboardProvider>
-          <AppShell />
+          <KeyboardProvider>
+            <AppShell />
+          </KeyboardProvider>
         </DashboardProvider>
+
       </ThemeProvider>
     </GestureHandlerRootView>
   );

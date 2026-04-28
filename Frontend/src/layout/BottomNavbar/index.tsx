@@ -16,7 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Home',     icon: 'home',           route: '/(tabs)/',        match: '/'        },
   { label: 'Tasks',    icon: 'checklist',       route: '/(tabs)/tasks',   match: '/tasks'   },
   { label: 'Events',   icon: 'calendar-month',  route: '/(tabs)/events',  match: '/events'  },
-  { label: 'Settings', icon: 'manage-accounts', route: '/(tabs)/settings',match: '/settings'},
+  { label: 'Manage',   icon: 'tune',            route: '/(tabs)/manage',  match: '/manage'  },
 ];
 
 export const BottomNavbar = () => {
