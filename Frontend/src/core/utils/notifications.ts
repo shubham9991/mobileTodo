@@ -1,10 +1,9 @@
-// import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
+import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
 import { addDays, nextDay, Day, addMinutes, addHours } from 'date-fns';
 
 export async function requestNotificationPermission() {
-  // const settings = await notifee.requestPermission();
-  // return settings.authorizationStatus;
-  console.log('[Notifee Stub] Requested notification permission');
+  const settings = await notifee.requestPermission();
+  return settings.authorizationStatus;
 }
 
 export async function scheduleReminder(
@@ -72,7 +71,6 @@ export async function scheduleReminder(
   if (triggerDate.getTime() <= Date.now()) return;
 
   // 4. Create trigger
-  /*
   const trigger: TimestampTrigger = {
     type: TriggerType.TIMESTAMP,
     timestamp: triggerDate.getTime(),
@@ -100,11 +98,8 @@ export async function scheduleReminder(
     },
     trigger,
   );
-  */
-  console.log('[Notifee Stub] Scheduled reminder for', triggerDate.toISOString());
 }
 
 export async function cancelReminder(taskId: string) {
-  // await notifee.cancelNotification(taskId);
-  console.log('[Notifee Stub] Cancelled reminder for', taskId);
+  await notifee.cancelNotification(taskId);
 }

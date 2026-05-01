@@ -165,7 +165,7 @@ export const TasksScreen = () => {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: fabBottom + 60 }}
         keyboardShouldPersistTaps="handled"
       >
         <TasksHeader total={totalTasks} completed={completedTasks} />

@@ -31,7 +31,9 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./withWindowsShortPaths",
       "expo-router",
+      "react-native-fast-tflite",
       [
         "expo-splash-screen",
         {

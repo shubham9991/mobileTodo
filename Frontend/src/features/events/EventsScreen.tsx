@@ -72,7 +72,7 @@ export const EventsScreen = () => {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: fabBottom + 60 }}
         stickyHeaderIndices={[0]}
       >
         {/* 0: Sticky expandable calendar */}

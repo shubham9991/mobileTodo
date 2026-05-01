@@ -28,7 +28,7 @@ const AddNoteSheet = ({ visible, onClose }: { visible: boolean; onClose: () => v
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={f.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={f.overlay} behavior="padding">
         <Pressable style={f.overlayBg} onPress={onClose} />
         <View style={[f.panel, { backgroundColor: theme.colors.cardPrimary }]}>
           <View style={[f.handle, { backgroundColor: theme.colors.border }]} />

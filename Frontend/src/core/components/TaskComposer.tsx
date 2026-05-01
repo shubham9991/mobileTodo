@@ -2,10 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   Modal, Pressable, ScrollView, Platform,
-  Animated, LayoutAnimation, Alert,
+  Animated, LayoutAnimation, Alert, Keyboard
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,13 +15,14 @@ import { Attachment, Subtask } from '../dummyData';
 import DateTimePicker from './DateTimePicker';
 import AttachmentPreview from './AttachmentPreview';
 import { parseTaskText } from '../utils/taskParser';
+import { smartParseTextSync, smartParseText } from '../utils/smartParser';
 import { scheduleReminder, cancelReminder, requestNotificationPermission } from '../utils/notifications';
 import LottieView from 'lottie-react-native';
 import { useManage } from '../ManageContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Priority = 'HIGH' | 'MED' | 'LOW';
-type ActivePanel = 'priority' | 'date' | 'reminder' | 'tags' | 'subtasks' | 'attachments' | null;
+type ActivePanel = 'priority' | 'date' | 'reminder' | 'tags' | 'subtasks' | 'attachments' | 'location' | null;
 interface Tag { id: string; label: string; color: string; }
 interface Suggestion { key: string; icon: string; label: string; apply: () => void; }
 interface ValidationErrors { title?: string; date?: string; }
@@ -63,65 +63,94 @@ const validateDate = (date: string): string | undefined => {
   return undefined;
 };
 
-// ─── NLP detection ───────────────────────────────────────────────────────────
-function detectIntent(
+// ─── Sync suggestion builder (runs instantly on every keystroke) ──────────────
+// Uses: (1) taskParser for date/priority/reminder/tags, (2) chrono-node for
+// robust date parsing, (3) regex engine for virtual/micro-locations.
+function buildSyncSuggestions(
   text: string,
+  dueDate: string,
+  dueTime: string,
+  priority: string | null,
+  reminder: string,
+  selectedTags: string[],
+  location: string,
   setDate: (v: string) => void,
   setTime: (v: string) => void,
   setReminder: (v: string) => void,
+  setLocation: (v: string) => void,
   addSmartTag: (id: string, label: string) => void,
   setPriority: (v: string) => void,
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
   const parsed = parseTaskText(text);
+  const { chronoResult, regexLocations, nlpLocations } = smartParseTextSync(text);
 
-  if (parsed.dateLabel) {
+  // ── Date (prefer chrono-node, fallback to taskParser) ──
+  const dateLabel = chronoResult.dateLabel ?? parsed.dateLabel;
+  if (dateLabel && !dueDate) {
     suggestions.push({
       key: 'dt',
       icon: 'calendar-month',
-      label: `Due: ${parsed.dateLabel}`,
-      apply: () => setDate(parsed.dateLabel as string)
+      label: `Due: ${dateLabel}`,
+      apply: () => setDate(dateLabel),
     });
   }
 
-  if (parsed.time) {
+  // ── Time (prefer chrono-node, fallback to taskParser) ──
+  const time = chronoResult.time ?? parsed.time;
+  if (time && !dueTime) {
     suggestions.push({
       key: 'tm',
       icon: 'schedule',
-      label: `Reminder: ${parsed.time}`,
-      apply: () => { setTime(parsed.time as string); setReminder('At due time'); }
+      label: `Time: ${time}`,
+      apply: () => { setTime(time); setReminder('At due time'); },
     });
   }
 
-  if (parsed.priority) {
-    const pKey: string = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : 'LOW';
+  // ── Priority ──
+  if (parsed.priority && !priority) {
+    const pKey = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : 'LOW';
     suggestions.push({
       key: 'pri',
       icon: 'flag',
       label: `Priority: ${parsed.priority}`,
-      apply: () => setPriority(pKey)
+      apply: () => setPriority(pKey),
     });
   }
 
-  if (parsed.hasReminder) {
+  // ── Reminder ──
+  if (parsed.hasReminder && !reminder) {
     suggestions.push({
       key: 'rem',
       icon: 'notifications-active',
       label: 'Set Reminder',
-      apply: () => setReminder('At due time')
+      apply: () => setReminder('At due time'),
     });
   }
 
+  // ── Regex locations (virtual meetings & micro-locations) ──
+  [...regexLocations, ...nlpLocations].forEach((loc) => {
+    if (!location && loc && !suggestions.find(s => s.key === `loc-${loc}`)) {
+      suggestions.push({
+        key: `loc-${loc}`,
+        icon: 'location-on',
+        label: `Location: ${loc}`,
+        apply: () => setLocation(loc),
+      });
+    }
+  });
+
+  // ── Tags (from taskParser keyword dict) ──
   parsed.tags.forEach(tagLabel => {
-    suggestions.push({
-      key: `tg-${tagLabel}`,
-      icon: 'local-offer',
-      label: `Tag: ${tagLabel}`,
-      apply: () => {
-        const id = tagLabel.toLowerCase().replace(/\s+/g, '-');
-        addSmartTag(id, tagLabel);
-      }
-    });
+    const tId = tagLabel.toLowerCase().replace(/\s+/g, '-');
+    if (!selectedTags.includes(tId)) {
+      suggestions.push({
+        key: `tg-${tagLabel}`,
+        icon: 'local-offer',
+        label: `Tag: ${tagLabel}`,
+        apply: () => addSmartTag(tId, tagLabel),
+      });
+    }
   });
 
   return suggestions;
@@ -233,6 +262,32 @@ const ReminderPanel = ({ reminder, setReminder }: { reminder: string; setReminde
     <View style={[panel.wrap, { borderTopColor: theme.colors.border }]}>
       <Text style={[panel.title, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>REMIND ME</Text>
       <ChipStrip options={reminderPresets} active={reminder} onSelect={setReminder} color="#F97316" />
+    </View>
+  );
+};
+
+// ─── Location Panel ───────────────────────────────────────────────────────────
+const LocationPanel = ({ location, setLocation }: { location: string; setLocation: (v: string) => void }) => {
+  const { theme } = useTheme();
+  return (
+    <View style={[panel.wrap, { borderTopColor: theme.colors.border }]}>
+      <Text style={[panel.title, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>LOCATION</Text>
+      <View style={[panel.newTagRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.secondary }]}>
+        <MaterialIcons name="location-on" size={14} color={theme.colors.textSecondary} style={{ marginLeft: 8 }} />
+        <TextInput
+          style={[{ flex: 1, paddingVertical: 8, paddingHorizontal: 6, fontSize: 13, color: theme.colors.text, fontFamily: 'Inter_400Regular' }]}
+          placeholder="Add location..."
+          placeholderTextColor={theme.colors.textSecondary}
+          value={location}
+          onChangeText={setLocation}
+          returnKeyType="done"
+        />
+        {location.trim().length > 0 && (
+          <TouchableOpacity onPress={() => setLocation('')} style={{ padding: 8 }}>
+            <MaterialIcons name="close" size={14} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 };
@@ -705,7 +760,7 @@ const attachPanelStyles = StyleSheet.create({
 export const TaskComposer = ({
   visible, onClose, onSave,
   initialTitle = '', initialDescription = '',
-  initialPriority = null, initialDueDate = '', initialDueTime = '', initialReminder = '', initialTags = [],
+  initialPriority = null, initialDueDate = '', initialDueTime = '', initialReminder = '', initialTags = [], initialLocation = '',
   editMode = false
 }: {
   visible: boolean;
@@ -718,6 +773,7 @@ export const TaskComposer = ({
   initialDueTime?: string;
   initialReminder?: string;
   initialTags?: string[];
+  initialLocation?: string;
   editMode?: boolean;
 }) => {
   const { theme } = useTheme();
@@ -731,6 +787,7 @@ export const TaskComposer = ({
   const [dueDate, setDueDate] = useState(initialDueDate);
   const [dueTime, setDueTime] = useState(initialDueTime);
   const [reminder, setReminder] = useState(initialReminder);
+  const [location, setLocation] = useState(initialLocation);
   const [description, setDesc] = useState(initialDescription);
 
   // Tags
@@ -811,24 +868,61 @@ export const TaskComposer = ({
   }, [allTags.length]);
 
   useEffect(() => {
-    const found = detectIntent(title, setDueDate, setDueTime, setReminder, applySmartTag, setPriority)
-      .filter((s) => {
-        if (s.key === 'dt' && dueDate) return false;
-        if (s.key === 'tm' && dueTime) return false;
-        if (s.key === 'pri' && priority) return false;
-        if (s.key === 'rem' && reminder) return false;
-        if (s.key.startsWith('tg-')) {
-          const tId = s.key.replace('tg-', '').toLowerCase().replace(/\s+/g, '-');
-          if (selectedTags.includes(tId)) return false;
-        }
-        return true;
-      });
+    // ── Pass 1: instant sync suggestions (chrono + regex + taskParser) ──────
+    const syncFound = buildSyncSuggestions(
+      title,
+      dueDate, dueTime, priority, reminder, selectedTags, location,
+      setDueDate, setDueTime, setReminder, setLocation,
+      applySmartTag, setPriority,
+    );
 
-    if (found.length !== suggestions.length && (found.length === 0 || suggestions.length === 0)) {
+    if (syncFound.length !== suggestions.length && (syncFound.length === 0 || suggestions.length === 0)) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
-    setSuggestions(found);
-  }, [title, applySmartTag, suggestions.length, dueDate, dueTime, priority, reminder, selectedTags]);
+    setSuggestions(syncFound);
+
+    // ── Pass 2: async background engines (TFLite + ML Kit) ─────────────────
+    // Runs after sync pass so UI is never blocked
+    let cancelled = false;
+    if (title.trim().length >= 4) {
+      smartParseText(title).then((result) => {
+        if (cancelled) return;
+
+        setSuggestions(prev => {
+          const next = [...prev];
+
+          // ML Kit physical locations
+          result.locations.forEach(loc => {
+            if (!location && !next.find(s => s.key === `loc-${loc}`)) {
+              next.push({
+                key: `loc-${loc}`,
+                icon: 'location-on',
+                label: `Location: ${loc}`,
+                apply: () => setLocation(loc),
+              });
+            }
+          });
+
+          // TFLite tag
+          if (result.tag && !selectedTags.includes(result.tag.toLowerCase().replace(/\s+/g, '-'))) {
+            const tId = result.tag.toLowerCase().replace(/[\s&]+/g, '-');
+            if (!next.find(s => s.key === `tg-${result.tag}`)) {
+              next.push({
+                key: `tg-${result.tag}`,
+                icon: 'auto-awesome',
+                label: `Tag: ${result.tag}`,
+                apply: () => applySmartTag(tId, result.tag!),
+              });
+            }
+          }
+
+          return next;
+        });
+      }).catch(() => { /* silently ignore engine errors */ });
+    }
+
+    return () => { cancelled = true; };
+  }, [title, applySmartTag, dueDate, dueTime, priority, reminder, selectedTags, location]);
 
   // Initialize internal states when modal opens
   useEffect(() => {
@@ -840,6 +934,7 @@ export const TaskComposer = ({
       setDueDate(initialDueDate);
       setDueTime(initialDueTime);
       setReminder(initialReminder);
+      setLocation(initialLocation);
       setSelectedTags(initialTags);
 
       if (initialTags.length > 0 && initialTags[0]) {
@@ -883,6 +978,7 @@ export const TaskComposer = ({
       dueDate !== initialDueDate ||
       dueTime !== initialDueTime ||
       reminder !== initialReminder ||
+      location !== initialLocation ||
       JSON.stringify(selectedTags.slice().sort()) !== JSON.stringify(initialTags.slice().sort()) ||
       (!editMode && (
         subtasks.length > 0 ||
@@ -899,7 +995,7 @@ export const TaskComposer = ({
             text: 'Discard',
             style: 'destructive',
             onPress: () => {
-              setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
+              setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder(''); setLocation('');
               setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
               setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
               setIsSubmitting(false); setSubInput('');
@@ -911,7 +1007,7 @@ export const TaskComposer = ({
         ]
       );
     } else {
-      setTitle(initialTitle); setPriority(initialPriority); setDueDate(initialDueDate); setDueTime(initialDueTime); setReminder(initialReminder);
+      setTitle(initialTitle); setPriority(initialPriority); setDueDate(initialDueDate); setDueTime(initialDueTime); setReminder(initialReminder); setLocation(initialLocation);
       setSelectedTags(initialTags); setSubtasks([]); setDesc(initialDescription); setAttachments([]);
       setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
       setIsSubmitting(false); setSubInput('');
@@ -922,7 +1018,7 @@ export const TaskComposer = ({
   };
 
   const resetForm = () => {
-    setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder('');
+    setTitle(''); setPriority(null); setDueDate(''); setDueTime(''); setReminder(''); setLocation('');
     setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
     setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
     setIsSubmitting(false); setSubInput('');
@@ -947,6 +1043,7 @@ export const TaskComposer = ({
       dueDate: dueDate || undefined,
       dueTime: dueTime || undefined,
       reminder: reminder || undefined,
+      location: location || undefined,
       description: description || undefined,
       tags: selectedTags.map(id => allTags.find(t => t.id === id)).filter(Boolean),
       subtasks: subtasks.length > 0 ? subtasks : undefined,
@@ -1021,6 +1118,23 @@ export const TaskComposer = ({
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActivePanel((prev) => prev === panelName ? null : panelName);
   };
+  // Track keyboard height dynamically using standard RN
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Divider component
   const Divider = () => (
@@ -1029,12 +1143,7 @@ export const TaskComposer = ({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-
-        <View style={s.flex}>
+      <View style={[s.flex, { paddingBottom: keyboardHeight }]}>
           <Pressable style={s.backdrop} onPress={handleClose} />
 
           <View style={[s.sheet, {
@@ -1226,10 +1335,10 @@ export const TaskComposer = ({
               )}
 
               {/* Active selections pills */}
-              {(priority || dueDate || dueTime || reminder || selectedTags.length > 0) && (
+              {(priority || dueDate || dueTime || reminder || location || selectedTags.length > 0) && (
                 <>
                   <Divider />
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.pillsRow} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, flexDirection: 'row', alignItems: 'center' }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" style={s.pillsRow} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, flexDirection: 'row', alignItems: 'center' }}>
                     {priority && (() => {
                       const priMeta = manage.priorities.find(p => p.id === priority);
                       return priMeta ? (
@@ -1246,6 +1355,9 @@ export const TaskComposer = ({
                     )}
                     {reminder && (
                       <Pill color="#F97316" icon="notifications" label={reminder} onRemove={() => setReminder('')} />
+                    )}
+                    {location && (
+                      <Pill color="#EF4444" icon="location-on" label={location} onRemove={() => setLocation('')} />
                     )}
                     {selectedTags.map((id) => {
                       const tag = allTags.find((t) => t.id === id);
@@ -1284,6 +1396,9 @@ export const TaskComposer = ({
               )}
               {activePanel === 'reminder' && (
                 <ReminderPanel reminder={reminder} setReminder={setReminder} />
+              )}
+              {activePanel === 'location' && (
+                <LocationPanel location={location} setLocation={setLocation} />
               )}
               {activePanel === 'tags' && (
                 <TagsPanel
@@ -1402,6 +1517,19 @@ export const TaskComposer = ({
                     {attachments.length > 0 && <View style={[tb.dot, { backgroundColor: theme.colors.primary }]} />}
                   </TouchableOpacity>
                 )}
+
+                {/* Location - available in both create and edit mode */}
+                <TouchableOpacity
+                  style={tb.btn}
+                  onPress={() => togglePanel('location')}
+                >
+                  <MaterialIcons
+                    name={location ? 'location-on' : 'location-on'}
+                    size={22}
+                    color={location ? '#EF4444' : theme.colors.textSecondary}
+                  />
+                  {location && <View style={[tb.dot, { backgroundColor: '#EF4444' }]} />}
+                </TouchableOpacity>
               </View>
 
               {/* Save Button */}
@@ -1445,48 +1573,7 @@ export const TaskComposer = ({
               </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-     ? {
-                    width: 54,
-                    height: 54,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: 1
-                  }
-                  : [
-                    s.saveBtn,
-                    {
-                      backgroundColor: (editMode || title.trim()) && !errors.title ? theme.colors.primary : theme.colors.secondary,
-                      opacity: isSubmitting ? 0.6 : (!title.trim() ? 0.5 : 1)
-                    }
-                  ]
-              }
-              onPress={handleSave}
-              disabled={(!editMode && !title.trim()) || !!errors.title || isSubmitting}
-            >
-              {!editMode ? (
-                <LottieView
-                  ref={lottieRef}
-                  source={(!title.trim() && !isSubmitting) ? require('../../../assets/images/sendBtnDisabled.json') : require('../../../assets/images/sendBtn.json')}
-                  style={{ width: 300, height: 300, transform: [{ scale: 1.1 }] }}
-                  loop={false}
-                  autoPlay={false}
-                  speed={2}
-                />
-              ) : (
-                <MaterialIcons
-                  name="check"
-                  size={20}
-                  color={(editMode || title.trim()) && !errors.title ? '#FFFFFF' : theme.colors.textSecondary}
-                />
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
       </View>
-
       {/* DateTimePicker Modal */}
       <DateTimePicker
         visible={showDatePicker}
