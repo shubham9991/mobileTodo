@@ -118,11 +118,12 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
           </Text>
 
           {/* Due date row */}
-          {(task.dueDate || task.dueTime) && (
+          {(task.dueDate || task.dueEndDate || task.dueTime) && (
             <View style={styles.dueRow}>
               <MaterialIcons name="schedule" size={11} color={theme.colors.textSecondary} />
               <Text style={[styles.dueText, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                {task.dueDate}{task.dueTime ? ` · ${task.dueTime}` : ''}
+                {task.dueDate && task.dueEndDate && task.dueDate !== task.dueEndDate ? `${task.dueDate} - ${task.dueEndDate}` : (task.dueDate || task.dueEndDate || '')}
+                {task.dueTime ? ` · ${task.dueTime}` : ''}
               </Text>
             </View>
           )}

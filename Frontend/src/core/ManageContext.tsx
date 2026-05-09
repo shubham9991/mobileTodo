@@ -15,19 +15,28 @@ export interface ManagedTag {
   color: string;
 }
 
+// Per-tag calendar marking preferences
+export type MarkingStyle = 'dot' | 'period' | 'custom';
+export interface CalendarMarkingSetting {
+  tagId: string;
+  style: MarkingStyle;  // dot | period | custom
+  visible: boolean;     // show/hide in calendar
+  customEmoji?: string; // optional emoji for 'custom' style
+}
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 export const DEFAULT_PRIORITIES: ManagedPriority[] = [
-  { id: 'HIGH', label: 'High',   color: '#EF4444', icon: 'flag', isDefault: true },
-  { id: 'MED',  label: 'Medium', color: '#F97316', icon: 'flag', isDefault: true },
-  { id: 'LOW',  label: 'Low',    color: '#22C55E', icon: 'flag', isDefault: true },
+  { id: 'HIGH', label: 'High', color: '#EF4444', icon: 'flag', isDefault: true },
+  { id: 'MED', label: 'Medium', color: '#F97316', icon: 'flag', isDefault: true },
+  { id: 'LOW', label: 'Low', color: '#22C55E', icon: 'flag', isDefault: true },
 ];
 
 export const DEFAULT_TAGS: ManagedTag[] = [
-  { id: 'work',     label: 'Work',     color: '#6366F1' },
+  { id: 'work', label: 'Work', color: '#6366F1' },
   { id: 'personal', label: 'Personal', color: '#71717A' },
-  { id: 'health',   label: 'Health',   color: '#22C55E' },
+  { id: 'health', label: 'Health', color: '#22C55E' },
   { id: 'learning', label: 'Learning', color: '#EC4899' },
-  { id: 'review',   label: 'Review',   color: '#F97316' },
+  { id: 'review', label: 'Review', color: '#F97316' },
 ];
 
 export const DEFAULT_REMINDER_PRESETS = [
@@ -49,50 +58,73 @@ export const PALETTE_COLORS = [
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface ManageContextType {
-  priorities:        ManagedPriority[];
-  tags:              ManagedTag[];
-  reminderPresets:   string[];
-  defaultPriority:   string | null;
-  setPriorities:     (p: ManagedPriority[]) => void;
-  addPriority:       (p: Omit<ManagedPriority, 'isDefault'>) => void;
-  updatePriority:    (id: string, changes: Partial<Pick<ManagedPriority, 'label' | 'color'>>) => void;
-  deletePriority:    (id: string) => void;
+  priorities: ManagedPriority[];
+  tags: ManagedTag[];
+  reminderPresets: string[];
+  defaultPriority: string | null;
+  // Calendar
+  calendarMarkings: CalendarMarkingSetting[];
+  showCalendarInDock: boolean;
+  updateCalendarMarking: (tagId: string, changes: Partial<Omit<CalendarMarkingSetting, 'tagId'>>) => void;
+  setShowCalendarInDock: (v: boolean) => void;
+  // Priorities
+  setPriorities: (p: ManagedPriority[]) => void;
+  addPriority: (p: Omit<ManagedPriority, 'isDefault'>) => void;
+  updatePriority: (id: string, changes: Partial<Pick<ManagedPriority, 'label' | 'color'>>) => void;
+  deletePriority: (id: string) => void;
   reorderPriorities: (from: number, to: number) => void;
-  setTags:           (t: ManagedTag[]) => void;
-  addTag:            (t: Omit<ManagedTag, 'id'>) => void;
-  updateTag:         (id: string, changes: Partial<Pick<ManagedTag, 'label' | 'color'>>) => void;
-  deleteTag:         (id: string) => void;
-  setReminderPresets:(r: string[]) => void;
+  // Tags
+  setTags: (t: ManagedTag[]) => void;
+  addTag: (t: Omit<ManagedTag, 'id'>) => void;
+  updateTag: (id: string, changes: Partial<Pick<ManagedTag, 'label' | 'color'>>) => void;
+  deleteTag: (id: string) => void;
+  // Reminders
+  setReminderPresets: (r: string[]) => void;
   addReminderPreset: (r: string) => void;
   deleteReminderPreset: (r: string) => void;
-  setDefaultPriority:(id: string | null) => void;
+  setDefaultPriority: (id: string | null) => void;
 }
 
 const ManageContext = createContext<ManageContextType>({
-  priorities:        DEFAULT_PRIORITIES,
-  tags:              DEFAULT_TAGS,
-  reminderPresets:   DEFAULT_REMINDER_PRESETS,
-  defaultPriority:   null,
-  setPriorities:     () => {},
-  addPriority:       () => {},
-  updatePriority:    () => {},
-  deletePriority:    () => {},
-  reorderPriorities: () => {},
-  setTags:           () => {},
-  addTag:            () => {},
-  updateTag:         () => {},
-  deleteTag:         () => {},
-  setReminderPresets:() => {},
-  addReminderPreset: () => {},
-  deleteReminderPreset: () => {},
-  setDefaultPriority:() => {},
+  priorities: DEFAULT_PRIORITIES,
+  tags: DEFAULT_TAGS,
+  reminderPresets: DEFAULT_REMINDER_PRESETS,
+  defaultPriority: null,
+  calendarMarkings: [],
+  showCalendarInDock: false,
+  updateCalendarMarking: () => { },
+  setShowCalendarInDock: () => { },
+  setPriorities: () => { },
+  addPriority: () => { },
+  updatePriority: () => { },
+  deletePriority: () => { },
+  reorderPriorities: () => { },
+  setTags: () => { },
+  addTag: () => { },
+  updateTag: () => { },
+  deleteTag: () => { },
+  setReminderPresets: () => { },
+  addReminderPreset: () => { },
+  deleteReminderPreset: () => { },
+  setDefaultPriority: () => { },
 });
 
 export const ManageProvider = ({ children }: { children: ReactNode }) => {
-  const [priorities,      setPriorities]      = useState<ManagedPriority[]>(DEFAULT_PRIORITIES);
-  const [tags,            setTags]            = useState<ManagedTag[]>(DEFAULT_TAGS);
+  const [priorities, setPriorities] = useState<ManagedPriority[]>(DEFAULT_PRIORITIES);
+  const [tags, setTags] = useState<ManagedTag[]>(DEFAULT_TAGS);
   const [reminderPresets, setReminderPresets] = useState<string[]>(DEFAULT_REMINDER_PRESETS);
   const [defaultPriority, setDefaultPriority] = useState<string | null>(null);
+  const [showCalendarInDock, setShowCalendarInDock] = useState(false);
+
+  // Initialise one CalendarMarkingSetting per default tag
+  const [calendarMarkings, setCalendarMarkings] = useState<CalendarMarkingSetting[]>(
+    DEFAULT_TAGS.map(t => ({ tagId: t.id, style: 'dot' as MarkingStyle, visible: true }))
+  );
+
+  const updateCalendarMarking = (tagId: string, changes: Partial<Omit<CalendarMarkingSetting, 'tagId'>>) =>
+    setCalendarMarkings(prev =>
+      prev.map(m => m.tagId === tagId ? { ...m, ...changes } : m)
+    );
 
   const addPriority = (p: Omit<ManagedPriority, 'isDefault'>) =>
     setPriorities(prev => [...prev, { ...p, isDefault: false }]);
@@ -128,11 +160,30 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const deleteReminderPreset = (r: string) =>
     setReminderPresets(prev => prev.filter(x => x !== r));
 
+  // Sync calendarMarkings when tags change (add new tag → add its marking entry)
+  const syncMarkings = (newTags: ManagedTag[]) => {
+    setCalendarMarkings(prev => {
+      const existing = new Set(prev.map(m => m.tagId));
+      const added = newTags
+        .filter(t => !existing.has(t.id))
+        .map(t => ({ tagId: t.id, style: 'dot' as MarkingStyle, visible: true }));
+      return [...prev, ...added];
+    });
+  };
+
+  const addTagAndSync = (t: Omit<ManagedTag, 'id'>) => {
+    const id = t.label.toLowerCase().replace(/\s+/g, '-');
+    const newTag = { id, ...t };
+    setTags(prev => { const next = [...prev, newTag]; syncMarkings(next); return next; });
+  };
+
   return (
     <ManageContext.Provider value={{
       priorities, tags, reminderPresets, defaultPriority,
+      calendarMarkings, showCalendarInDock,
+      updateCalendarMarking, setShowCalendarInDock,
       setPriorities, addPriority, updatePriority, deletePriority, reorderPriorities,
-      setTags, addTag, updateTag, deleteTag,
+      setTags, addTag: addTagAndSync, updateTag, deleteTag,
       setReminderPresets, addReminderPreset, deleteReminderPreset,
       setDefaultPriority,
     }}>
@@ -142,3 +193,8 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
 };
 
 export const useManage = () => useContext(ManageContext);
+
+// Convenience hook: returns the CalendarMarkingSetting for a given tagId (or a default)
+export const useTagMarking = (tagId: string): CalendarMarkingSetting =>
+  useManage().calendarMarkings.find(m => m.tagId === tagId) ??
+  { tagId, style: 'dot', visible: true };

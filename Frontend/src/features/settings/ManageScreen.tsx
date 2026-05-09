@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  TextInput, Pressable, Alert, LayoutAnimation,
+  TextInput, Pressable, Alert, LayoutAnimation, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import { TopNavbar } from '../../layout/TopNavbar';
 import { BottomNavbar } from '../../layout/BottomNavbar';
 import {
   useManage, ManagedPriority, ManagedTag, PALETTE_COLORS,
+  MarkingStyle, CalendarMarkingSetting,
 } from '../../core/ManageContext';
 
 // ─── Shared Bottom Sheet ──────────────────────────────────────────────────────
@@ -365,6 +366,189 @@ const ReminderPresetsManager = () => {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
+// CALENDAR MARKINGS MANAGER
+// ──────────────────────────────────────────────────────────────────────────────
+const MARKING_STYLES: MarkingStyle[] = ['dot', 'period', 'custom'];
+const MARKING_STYLE_LABELS: Record<MarkingStyle, string> = {
+  dot: 'Dot',
+  period: 'Period',
+  custom: 'Custom',
+};
+const MARKING_STYLE_ICONS: Record<MarkingStyle, keyof typeof MaterialIcons.glyphMap> = {
+  dot: 'circle',
+  period: 'horizontal-rule',
+  custom: 'emoji-emotions',
+};
+
+const CalendarMarkingsManager = () => {
+  const { theme } = useTheme();
+  const { tags, calendarMarkings, updateCalendarMarking, showCalendarInDock, setShowCalendarInDock } = useManage();
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [emojiInput, setEmojiInput] = useState('');
+
+  return (
+    <>
+      <SectionHdr label="CALENDAR MARKINGS" />
+
+      {/* Show in Dock toggle */}
+      <Card>
+        <View style={[ms.row, { borderBottomColor: theme.colors.border }]}>
+          <View style={[ms.iconWrap, { backgroundColor: `${theme.colors.primary}20` }]}>
+            <MaterialIcons name="date-range" size={16} color={theme.colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[ms.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>Show Calendar in Dock</Text>
+            <Text style={[ms.rowSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+              Adds a Calendar tab to the bottom navigation
+            </Text>
+          </View>
+          <Switch
+            value={showCalendarInDock}
+            onValueChange={setShowCalendarInDock}
+            trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+            thumbColor={'#FFF'}
+          />
+        </View>
+      </Card>
+      <View style={ms.gap} />
+
+      {/* Per-tag marking settings */}
+      <SectionHdr label="TAG APPEARANCES" />
+      <Card>
+        {tags.map((tag, i) => {
+          const setting: CalendarMarkingSetting = calendarMarkings.find(m => m.tagId === tag.id) ?? { tagId: tag.id, style: 'dot', visible: true };
+          const isEditing = editingTagId === tag.id;
+
+          return (
+            <View key={tag.id}>
+              <View style={[ms.row, i < tags.length - 1 && ms.rowBorder, { borderBottomColor: theme.colors.border }]}>
+                {/* Tag chip */}
+                <View style={[ms.tagChip, { backgroundColor: `${tag.color}22`, borderColor: tag.color }]}>
+                  <View style={[ms.tagDot, { backgroundColor: tag.color }]} />
+                  <Text style={[ms.tagChipTxt, { color: tag.color, fontFamily: 'Inter_600SemiBold' }]}>{tag.label}</Text>
+                </View>
+
+                <View style={{ flex: 1 }} />
+
+                {/* Visibility toggle */}
+                <Switch
+                  value={setting.visible}
+                  onValueChange={(v) => updateCalendarMarking(tag.id, { visible: v })}
+                  trackColor={{ false: theme.colors.border, true: `${tag.color}80` }}
+                  thumbColor={setting.visible ? tag.color : '#9CA3AF'}
+                  style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                />
+
+                {/* Expand/collapse for style picker */}
+                <TouchableOpacity
+                  onPress={() => {
+                    setEditingTagId(isEditing ? null : tag.id);
+                    setEmojiInput(setting.customEmoji ?? '');
+                  }}
+                  style={ms.iconBtn}
+                >
+                  <MaterialIcons
+                    name={isEditing ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                    size={20}
+                    color={theme.colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Expanded style picker */}
+              {isEditing && (
+                <View style={[cmStyles.stylePickerRow, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.secondary }]}>
+                  {MARKING_STYLES.map(style => (
+                    <TouchableOpacity
+                      key={style}
+                      style={[
+                        cmStyles.stylePill,
+                        {
+                          borderColor: setting.style === style ? tag.color : theme.colors.border,
+                          backgroundColor: setting.style === style ? `${tag.color}15` : 'transparent',
+                        },
+                      ]}
+                      onPress={() => updateCalendarMarking(tag.id, { style })}
+                    >
+                      <MaterialIcons
+                        name={MARKING_STYLE_ICONS[style]}
+                        size={14}
+                        color={setting.style === style ? tag.color : theme.colors.textSecondary}
+                      />
+                      <Text style={[
+                        cmStyles.stylePillTxt,
+                        { color: setting.style === style ? tag.color : theme.colors.textSecondary, fontFamily: setting.style === style ? 'Inter_600SemiBold' : 'Inter_400Regular' }
+                      ]}>
+                        {MARKING_STYLE_LABELS[style]}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+
+                  {/* Custom emoji input */}
+                  {setting.style === 'custom' && (
+                    <View style={[cmStyles.emojiRow, { borderColor: theme.colors.border }]}>
+                      <TextInput
+                        style={[cmStyles.emojiInput, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}
+                        placeholder="Enter emoji"
+                        placeholderTextColor={theme.colors.textSecondary}
+                        value={emojiInput}
+                        onChangeText={setEmojiInput}
+                        maxLength={2}
+                      />
+                      <TouchableOpacity
+                        style={[cmStyles.emojiSave, { backgroundColor: tag.color }]}
+                        onPress={() => {
+                          updateCalendarMarking(tag.id, { customEmoji: emojiInput });
+                          setEditingTagId(null);
+                        }}
+                      >
+                        <Text style={{ color: '#FFF', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
+      </Card>
+    </>
+  );
+};
+
+const cmStyles = StyleSheet.create({
+  stylePickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  stylePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  stylePillTxt: { fontSize: 12 },
+  emojiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 4,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  emojiInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20 },
+  emojiSave: { paddingHorizontal: 16, paddingVertical: 10 },
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // TASK DEFAULTS SECTION
 // ──────────────────────────────────────────────────────────────────────────────
 const TaskDefaultsSection = () => {
@@ -430,6 +614,8 @@ export const ManageScreen = () => {
           <ReminderPresetsManager />
           <View style={ms.gap} />
           <TaskDefaultsSection />
+          <View style={ms.gap} />
+          <CalendarMarkingsManager />
         </View>
       </ScrollView>
       <BottomNavbar />

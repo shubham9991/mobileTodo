@@ -1,149 +1,188 @@
-import React, { useState } from 'react';
-import {
-  View, Text, TouchableOpacity, StyleSheet, LayoutAnimation,
-} from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, StyleSheet, Text } from 'react-native';
+import { Calendar, DateData } from 'react-native-calendars';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../themes/ThemeContext';
-
-const DAY_HEADERS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-// --- March 2026 grid (Mon-first, Mar 1 = Sunday)
-// null = padding cell before/after month
-const MARCH_2026_GRID: (number | null)[][] = [
-  [null, null, null, null, null, null, 1   ],
-  [2,   3,   4,   5,   6,   7,   8   ],
-  [9,   10,  11,  12,  13,  14,  15  ],
-  [16,  17,  18,  19,  20,  21,  22  ],
-  [23,  24,  25,  26,  27,  28,  29  ],
-  [30,  31,  null, null, null, null, null],
-];
-
-// Which week row contains a given date
-const getWeekRowIndex = (date: number): number => {
-  for (let r = 0; r < MARCH_2026_GRID.length; r++) {
-    if (MARCH_2026_GRID[r].includes(date)) return r;
-  }
-  return 0;
-};
-
-// Event dots — dates that have events in our dummy data
-const EVENT_DATES = new Set([24, 26, 27, 28]);
+import { useManage } from '../../../core/ManageContext';
+import { dummyData } from '../../../core/dummyData';
+import { format, parseISO, eachDayOfInterval, isValid } from 'date-fns';
 
 interface Props {
-  activeDate: number;
-  onSelectDate: (date: number) => void;
+  activeDate: string | null; // ISO string 'YYYY-MM-DD', null = nothing selected
+  onSelectDate: (isoDate: string) => void;
+}
+
+// Utility: try to parse a date string (ISO first, then human-readable)
+function tryParseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  // ISO: 2026-03-25
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const d = parseISO(dateStr);
+    return isValid(d) ? d : null;
+  }
+  // "Fri, Mar 28" → try appending current year
+  const yearAttempt = new Date(`${dateStr}, 2026`);
+  if (isValid(yearAttempt)) return yearAttempt;
+  return null;
 }
 
 export const CalendarStrip = ({ activeDate, onSelectDate }: Props) => {
   const { theme } = useTheme();
-  const [expanded, setExpanded] = useState(false);
+  const { tags, calendarMarkings } = useManage();
 
-  const activeWeekRow = getWeekRowIndex(activeDate);
-  // In collapsed mode show just the week row containing the active date
-  const visibleRows = expanded ? MARCH_2026_GRID : [MARCH_2026_GRID[activeWeekRow]];
+  // Default to today
+  const todayISO = format(new Date(), 'yyyy-MM-dd');
+  const currentISO = activeDate ?? todayISO;
 
-  const toggleExpand = () => {
-    LayoutAnimation.configureNext({
-      duration: 280,
-      create: { type: 'easeInEaseOut', property: 'opacity' },
-      update: { type: 'spring',        springDamping: 0.8 },
+  // Build a lookup: tagId → color (only visible ones)
+  const tagColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    tags.forEach(t => {
+      const setting = calendarMarkings.find(m => m.tagId === t.id);
+      if (!setting || setting.visible) {
+        map[t.id] = t.color;
+      }
     });
-    setExpanded((e) => !e);
-  };
+    return map;
+  }, [tags, calendarMarkings]);
+
+  const markedDates = useMemo(() => {
+    const marks: Record<string, any> = {};
+
+    // ── 1. Multi-Period Marking from period tasks ──────────────────────────────
+    const allTasks = dummyData.taskGroups.flatMap(g => g.tasks);
+    allTasks.forEach(task => {
+      if (!task.dueDate || !task.dueEndDate) return;
+      const start = tryParseDate(task.dueDate);
+      const end = tryParseDate(task.dueEndDate);
+      if (!start || !end || end < start) return;
+
+      // Get the tag color for this task
+      const tagId = task.tagType ?? 'work';
+      const setting = calendarMarkings.find(m => m.tagId === tagId);
+      if (setting && !setting.visible) return; // hidden by user
+
+      const color = tagColorMap[tagId] ?? theme.colors.primary;
+
+      // Expand every day in the interval
+      const days = eachDayOfInterval({ start, end });
+      days.forEach((day, idx) => {
+        const iso = format(day, 'yyyy-MM-dd');
+        if (!marks[iso]) marks[iso] = { periods: [] };
+        if (!marks[iso].periods) marks[iso].periods = [];
+
+        marks[iso].periods.push({
+          startingDay: idx === 0,
+          endingDay: idx === days.length - 1,
+          color,
+        });
+      });
+    });
+
+    // ── 2. Multi-Dot Marking from events (single-day events) ─────────────────
+    Object.entries(dummyData.eventsData.eventsByDate).forEach(([dayStr, events]) => {
+      const dayNum = parseInt(dayStr, 10);
+      const iso = `2026-03-${String(dayNum).padStart(2, '0')}`;
+      const evtList = events as any[];
+      if (!evtList.length) return;
+
+      // Up to 3 dots to avoid overcrowding
+      const dots = evtList.slice(0, 3).map((e: any) => {
+        const tagSetting = calendarMarkings.find(m => m.tagId === e.tagType);
+        const visible = !tagSetting || tagSetting.visible;
+        return visible ? { key: e.id, color: e.color ?? theme.colors.primary } : null;
+      }).filter(Boolean);
+
+      if (dots.length === 0) return;
+
+      if (!marks[iso]) marks[iso] = {};
+      // For days that already have period marks, we can't mix markingTypes.
+      // We use periods if present, otherwise dots.
+      if (!marks[iso].periods) {
+        marks[iso].dots = dots;
+      }
+    });
+
+    // ── 3. Active selected day ────────────────────────────────────────────────
+    if (!marks[currentISO]) marks[currentISO] = {};
+    marks[currentISO].selected = true;
+    marks[currentISO].selectedColor = theme.colors.primary;
+
+    // ── 4. Today highlight (if not selected) ─────────────────────────────────
+    if (todayISO !== currentISO) {
+      if (!marks[todayISO]) marks[todayISO] = {};
+      marks[todayISO].marked = true;
+      marks[todayISO].dotColor = theme.colors.primary;
+    }
+
+    return marks;
+  }, [currentISO, todayISO, tagColorMap, calendarMarkings, theme.colors.primary]);
+
+  // Determine markingType: use 'multi-period' if any day has period data, else 'multi-dot'
+  const hasAnyPeriod = useMemo(
+    () => Object.values(markedDates).some((m: any) => m.periods?.length > 0),
+    [markedDates]
+  );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
-      {/* ── Month / Navigation row ───────────────────── */}
-      <View style={styles.navRow}>
-        <TouchableOpacity style={styles.navBtn}>
-          <MaterialIcons name="chevron-left" size={22} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+    <View style={[styles.container, {
+      backgroundColor: theme.colors.background,
+      borderBottomColor: theme.colors.border,
+    }]}>
+      <Calendar
+        current={currentISO}
+        onDayPress={(day: DateData) => onSelectDate(day.dateString)}
+        markingType={hasAnyPeriod ? 'multi-period' : 'multi-dot'}
+        markedDates={markedDates}
+        enableSwipeMonths={false}
+        theme={{
+          backgroundColor: theme.colors.background,
+          calendarBackground: theme.colors.background,
+          textSectionTitleColor: theme.colors.textSecondary,
+          selectedDayBackgroundColor: theme.colors.primary,
+          selectedDayTextColor: '#ffffff',
+          todayTextColor: theme.colors.primary,
+          dayTextColor: theme.colors.text,
+          textDisabledColor: theme.colors.textSecondary + '40',
+          dotColor: theme.colors.primary,
+          selectedDotColor: '#ffffff',
+          arrowColor: theme.colors.textSecondary,
+          disabledArrowColor: theme.colors.border,
+          monthTextColor: theme.colors.text,
+          indicatorColor: theme.colors.primary,
+          textDayFontFamily: 'Inter_500Medium',
+          textMonthFontFamily: 'Inter_600SemiBold',
+          textDayHeaderFontFamily: 'Inter_500Medium',
+          textDayFontSize: 14,
+          textMonthFontSize: 16,
+          textDayHeaderFontSize: 12,
+        }}
+        renderArrow={(direction: 'left' | 'right') => (
+          <MaterialIcons
+            name={direction === 'left' ? 'chevron-left' : 'chevron-right'}
+            size={24}
+            color={theme.colors.textSecondary}
+          />
+        )}
+      />
 
-        <View style={styles.monthCenter}>
-          <MaterialIcons name="calendar-month" size={14} color={theme.colors.textSecondary} />
-          <Text style={[styles.monthLabel, { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }]}>
-            March 2026
-          </Text>
-        </View>
-
-        <TouchableOpacity style={styles.navBtn}>
-          <MaterialIcons name="chevron-right" size={22} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+      {/* Legend row */}
+      <View style={styles.legend}>
+        {Object.entries(tagColorMap).slice(0, 5).map(([tagId, color]) => {
+          const tag = dummyData.taskGroups
+            .flatMap(g => g.tasks)
+            .find(t => t.tagType === tagId);
+          const label = tagId.charAt(0).toUpperCase() + tagId.slice(1);
+          return (
+            <View key={tagId} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: color }]} />
+              <Text style={[styles.legendLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                {label}
+              </Text>
+            </View>
+          );
+        })}
       </View>
-
-      {/* ── Day-of-week headers ───────────────────────── */}
-      <View style={styles.dayHeaderRow}>
-        {DAY_HEADERS.map((d) => (
-          <Text
-            key={d}
-            style={[styles.dayHeader, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}
-          >
-            {d}
-          </Text>
-        ))}
-      </View>
-
-      {/* ── Calendar Grid (1 row or all rows) ─────────── */}
-      <View style={styles.grid}>
-        {visibleRows.map((row, rowIndex) => (
-          <View key={rowIndex} style={styles.gridRow}>
-            {row.map((date, colIndex) => {
-              if (date === null) {
-                return <View key={colIndex} style={styles.dayCell} />;
-              }
-
-              const isActive  = date === activeDate;
-              const hasEvent  = EVENT_DATES.has(date);
-              const isToday   = date === 27; // THU Mar 27 is "today"
-
-              return (
-                <TouchableOpacity
-                  key={colIndex}
-                  style={[
-                    styles.dayCell,
-                    isActive && [styles.activeDayCell, { backgroundColor: theme.colors.primary }],
-                  ]}
-                  onPress={() => onSelectDate(date)}
-                >
-                  {/* Today ring */}
-                  {isToday && !isActive && (
-                    <View style={[styles.todayRing, { borderColor: theme.colors.primary }]} />
-                  )}
-
-                  <Text style={[
-                    styles.dayNumber,
-                    { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
-                    isActive && { color: '#FFFFFF', fontFamily: 'Inter_700Bold' },
-                    date < 27 && !isActive && { color: theme.colors.textSecondary },
-                  ]}>
-                    {date}
-                  </Text>
-
-                  {/* Event dot */}
-                  {hasEvent && (
-                    <View style={[
-                      styles.eventDot,
-                      { backgroundColor: isActive ? 'rgba(255,255,255,0.7)' : theme.colors.primary },
-                    ]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
-      </View>
-
-      {/* ── Expand / Collapse toggle ─────────────────── */}
-      <TouchableOpacity style={[styles.toggleBtn, { borderTopColor: theme.colors.border }]} onPress={toggleExpand}>
-        <Text style={[styles.toggleText, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-          {expanded ? 'Collapse' : 'Show full month'}
-        </Text>
-        <MaterialIcons
-          name={expanded ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
-          size={18}
-          color={theme.colors.textSecondary}
-        />
-      </TouchableOpacity>
     </View>
   );
 };
@@ -151,81 +190,27 @@ export const CalendarStrip = ({ activeDate, onSelectDate }: Props) => {
 const styles = StyleSheet.create({
   container: {
     borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: 8,
   },
-  navRow: {
+  legend: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 6,
-  },
-  navBtn: { padding: 4 },
-  monthCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  monthLabel: {
-    fontSize: 15,
-    letterSpacing: -0.2,
-  },
-  dayHeaderRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 10,
-    marginBottom: 2,
-  },
-  dayHeader: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 11,
-    letterSpacing: 0.3,
-  },
-  grid: {
-    paddingHorizontal: 10,
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     paddingBottom: 4,
   },
-  gridRow: {
-    flexDirection: 'row',
-    marginBottom: 2,
-  },
-  dayCell: {
-    flex: 1,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    position: 'relative',
-  },
-  activeDayCell: {
-    borderRadius: 8,
-  },
-  todayRing: {
-    position: 'absolute',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1.5,
-  },
-  dayNumber: {
-    fontSize: 13,
-  },
-  eventDot: {
-    position: 'absolute',
-    bottom: 4,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-  },
-  toggleBtn: {
+  legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 9,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 5,
   },
-  toggleText: {
-    fontSize: 12,
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendLabel: {
+    fontSize: 11,
   },
 });

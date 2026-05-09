@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ScrollView, View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { ScrollView, View, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
@@ -10,6 +10,7 @@ import { EventCard } from './EventCard';
 import { dummyData } from '../../core/dummyData';
 import { useFabBottom } from '../../core/hooks/useFabBottom';
 import { FABMenu } from '../../core/components/FABMenu';
+import { format } from 'date-fns';
 
 // ── Empty State ──────────────────────────────────────────────────────────────
 const EmptyState = () => {
@@ -58,10 +59,17 @@ const emptyStyles = StyleSheet.create({
 // ── Main Screen ──────────────────────────────────────────────────────────────
 export const EventsScreen = () => {
   const { theme } = useTheme();
-  const [activeDate, setActiveDate] = useState(27);
+  const todayISO = format(new Date(), 'yyyy-MM-dd');
+  const [activeISO, setActiveISO] = useState<string>(todayISO);
   const fabBottom = useFabBottom();
 
-  const events = dummyData.eventsData.eventsByDate[activeDate] || [];
+  // EventsByDate is keyed by day number (legacy). Map ISO → day number for lookup.
+  const activeDayNum = useMemo(() => {
+    const parts = activeISO.split('-');
+    return parseInt(parts[2], 10);
+  }, [activeISO]);
+
+  const events = dummyData.eventsData.eventsByDate[activeDayNum] || [];
 
   return (
     <SafeAreaView
@@ -75,11 +83,11 @@ export const EventsScreen = () => {
         contentContainerStyle={{ paddingBottom: fabBottom + 60 }}
         stickyHeaderIndices={[0]}
       >
-        {/* 0: Sticky expandable calendar */}
+        {/* 0: Sticky full calendar with multi-period + multi-dot marking */}
         <View style={{ backgroundColor: theme.colors.background }}>
           <CalendarStrip
-            activeDate={activeDate}
-            onSelectDate={setActiveDate}
+            activeDate={activeISO}
+            onSelectDate={setActiveISO}
           />
         </View>
 
@@ -94,7 +102,7 @@ export const EventsScreen = () => {
                   {events.length} EVENT{events.length !== 1 ? 'S' : ''}
                 </Text>
               </View>
-              {events.map((event) => (
+              {events.map((event: any) => (
                 <EventCard key={event.id} event={event} />
               ))}
             </>
@@ -122,18 +130,5 @@ const styles = StyleSheet.create({
   listHeaderText: {
     fontSize: 11,
     letterSpacing: 0.8,
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
   },
 });

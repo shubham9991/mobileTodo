@@ -210,6 +210,8 @@ function runRegexEngine(text: string): string[] {
 export interface ParsedDateTime {
   date: Date | null;
   dateLabel: string | null;
+  endDate: Date | null;
+  endDateLabel: string | null;
   time: string | null;
 }
 
@@ -217,7 +219,7 @@ function runChronoEngine(text: string): ParsedDateTime {
   try {
     const results = chrono.parse(text);
     if (!results || results.length === 0) {
-      return { date: null, dateLabel: null, time: null };
+      return { date: null, dateLabel: null, endDate: null, endDateLabel: null, time: null };
     }
 
     const result = results[0];
@@ -240,15 +242,32 @@ function runChronoEngine(text: string): ParsedDateTime {
       dateLabel = format(date, 'MMM d');
     }
 
+    let endDate: Date | null = null;
+    let endDateLabel: string | null = null;
+
+    if (result.end) {
+      endDate = result.end.date();
+      const endDateOnly = new Date(endDate);
+      endDateOnly.setHours(0, 0, 0, 0);
+      
+      if (endDateOnly.getTime() === today.getTime()) {
+        endDateLabel = 'Today';
+      } else if (endDateOnly.getTime() === tomorrow.getTime()) {
+        endDateLabel = 'Tomorrow';
+      } else {
+        endDateLabel = format(endDate, 'MMM d');
+      }
+    }
+
     let time: string | null = null;
     if (result.start.isCertain('hour')) {
       time = format(date, 'h:mm a');
     }
 
-    return { date, dateLabel, time };
+    return { date, dateLabel, endDate, endDateLabel, time };
   } catch (e) {
     console.warn('[SmartParser] chrono-node error:', e);
-    return { date: null, dateLabel: null, time: null };
+    return { date: null, dateLabel: null, endDate: null, endDateLabel: null, time: null };
   }
 }
 
@@ -260,13 +279,15 @@ export interface SmartParseResult {
   locations: string[];
   date: Date | null;
   dateLabel: string | null;
+  endDate: Date | null;
+  endDateLabel: string | null;
   time: string | null;
 }
 
 // ─── Main Export: Run All 3 Engines in Parallel ───────────────────────────────
 export async function smartParseText(text: string): Promise<SmartParseResult> {
   if (!text || text.trim().length < 2) {
-    return { tag: null, locations: [], date: null, dateLabel: null, time: null };
+    return { tag: null, locations: [], date: null, dateLabel: null, endDate: null, endDateLabel: null, time: null };
   }
 
   // Engine 2 (compromise) + Engine 3 (regex) + Date Engine are all synchronous.
@@ -286,6 +307,8 @@ export async function smartParseText(text: string): Promise<SmartParseResult> {
     locations: allLocations,
     date: chronoResult.date,
     dateLabel: chronoResult.dateLabel,
+    endDate: chronoResult.endDate,
+    endDateLabel: chronoResult.endDateLabel,
     time: chronoResult.time,
   };
 }

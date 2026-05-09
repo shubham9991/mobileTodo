@@ -6,10 +6,10 @@ import { useTheme } from '../../../themes/ThemeContext';
 type TagType = 'work' | 'personal' | 'review' | 'health' | 'learning';
 
 const TAG_CONFIG: Record<TagType, { text: string; bg: string }> = {
-  work:     { text: '#6366F1', bg: '#EEF2FF' },
+  work: { text: '#6366F1', bg: '#EEF2FF' },
   personal: { text: '#71717A', bg: '#F4F4F5' },
-  review:   { text: '#F97316', bg: '#FFF7ED' },
-  health:   { text: '#22C55E', bg: '#F0FDF4' },
+  review: { text: '#F97316', bg: '#FFF7ED' },
+  health: { text: '#22C55E', bg: '#F0FDF4' },
   learning: { text: '#EC4899', bg: '#FDF2F8' },
 };
 

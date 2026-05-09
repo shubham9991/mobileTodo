@@ -7,22 +7,22 @@ export type SectionId = 'hero' | 'tabs' | 'tasks' | 'notes' | 'upcoming';
 export type LayoutMode = 'compact' | 'comfortable' | 'expanded';
 
 export const SECTION_META: Record<SectionId, { label: string; icon: string }> = {
-  hero:     { label: 'Hero Widget',    icon: 'bolt'          },
-  tabs:     { label: 'Category Tabs',  icon: 'tab'           },
-  tasks:    { label: "Today's Tasks",  icon: 'task-alt'      },
-  notes:    { label: 'Recent Notes',   icon: 'description'   },
-  upcoming: { label: 'Upcoming',       icon: 'calendar-month'},
+  hero: { label: 'Hero Widget', icon: 'bolt' },
+  tabs: { label: 'Category Tabs', icon: 'tab' },
+  tasks: { label: "Today's Tasks", icon: 'task-alt' },
+  notes: { label: 'Recent Notes', icon: 'description' },
+  upcoming: { label: 'Upcoming', icon: 'calendar-month' },
 };
 
-export const DEFAULT_ORDER: SectionId[]   = ['hero', 'tabs', 'tasks', 'notes', 'upcoming'];
+export const DEFAULT_ORDER: SectionId[] = ['hero', 'tabs', 'tasks', 'notes', 'upcoming'];
 export const DEFAULT_VIS: Record<SectionId, boolean> = {
   hero: true, tabs: true, tasks: true, notes: true, upcoming: true,
 };
 
 export const LAYOUT_MODES = [
-  { id: 'compact'     as LayoutMode, label: 'Compact',     desc: 'Tighter spacing, more content visible'   },
-  { id: 'comfortable' as LayoutMode, label: 'Comfortable', desc: 'Balanced spacing (default)'              },
-  { id: 'expanded'    as LayoutMode, label: 'Expanded',    desc: 'Larger cards, better readability'        },
+  { id: 'compact' as LayoutMode, label: 'Compact', desc: 'Tighter spacing, more content visible' },
+  { id: 'comfortable' as LayoutMode, label: 'Comfortable', desc: 'Balanced spacing (default)' },
+  { id: 'expanded' as LayoutMode, label: 'Expanded', desc: 'Larger cards, better readability' },
 ];
 
 export interface TaskGroup {
@@ -42,41 +42,41 @@ export interface HistoryEvent {
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface DashboardContextType {
-  sectionOrder:         SectionId[];
-  sectionVisibility:    Record<SectionId, boolean>;
-  layoutMode:           LayoutMode;
-  taskGroups:           TaskGroup[];
-  taskHistory:          Record<string, HistoryEvent[]>;
-  setSectionOrder:      (order: SectionId[]) => void;
+  sectionOrder: SectionId[];
+  sectionVisibility: Record<SectionId, boolean>;
+  layoutMode: LayoutMode;
+  taskGroups: TaskGroup[];
+  taskHistory: Record<string, HistoryEvent[]>;
+  setSectionOrder: (order: SectionId[]) => void;
   toggleSectionVisibility: (id: SectionId) => void;
-  setLayoutMode:        (mode: LayoutMode) => void;
-  setTaskGroups:        React.Dispatch<React.SetStateAction<TaskGroup[]>>;
-  handleComposerSave:   (taskData: any) => void;
-  updateTask:           (taskId: string, updater: (t: Task) => Task) => void;
-  addHistoryEvent:      (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => void;
+  setLayoutMode: (mode: LayoutMode) => void;
+  setTaskGroups: React.Dispatch<React.SetStateAction<TaskGroup[]>>;
+  handleComposerSave: (taskData: any) => void;
+  updateTask: (taskId: string, updater: (t: Task) => Task) => void;
+  addHistoryEvent: (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType>({
-  sectionOrder:            DEFAULT_ORDER,
-  sectionVisibility:       DEFAULT_VIS,
-  layoutMode:              'comfortable',
-  taskGroups:              [],
-  taskHistory:             {},
-  setSectionOrder:         () => {},
-  toggleSectionVisibility: () => {},
-  setLayoutMode:           () => {},
-  setTaskGroups:           () => {},
-  handleComposerSave:      () => {},
-  updateTask:              () => {},
-  addHistoryEvent:         () => {},
+  sectionOrder: DEFAULT_ORDER,
+  sectionVisibility: DEFAULT_VIS,
+  layoutMode: 'comfortable',
+  taskGroups: [],
+  taskHistory: {},
+  setSectionOrder: () => { },
+  toggleSectionVisibility: () => { },
+  setLayoutMode: () => { },
+  setTaskGroups: () => { },
+  handleComposerSave: () => { },
+  updateTask: () => { },
+  addHistoryEvent: () => { },
 });
 
 export const DashboardProvider = ({ children }: { children: ReactNode }) => {
-  const [sectionOrder, setSectionOrder]           = useState<SectionId[]>(DEFAULT_ORDER);
+  const [sectionOrder, setSectionOrder] = useState<SectionId[]>(DEFAULT_ORDER);
   const [sectionVisibility, setSectionVisibility] = useState<Record<SectionId, boolean>>(DEFAULT_VIS);
-  const [layoutMode, setLayoutMode]               = useState<LayoutMode>('comfortable');
-  const [taskGroups, setTaskGroups]               = useState<TaskGroup[]>(dummyData.taskGroups as any);
-  const [taskHistory, setTaskHistory]             = useState<Record<string, HistoryEvent[]>>({});
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('comfortable');
+  const [taskGroups, setTaskGroups] = useState<TaskGroup[]>(dummyData.taskGroups as any);
+  const [taskHistory, setTaskHistory] = useState<Record<string, HistoryEvent[]>>({});
 
   const addHistoryEvent = (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => {
     const newEvent: HistoryEvent = {
@@ -107,11 +107,11 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       subtasks: taskData.subtasks,
       attachments: taskData.attachments,
     };
-    
+
     setTaskGroups(prev => {
       const targetGroupId = newTask.dueDate === 'Today' ? 'today' : 'week';
-      return prev.map(g => 
-        g.id === targetGroupId 
+      return prev.map(g =>
+        g.id === targetGroupId
           ? { ...g, tasks: [newTask, ...g.tasks] }
           : g
       );
@@ -149,7 +149,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       return { changed, newSubs };
     };
 
-    setTaskGroups((prev) => 
+    setTaskGroups((prev) =>
       prev.map((group) => ({
         ...group,
         tasks: group.tasks.map((t) => {

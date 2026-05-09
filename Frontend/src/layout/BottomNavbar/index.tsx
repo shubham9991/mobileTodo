@@ -4,34 +4,54 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../themes/ThemeContext';
+import { useManage } from '../../core/ManageContext';
 
 type NavItem = {
   label: string;
   icon: keyof typeof MaterialIcons.glyphMap;
   route: string;
-  match: string; // pathname segment to match for active state
+  match: string;
 };
 
-const NAV_ITEMS: NavItem[] = [
+const BASE_NAV_ITEMS: NavItem[] = [
   { label: 'Home',     icon: 'home',           route: '/(tabs)/',        match: '/'        },
   { label: 'Tasks',    icon: 'checklist',       route: '/(tabs)/tasks',   match: '/tasks'   },
   { label: 'Events',   icon: 'calendar-month',  route: '/(tabs)/events',  match: '/events'  },
   { label: 'Manage',   icon: 'tune',            route: '/(tabs)/manage',  match: '/manage'  },
 ];
 
+const CALENDAR_NAV_ITEM: NavItem = {
+  label: 'Calendar',
+  icon: 'date-range',
+  route: '/(tabs)/calendar',
+  match: '/calendar',
+};
+
 export const BottomNavbar = () => {
   const { theme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
-  const insets = useSafeAreaInsets(); // ← dynamically accounts for 3-button nav / gesture nav / nothing
+  const insets = useSafeAreaInsets();
+  const { showCalendarInDock } = useManage();
+
+  // Inject the Calendar tab between Events and Manage when enabled
+  const navItems = showCalendarInDock
+    ? [
+        BASE_NAV_ITEMS[0],
+        BASE_NAV_ITEMS[1],
+        BASE_NAV_ITEMS[2],
+        CALENDAR_NAV_ITEM,
+        BASE_NAV_ITEMS[3],
+      ]
+    : BASE_NAV_ITEMS;
 
   return (
     <View style={[styles.container, {
       backgroundColor: theme.colors.background,
       borderTopColor: theme.colors.border,
-      paddingBottom: Math.max(insets.bottom, 8), // respects nav bar height on any device
+      paddingBottom: Math.max(insets.bottom, 8),
     }]}>
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const isActive =
           item.match === '/'
             ? pathname === '/' || pathname === '/index'
@@ -66,7 +86,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 10,
-    // paddingBottom is set dynamically via insets.bottom above
   },
   navItem: {
     flex: 1,

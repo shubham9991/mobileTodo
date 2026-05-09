@@ -2,6 +2,7 @@ import React from 'react';
 import { Stack } from "expo-router";
 import { ThemeProvider, useTheme } from "../src/themes/ThemeContext";
 import { DashboardProvider } from "../src/core/DashboardContext";
+import { ManageProvider } from "../src/core/ManageContext";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -47,12 +48,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
-        <DashboardProvider>
-          <KeyboardProvider>
-            <AppShell />
-          </KeyboardProvider>
-        </DashboardProvider>
-
+        <ManageProvider>
+          <DashboardProvider>
+            <KeyboardProvider>
+              <AppShell />
+            </KeyboardProvider>
+          </DashboardProvider>
+        </ManageProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );
