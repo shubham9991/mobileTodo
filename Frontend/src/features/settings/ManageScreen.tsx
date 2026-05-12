@@ -382,7 +382,7 @@ const MARKING_STYLE_ICONS: Record<MarkingStyle, keyof typeof MaterialIcons.glyph
 
 const CalendarMarkingsManager = () => {
   const { theme } = useTheme();
-  const { tags, calendarMarkings, updateCalendarMarking, showCalendarInDock, setShowCalendarInDock } = useManage();
+  const { tags, calendarMarkings, updateCalendarMarking } = useManage();
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [emojiInput, setEmojiInput] = useState('');
 
@@ -390,26 +390,6 @@ const CalendarMarkingsManager = () => {
     <>
       <SectionHdr label="CALENDAR MARKINGS" />
 
-      {/* Show in Dock toggle */}
-      <Card>
-        <View style={[ms.row, { borderBottomColor: theme.colors.border }]}>
-          <View style={[ms.iconWrap, { backgroundColor: `${theme.colors.primary}20` }]}>
-            <MaterialIcons name="date-range" size={16} color={theme.colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[ms.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>Show Calendar in Dock</Text>
-            <Text style={[ms.rowSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              Adds a Calendar tab to the bottom navigation
-            </Text>
-          </View>
-          <Switch
-            value={showCalendarInDock}
-            onValueChange={setShowCalendarInDock}
-            trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-            thumbColor={'#FFF'}
-          />
-        </View>
-      </Card>
       <View style={ms.gap} />
 
       {/* Per-tag marking settings */}

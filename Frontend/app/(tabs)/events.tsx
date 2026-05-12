@@ -1,5 +1,5 @@
-import { EventsScreen } from "../../src/features/events/EventsScreen";
-
+// Events tab now redirects to the unified Master Calendar
+import { Redirect } from 'expo-router';
 export default function EventsRoute() {
-  return <EventsScreen />;
+  return <Redirect href="/(tabs)/calendar" />;
 }

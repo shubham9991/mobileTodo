@@ -5,6 +5,7 @@ import { DashboardProvider } from "../src/core/DashboardContext";
 import { ManageProvider } from "../src/core/ManageContext";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import {
   useFonts,
   Inter_400Regular,
@@ -47,15 +48,17 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider>
-        <ManageProvider>
-          <DashboardProvider>
-            <KeyboardProvider>
-              <AppShell />
-            </KeyboardProvider>
-          </DashboardProvider>
-        </ManageProvider>
-      </ThemeProvider>
+      <BottomSheetModalProvider>
+        <ThemeProvider>
+          <ManageProvider>
+            <DashboardProvider>
+              <KeyboardProvider>
+                <AppShell />
+              </KeyboardProvider>
+            </DashboardProvider>
+          </ManageProvider>
+        </ThemeProvider>
+      </BottomSheetModalProvider>
     </GestureHandlerRootView>
   );
 }

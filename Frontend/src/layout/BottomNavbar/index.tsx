@@ -4,7 +4,6 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../themes/ThemeContext';
-import { useManage } from '../../core/ManageContext';
 
 type NavItem = {
   label: string;
@@ -13,37 +12,18 @@ type NavItem = {
   match: string;
 };
 
-const BASE_NAV_ITEMS: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { label: 'Home',     icon: 'home',           route: '/(tabs)/',        match: '/'        },
   { label: 'Tasks',    icon: 'checklist',       route: '/(tabs)/tasks',   match: '/tasks'   },
-  { label: 'Events',   icon: 'calendar-month',  route: '/(tabs)/events',  match: '/events'  },
+  { label: 'Calendar', icon: 'calendar-month',  route: '/(tabs)/calendar', match: '/calendar' },
   { label: 'Manage',   icon: 'tune',            route: '/(tabs)/manage',  match: '/manage'  },
 ];
-
-const CALENDAR_NAV_ITEM: NavItem = {
-  label: 'Calendar',
-  icon: 'date-range',
-  route: '/(tabs)/calendar',
-  match: '/calendar',
-};
 
 export const BottomNavbar = () => {
   const { theme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { showCalendarInDock } = useManage();
-
-  // Inject the Calendar tab between Events and Manage when enabled
-  const navItems = showCalendarInDock
-    ? [
-        BASE_NAV_ITEMS[0],
-        BASE_NAV_ITEMS[1],
-        BASE_NAV_ITEMS[2],
-        CALENDAR_NAV_ITEM,
-        BASE_NAV_ITEMS[3],
-      ]
-    : BASE_NAV_ITEMS;
 
   return (
     <View style={[styles.container, {
@@ -51,7 +31,7 @@ export const BottomNavbar = () => {
       borderTopColor: theme.colors.border,
       paddingBottom: Math.max(insets.bottom, 8),
     }]}>
-      {navItems.map((item) => {
+      {NAV_ITEMS.map((item) => {
         const isActive =
           item.match === '/'
             ? pathname === '/' || pathname === '/index'

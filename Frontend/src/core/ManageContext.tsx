@@ -24,6 +24,12 @@ export interface CalendarMarkingSetting {
   customEmoji?: string; // optional emoji for 'custom' style
 }
 
+export interface Birthday {
+  id: string;
+  name: string;
+  date: string; // "MM-DD" format, e.g. "12-25"
+}
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 export const DEFAULT_PRIORITIES: ManagedPriority[] = [
   { id: 'HIGH', label: 'High', color: '#EF4444', icon: 'flag', isDefault: true },
@@ -64,9 +70,11 @@ interface ManageContextType {
   defaultPriority: string | null;
   // Calendar
   calendarMarkings: CalendarMarkingSetting[];
-  showCalendarInDock: boolean;
   updateCalendarMarking: (tagId: string, changes: Partial<Omit<CalendarMarkingSetting, 'tagId'>>) => void;
-  setShowCalendarInDock: (v: boolean) => void;
+  // Birthdays
+  birthdays: Birthday[];
+  addBirthday: (b: Omit<Birthday, 'id'>) => void;
+  deleteBirthday: (id: string) => void;
   // Priorities
   setPriorities: (p: ManagedPriority[]) => void;
   addPriority: (p: Omit<ManagedPriority, 'isDefault'>) => void;
@@ -91,9 +99,10 @@ const ManageContext = createContext<ManageContextType>({
   reminderPresets: DEFAULT_REMINDER_PRESETS,
   defaultPriority: null,
   calendarMarkings: [],
-  showCalendarInDock: false,
   updateCalendarMarking: () => { },
-  setShowCalendarInDock: () => { },
+  birthdays: [],
+  addBirthday: () => { },
+  deleteBirthday: () => { },
   setPriorities: () => { },
   addPriority: () => { },
   updatePriority: () => { },
@@ -114,7 +123,13 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [tags, setTags] = useState<ManagedTag[]>(DEFAULT_TAGS);
   const [reminderPresets, setReminderPresets] = useState<string[]>(DEFAULT_REMINDER_PRESETS);
   const [defaultPriority, setDefaultPriority] = useState<string | null>(null);
-  const [showCalendarInDock, setShowCalendarInDock] = useState(false);
+  const [birthdays, setBirthdays] = useState<Birthday[]>([]);
+
+  const addBirthday = (b: Omit<Birthday, 'id'>) => {
+    const id = `bday_${Date.now()}`;
+    setBirthdays(prev => [...prev, { id, ...b }]);
+  };
+  const deleteBirthday = (id: string) => setBirthdays(prev => prev.filter(b => b.id !== id));
 
   // Initialise one CalendarMarkingSetting per default tag
   const [calendarMarkings, setCalendarMarkings] = useState<CalendarMarkingSetting[]>(
@@ -180,8 +195,9 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   return (
     <ManageContext.Provider value={{
       priorities, tags, reminderPresets, defaultPriority,
-      calendarMarkings, showCalendarInDock,
-      updateCalendarMarking, setShowCalendarInDock,
+      calendarMarkings,
+      updateCalendarMarking,
+      birthdays, addBirthday, deleteBirthday,
       setPriorities, addPriority, updatePriority, deletePriority, reorderPriorities,
       setTags, addTag: addTagAndSync, updateTag, deleteTag,
       setReminderPresets, addReminderPreset, deleteReminderPreset,

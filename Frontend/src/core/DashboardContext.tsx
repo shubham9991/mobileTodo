@@ -98,10 +98,11 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       id: taskData.id,
       title: taskData.title,
       tag: taskData.tag || 'PERSONAL',
-      tagType: (taskData.tags?.[0]?.id || 'personal') as any,
+      tagType: (taskData.tags?.[0]?.id || taskData.tags?.[0] || 'personal') as any,
       priority: taskData.priority,
       completed: false,
       dueDate: taskData.dueDate,
+      dueEndDate: taskData.dueEndDate,
       dueTime: taskData.dueTime,
       hasReminder: !!taskData.reminder,
       subtasks: taskData.subtasks,
@@ -109,7 +110,10 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     };
 
     setTaskGroups(prev => {
-      const targetGroupId = newTask.dueDate === 'Today' ? 'today' : 'week';
+      const todayISO = new Date().toISOString().slice(0, 10);
+      const dueISO = taskData.dueDate || '';
+      // Put in "today" group if due today or earlier, otherwise "week"
+      const targetGroupId = !dueISO || dueISO === 'Today' || dueISO === todayISO ? 'today' : 'week';
       return prev.map(g =>
         g.id === targetGroupId
           ? { ...g, tasks: [newTask, ...g.tasks] }
