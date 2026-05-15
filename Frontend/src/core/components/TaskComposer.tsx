@@ -798,6 +798,7 @@ export const TaskComposer = ({
   const [dueDate, setDueDate] = useState(initialDueDate);
   const [dueEndDate, setDueEndDate] = useState<string | null>(initialDueEndDate ?? null);
   const [dueTime, setDueTime] = useState(initialDueTime);
+  const [dueEndTime, setDueEndTime] = useState<string | null>(null);
   const [reminder, setReminder] = useState(initialReminder);
   const [location, setLocation] = useState(initialLocation);
   const [description, setDesc] = useState(initialDescription);
@@ -1061,6 +1062,7 @@ export const TaskComposer = ({
       dueDate: dueDate || undefined,
       dueEndDate: dueEndDate || undefined,
       dueTime: dueTime || undefined,
+      dueEndTime: dueEndTime || undefined,
       reminder: reminder || undefined,
       location: location || undefined,
       description: description || undefined,
@@ -1625,15 +1627,17 @@ export const TaskComposer = ({
         <DateTimePicker
           visible={showDatePicker}
           onClose={() => setShowDatePicker(false)}
-          onConfirm={(date, time, endDate) => {
+          onConfirm={(date, time, endDate, endTime) => {
             setDueDate(date);
             setDueTime(time || '');
             setDueEndDate(endDate || null);
+            if (endTime) setDueEndTime(endTime);
             setShowDatePicker(false);
           }}
           initialDate={dueDate}
           initialTime={dueTime}
           initialEndDate={dueEndDate || undefined}
+          initialEndTime={dueEndTime || undefined}
         />
       </>
   );

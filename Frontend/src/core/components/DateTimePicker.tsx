@@ -1,20 +1,20 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, TextInput, Dimensions, Keyboard, Modal,
+  ScrollView, Keyboard, Modal, Switch, Platform
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Calendar, DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../themes/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useManage } from '../ManageContext';
 import { useDashboard } from '../DashboardContext';
 import { format, parseISO, eachDayOfInterval, isValid, addDays, differenceInCalendarDays } from 'date-fns';
-import { Gesture, GestureDetector, ScrollView as GHScrollView } from 'react-native-gesture-handler';
-import BottomSheet, {
+import {
   BottomSheetModal,
   BottomSheetScrollView,
   BottomSheetBackdrop,
@@ -113,6 +113,7 @@ const TimeSlot = ({ value, onChange, min, max, pad, theme: t }: any) => {
     </View>
   );
 };
+
 
 
 // ─── Day Cell ─────────────────────────────────────────────────────────
@@ -240,7 +241,7 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
         </Text>
       </View>
 
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: 6 }}>
         {dayTasks.map((t: any) => {
           const color = TAG_COLORS_MAP[t.tagType ?? 'personal'] ?? theme.colors.primary;
           const isMultiDay = !!t.dueEndDate && toISO(t.dueEndDate) !== toISO(t.dueDate);
@@ -249,12 +250,13 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
 
           return (
             <View key={t.id} style={{
-              backgroundColor: theme.colors.secondary,
-              borderRadius: 14,
-              padding: 12,
+              backgroundColor: theme.colors.background,
+              borderRadius: 10,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
               flexDirection: 'row',
               alignItems: 'center',
-              borderWidth: 1,
+              borderWidth: StyleSheet.hairlineWidth,
               borderColor: theme.colors.border,
             }}>
               <View style={{ flex: 1 }}>
@@ -262,7 +264,7 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
                   color: theme.colors.text,
                   fontSize: 13,
                   fontFamily: 'Inter_700Bold',
-                  marginBottom: 4,
+                  marginBottom: 2,
                 }} numberOfLines={1}>
                   {t.title}
                 </Text>
@@ -273,7 +275,7 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
                       {isMultiDay
                         ? (startISO === selectedISO ? 'Starts today' : endISO === selectedISO ? 'Ends today' : 'Multi-day')
-                        : 'Single day'
+                        : format(parseISO(startISO), 'EEE, MMM d')
                       }
                     </Text>
                   </View>
@@ -294,7 +296,7 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
                 <View style={{
                   backgroundColor: `${color}15`,
                   paddingHorizontal: 8,
-                  paddingVertical: 4,
+                  paddingVertical: 2,
                   borderRadius: 8,
                   marginLeft: 8,
                 }}>
@@ -316,21 +318,43 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
 interface DateTimePickerProps {
   visible: boolean;
   onClose: () => void;
-  onConfirm: (date: string, time: string | null, endDate?: string | null) => void;
+  onConfirm: (date: string, time: string | null, endDate?: string | null, endTime?: string | null, isAllDay?: boolean, recurrence?: string) => void;
   initialDate?: string;
   initialTime?: string;
   initialEndDate?: string;
+  initialEndTime?: string;
+  initialIsAllDay?: boolean;
+  initialRecurrence?: string;
 }
 
-const TIME_OPTIONS = [
-  { label: 'No time', value: null },
-  { label: '9:00 AM', value: '9:00 AM' },
-  { label: '12:00 PM', value: '12:00 PM' },
-  { label: '3:00 PM', value: '3:00 PM' },
-  { label: '6:00 PM', value: '6:00 PM' },
-  { label: '9:00 PM', value: '9:00 PM' },
-  { label: 'Custom', value: 'custom' },
-];
+const ALL_HOURS = Array.from({ length: 24 }, (_, i) => {
+  const h24 = i;
+  const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  const period = h24 < 12 ? 'AM' : 'PM';
+  return `${h12} ${period}`;
+});
+
+function timeToMinutes(t: string | null): number {
+  if (!t) return -1;
+  const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return -1;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const period = m[3].toUpperCase();
+  if (period === 'PM' && h !== 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function minutesToTimeStr(totalMins: number): string {
+  let m = totalMins % 1440;
+  if (m < 0) m += 1440;
+  const h24 = Math.floor(m / 60);
+  const mins = m % 60;
+  const period = h24 < 12 ? 'AM' : 'PM';
+  const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+  return `${h12}:${String(mins).padStart(2, '0')} ${period}`;
+}
 
 const QUICK_DATES = [
   { label: 'Today', offset: 0 },
@@ -427,11 +451,11 @@ function buildMarkedDates(
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function DateTimePicker({ visible, onClose, onConfirm, initialDate, initialTime, initialEndDate }: DateTimePickerProps) {
+export default function DateTimePicker({ visible, onClose, onConfirm, initialDate, initialTime, initialEndDate, initialEndTime, initialIsAllDay, initialRecurrence }: DateTimePickerProps) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
-  const { tags, calendarMarkings } = useManage();
+  const { tags, calendarMarkings, longPressDateStart } = useManage();
   const { taskGroups } = useDashboard();
   const allTasks = useMemo(() => taskGroups.flatMap(g => g.tasks), [taskGroups]);
 
@@ -469,98 +493,87 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
   const todayISO = format(new Date(), 'yyyy-MM-dd');
   const [startISO, setStartISO] = useState<string>(todayISO);
   const [endISO, setEndISO] = useState<string | null>(null);
-  const [isGlidingState, setIsGlidingState] = useState(false);
   const [showHistory, setShowHistory] = useState(true);
 
-  // Track current month for gesture grid calculation
+  const [isAllDay, setIsAllDay] = useState(false);
+  const [recurrence, setRecurrence] = useState('Does not repeat');
+  // Native time picker state
+  const [timePicker, setTimePicker] = useState<{ visible: boolean; field: 'start' | 'end' }>({ visible: false, field: 'start' });
+  const [endTimeError, setEndTimeError] = useState<string | null>(null);
+
+  // Track current month for display
   const [currentMonthISO, setCurrentMonthISO] = useState<string>(todayISO);
-  const [calendarLayout, setCalendarLayout] = useState({ width: 0, height: 0 });
   const calendarContainerRef = useRef<View>(null);
-  const calendarPagePos = useRef({ x: 0, y: 0 });
 
-  const isGliding = useRef(false);
-  const glideStartISO = useRef<string | null>(null);
-  const lastHoveredISO = useRef<string | null>(null);
+  const [startTime, setStartTimeState] = useState<string | null>(null);
+  const [endTime, setEndTimeState] = useState<string | null>(null);
 
-  // Map absolute screen x,y -> calendar date
-  const getDateFromAbsCoords = useCallback((absX: number, absY: number): string | null => {
-    const { x, y, width, height } = { ...calendarPagePos.current, ...calendarLayout };
-    if (!width || !height) return null;
-    const rx = absX - x;
-    const ry = absY - y;
-    const HEADER_H = 52; // calendar header (month + day names)
-    if (ry < HEADER_H) return null;
-    const monthStart = parseISO(currentMonthISO);
-    monthStart.setDate(1);
-    const nextMonth = new Date(monthStart);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(0);
-    const numRows = Math.ceil((monthStart.getDay() + nextMonth.getDate()) / 7);
-    const colW = width / 7;
-    const rowH = (height - HEADER_H) / numRows;
-    const col = Math.min(6, Math.max(0, Math.floor(rx / colW)));
-    const row = Math.floor((ry - HEADER_H) / rowH);
-    if (row < 0 || row >= numRows) return null;
-    const gridStart = new Date(monthStart);
-    gridStart.setDate(1 - monthStart.getDay()); // start of week containing 1st
-    return format(addDays(gridStart, row * 7 + col), 'yyyy-MM-dd');
-  }, [calendarLayout, currentMonthISO]);
+  const setStartTime = useCallback((t: string | null) => {
+    setStartTimeState(t);
+    setEndTimeError(null);
+    if (t && endTime) {
+      // Auto-fix end time only if same day and end is before start
+      const isSame = !endISO || endISO === startISO;
+      if (isSame && timeToMinutes(endTime) <= timeToMinutes(t)) {
+        setEndTimeState(minutesToTimeStr(timeToMinutes(t) + 60));
+      }
+    } else if (!t) {
+      setEndTimeState(null);
+    }
+  }, [endTime, startISO, endISO]);
 
-  const onGlideStart = useCallback((startDateISO: string) => {
-    isGliding.current = true;
-    glideStartISO.current = startDateISO;
-    lastHoveredISO.current = startDateISO;
-    setStartISO(startDateISO);
-    setEndISO(null);
-    setIsGlidingState(true);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const setEndTime = useCallback((t: string | null) => {
+    setEndTimeError(null);
+    setEndTimeState(t);
   }, []);
 
-  // Overlay Pan — fires only while isGliding.current is true (set by onGlideStart)
-  const overlayPanGesture = useMemo(() => Gesture.Pan()
-    .runOnJS(true)
-    .onUpdate((e) => {
-      if (!isGliding.current) return;
-      const hover = getDateFromAbsCoords(e.absoluteX, e.absoluteY);
-      if (!hover || hover === lastHoveredISO.current) return;
-      lastHoveredISO.current = hover;
-      const anchor = glideStartISO.current!;
-      if (hover >= anchor) {
-        setStartISO(anchor);
-        setEndISO(hover);
-      } else {
-        setStartISO(hover);
-        setEndISO(anchor);
+  // Validate end time and show inline error
+  const validateAndSetEndTime = useCallback((newTime: string) => {
+    if (startTime) {
+      const isSameDay = !endISO || endISO === startISO;
+      if (isSameDay && timeToMinutes(newTime) <= timeToMinutes(startTime)) {
+        setEndTimeError(`End time must be after ${startTime}`);
+        return;
       }
-      Haptics.selectionAsync();
-    })
-    .onEnd(() => {
-      isGliding.current = false;
-      glideStartISO.current = null;
-      lastHoveredISO.current = null;
-      setIsGlidingState(false);
-    }), [getDateFromAbsCoords]);
+    }
+    setEndTimeError(null);
+    setEndTimeState(newTime);
+  }, [startTime, startISO, endISO]);
 
-  // Time state
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [isCustomTime, setIsCustomTime] = useState(false);
-  const [customHour, setCustomHour] = useState('9');
-  const [customMinute, setCustomMinute] = useState('00');
-  const [customPeriod, setCustomPeriod] = useState<'AM' | 'PM'>('AM');
+  // Convert a JS Date from the native time picker to a formatted time string
+  const dateToTimeStr = useCallback((date: Date): string => {
+    return minutesToTimeStr(date.getHours() * 60 + date.getMinutes());
+  }, []);
+
+  // Parse a "h:mm AM/PM" string to a JS Date (today's date, just setting hours/minutes)
+  const timeStrToDate = useCallback((t: string | null): Date => {
+    const now = new Date();
+    if (!t) return now;
+    const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!m) return now;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+    if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+    now.setHours(h, min, 0, 0);
+    return now;
+  }, []);
 
   useEffect(() => {
     if (!visible) return;
     setStartISO(initialDate ? (toISO(initialDate) ?? todayISO) : todayISO);
     setEndISO(initialEndDate ? (toISO(initialEndDate) ?? null) : null);
-    if (initialTime && initialTime !== 'No time') {
-      const preset = TIME_OPTIONS.find(t => t.value === initialTime);
-      if (preset) { setSelectedTime(initialTime); setIsCustomTime(false); }
-      else {
-        const m = initialTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
-        if (m) { setSelectedTime('custom'); setIsCustomTime(true); setCustomHour(m[1]); setCustomMinute(m[2]); setCustomPeriod(m[3].toUpperCase() as 'AM' | 'PM'); }
-      }
-    } else { setSelectedTime(null); setIsCustomTime(false); }
-  }, [visible, initialDate, initialEndDate, initialTime, todayISO]);
+
+    const initStart = initialTime && initialTime !== 'No time' ? initialTime : null;
+    const initEnd = initialEndTime && initialEndTime !== 'No time' ? initialEndTime : null;
+
+    setStartTimeState(initStart);
+    setEndTimeState(initEnd);
+    setIsAllDay(initialIsAllDay ?? false);
+    setRecurrence(initialRecurrence ?? 'Does not repeat');
+    setEndTimeError(null);
+    setTimePicker({ visible: false, field: 'start' });
+  }, [visible, initialDate, initialEndDate, initialTime, initialEndTime, initialIsAllDay, initialRecurrence, todayISO]);
 
   const markedDates = useMemo(
     () => buildMarkedDates(startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory),
@@ -573,47 +586,129 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
     return differenceInCalendarDays(parseISO(endISO), parseISO(startISO)) + 1;
   }, [startISO, endISO]);
 
-  // Conflict detection: tasks on the same date+time as currently selected
+  // Conflict detection
   const conflicts = useMemo(() => {
-    const effectiveTime = isCustomTime
-      ? `${customHour || '9'}:${customMinute || '00'} ${customPeriod}`
-      : selectedTime;
-    if (!effectiveTime) return [];
+    if (!startTime) return [];
     return allTasks.filter(t => {
       if (!t.dueDate || t.completed || !t.dueTime) return false;
       const iso = toISO(t.dueDate);
-      return iso === startISO && t.dueTime === effectiveTime;
+      return iso === startISO && t.dueTime === startTime;
     });
-  }, [allTasks, startISO, selectedTime, isCustomTime, customHour, customMinute, customPeriod]);
+  }, [allTasks, startISO, startTime]);
 
-  // Tap: first tap = start, second tap = end (if after start), third = reset
   const handleDayPress = useCallback((day: DateData) => {
-    Haptics.selectionAsync();
     const iso = day.dateString;
-    if (!startISO || endISO || iso < startISO) {
-      // Reset: new start
+
+    if (longPressDateStart) {
+      // ── Long-Press Range Mode ──────────────────────────────────────────
+      // Single tap = always set as new startISO (free navigation)
+      // Long press = create/update range (handled in handleDayLongPress)
+      if (iso === endISO) {
+        // Re-tap end date → collapse to that single date
+        setStartISO(iso);
+        setEndISO(null);
+        Haptics.selectionAsync();
+      } else {
+        setStartISO(iso);
+        setEndISO(null);
+        Haptics.selectionAsync();
+      }
+    } else {
+      // ── Auto-Range Tap Mode (default) ─────────────────────────────────
+      if (iso === startISO) {
+        // Tap start: collapse range if any
+        if (endISO) { setEndISO(null); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }
+        return;
+      }
+      if (iso === endISO) {
+        // Re-tap end date → collapse to that single date
+        setStartISO(iso);
+        setEndISO(null);
+        Haptics.selectionAsync();
+        return;
+      }
+      if (iso > startISO) {
+        // Tap any future date → extend range
+        setEndISO(iso);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } else {
+        // Tap before start → reset single start
+        setStartISO(iso);
+        setEndISO(null);
+        Haptics.selectionAsync();
+      }
+    }
+  }, [longPressDateStart, startISO, endISO]);
+
+  // Long press logic depends on mode:
+  // - Setting ON: long press sets endISO (range from startISO to long-pressed date)
+  // - Setting OFF: no-op
+  const handleDayLongPress = useCallback((iso: string) => {
+    if (!longPressDateStart) return;
+    if (iso === startISO) {
+      // Long press on start: clear range
+      setEndISO(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else if (iso > startISO) {
+      // Long press on future date: create/update range
+      setEndISO(iso);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      // Long press before start: reset start
       setStartISO(iso);
       setEndISO(null);
-    } else if (iso === startISO) {
-      // Tapped same day → clear end
-      setEndISO(null);
-    } else {
-      // Set end
-      setEndISO(iso);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  }, [startISO, endISO]);
+  }, [longPressDateStart, startISO]);
+
+  const REPEAT_OPTIONS = [
+    'Does not repeat',
+    'Every weekday (Mon - Fri)',
+    'Daily',
+    'Weekly',
+    'Monthly',
+    'Yearly',
+    'Custom',
+  ];
+
+  const hasRange = endISO && endISO !== startISO;
+
+  const durationText = useMemo(() => {
+    if (isAllDay) return `${daysSelected}d`;
+    if (!startTime || !endTime) return '';
+    const s = timeToMinutes(startTime);
+    let e = timeToMinutes(endTime);
+    if (hasRange) {
+      e += (daysSelected - 1) * 24 * 60;
+    } else if (e < s) {
+      e += 24 * 60;
+    }
+    const diff = e - s;
+    if (diff === 0) return '0m';
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  }, [startTime, endTime, hasRange, daysSelected, isAllDay]);
 
   const handleConfirm = useCallback(() => {
     const dateLabel = fromISO(startISO);
     const endLabel = endISO && endISO !== startISO ? fromISO(endISO) : null;
-    let timeStr: string | null = null;
-    if (isCustomTime) timeStr = `${customHour || '9'}:${customMinute || '00'} ${customPeriod}`;
-    else timeStr = selectedTime;
-    onConfirm(dateLabel, timeStr, endLabel);
-    onClose();
-  }, [startISO, endISO, selectedTime, isCustomTime, customHour, customMinute, customPeriod, onConfirm, onClose]);
 
-  const hasRange = endISO && endISO !== startISO;
+    let finalEndTime = endTime;
+    if (startISO === (endISO || startISO) && startTime && endTime) {
+      if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+        finalEndTime = minutesToTimeStr(timeToMinutes(startTime) + 60);
+      }
+    }
+
+    onConfirm(dateLabel, startTime, endLabel, finalEndTime, isAllDay, recurrence);
+    onClose();
+  }, [startISO, endISO, startTime, endTime, isAllDay, recurrence, onConfirm, onClose]);
+  const effectiveTimeLabel = startTime
+    ? (endTime ? ` · ${startTime} → ${endTime}` : ` at ${startTime}`)
+    : '';
 
   const calTheme = {
     backgroundColor: theme.colors.background,
@@ -633,6 +728,9 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
     textDayFontSize: 14,
     textMonthFontSize: 16,
     textDayHeaderFontSize: 12,
+    'stylesheet.calendar.header': {
+      header: { flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10, paddingRight: 10, marginTop: 4, alignItems: 'center' }
+    }
   };
 
   const s = useMemo(() => StyleSheet.create({
@@ -649,7 +747,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
       backgroundColor: theme.colors.border,
       width: 40,
     },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
     headerTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', color: theme.colors.text, textAlign: 'center', flex: 1 },
     historyToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
     historyToggleText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
@@ -717,7 +815,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
             backdropComponent={renderBackdrop}
             backgroundStyle={{ backgroundColor: theme.colors.background }}
             handleIndicatorStyle={{ backgroundColor: theme.colors.border, width: 40 }}
-            handleStyle={{ backgroundColor: theme.colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+            handleStyle={{ backgroundColor: theme.colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 10, paddingBottom: 0 }}
             keyboardBehavior="interactive"
             keyboardBlurBehavior="restore"
             topInset={insets.top}
@@ -758,20 +856,19 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
               </View>
             )}
 
-            {/* Scrollable content — calendar, task preview, quick dates */}
+            {/* ── Unified scroll: Calendar + Time Section ── */}
             <BottomSheetScrollView
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
-              contentContainerStyle={{ paddingBottom: 8 }}
+              contentContainerStyle={{ paddingBottom: 24 }}
             >
               {/* Calendar */}
               <View
                 ref={calendarContainerRef}
                 onLayout={() => {
-                  calendarContainerRef.current?.measureInWindow((x, y, width, height) => {
-                    calendarPagePos.current = { x, y };
-                    setCalendarLayout({ width, height });
+                  calendarContainerRef.current?.measureInWindow((x, _y, width, _height) => {
+                    // track position if needed in future
                   });
                 }}
               >
@@ -790,23 +887,11 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
                       {...props}
                       theme={theme}
                       onDayPress={handleDayPress}
-                      onGlideStart={onGlideStart}
+                      onGlideStart={handleDayLongPress}
                     />
                   )}
                 />
-                {isGlidingState && (
-                  <GestureDetector gesture={overlayPanGesture}>
-                    <View style={StyleSheet.absoluteFillObject} />
-                  </GestureDetector>
-                )}
               </View>
-
-              {/* Busy Tasks Preview */}
-              <BusyTasksPreview
-                selectedISO={startISO}
-                theme={theme}
-                allTasks={allTasks}
-              />
 
               {/* Quick date chips */}
               <View style={s.quickRow}>
@@ -832,82 +917,184 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
                   </View>
                 </GHScrollView>
               </View>
+
+              {/* Busy Tasks Preview */}
+              <BusyTasksPreview selectedISO={startISO} theme={theme} allTasks={allTasks} />
+
+              {/* ─── Time Section ─── */}
+              <View style={{
+                marginHorizontal: 16, marginTop: 12,
+                borderRadius: 14,
+                borderWidth: 1, borderColor: theme.colors.border,
+                backgroundColor: theme.colors.secondary,
+                overflow: 'hidden',
+              }}>
+
+                {/* START row */}
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  paddingHorizontal: 14, paddingVertical: 14,
+                  borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: theme.colors.textSecondary, marginBottom: 2 }}>START</Text>
+                    <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: theme.colors.text }}>{fromISO(startISO)}</Text>
+                  </View>
+                  {!isAllDay && (
+                    <TouchableOpacity
+                      onPress={() => { Haptics.selectionAsync(); setTimePicker({ visible: true, field: 'start' }); }}
+                      style={{
+                        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                        backgroundColor: startTime ? `${theme.colors.primary}18` : theme.colors.secondary,
+                        borderWidth: 1, borderColor: startTime ? `${theme.colors.primary}50` : theme.colors.border,
+                        flexDirection: 'row', alignItems: 'center', gap: 6,
+                      }}
+                    >
+                      <MaterialIcons name="access-time" size={15} color={startTime ? theme.colors.primary : theme.colors.textSecondary} />
+                      <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: startTime ? theme.colors.primary : theme.colors.textSecondary }}>
+                        {startTime || 'No time'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* END row */}
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center',
+                  paddingHorizontal: 14, paddingVertical: 14,
+                  borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: theme.colors.textSecondary, marginBottom: 2 }}>END</Text>
+                    <Text style={{ fontSize: 15, fontFamily: 'Inter_700Bold', color: hasRange ? theme.colors.text : theme.colors.textSecondary }}>
+                      {hasRange ? fromISO(endISO!) : fromISO(startISO)}
+                    </Text>
+                  </View>
+                  {!isAllDay && (
+                    endTime ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={() => { Haptics.selectionAsync(); setTimePicker({ visible: true, field: 'end' }); }}
+                          style={{
+                            paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                            backgroundColor: endTimeError ? '#FEF3C720' : `${theme.colors.primary}18`,
+                            borderWidth: 1, borderColor: endTimeError ? '#F59E0B' : `${theme.colors.primary}50`,
+                            flexDirection: 'row', alignItems: 'center', gap: 6,
+                          }}
+                        >
+                          <MaterialIcons name="access-time" size={15} color={endTimeError ? '#D97706' : theme.colors.primary} />
+                          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: endTimeError ? '#D97706' : theme.colors.primary }}>{endTime}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => { setEndTime(null); setEndTimeError(null); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                          <MaterialCommunityIcons name="close-circle" size={18} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : startTime ? (
+                      <TouchableOpacity
+                        onPress={() => { Haptics.selectionAsync(); setTimePicker({ visible: true, field: 'end' }); }}
+                        style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: `${theme.colors.primary}15`, borderWidth: 1, borderColor: `${theme.colors.primary}40` }}
+                      >
+                        <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: theme.colors.primary }}>+ End time</Text>
+                      </TouchableOpacity>
+                    ) : null
+                  )}
+                </View>
+
+                {/* Inline end-time error */}
+                {endTimeError && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#FEF3C7', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#F59E0B' }}>
+                    <MaterialIcons name="warning-amber" size={16} color="#D97706" />
+                    <Text style={{ fontSize: 13, fontFamily: 'Inter_500Medium', color: '#D97706', flex: 1 }}>{endTimeError}</Text>
+                    <TouchableOpacity onPress={() => setEndTimeError(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <MaterialCommunityIcons name="close" size={15} color="#D97706" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Duration + All Day */}
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  paddingHorizontal: 14, paddingVertical: 12,
+                  borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border,
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <MaterialIcons name="timelapse" size={18} color={theme.colors.textSecondary} />
+                    <Text style={{ fontSize: 14, fontFamily: 'Inter_500Medium', color: durationText ? theme.colors.text : theme.colors.textSecondary }}>
+                      {durationText || '—'}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={{ fontSize: 14, fontFamily: 'Inter_500Medium', color: theme.colors.text }}>All day</Text>
+                    <Switch
+                      value={isAllDay}
+                      onValueChange={(val) => {
+                        Haptics.selectionAsync();
+                        setIsAllDay(val);
+                        if (val) { setStartTime(null); setEndTime(null); setEndTimeError(null); }
+                      }}
+                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                      thumbColor="#fff"
+                    />
+                  </View>
+                </View>
+
+                {/* Repeat */}
+                <View style={{ paddingHorizontal: 14, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_600SemiBold', color: theme.colors.textSecondary, marginBottom: 4, marginTop: 8 }}>REPEAT</Text>
+                  <GHScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 8, paddingBottom: 12 }}>
+                      {REPEAT_OPTIONS.map((r) => (
+                        <TouchableOpacity
+                          key={r}
+                          onPress={() => { Haptics.selectionAsync(); setRecurrence(r); }}
+                          style={{
+                            paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+                            backgroundColor: recurrence === r ? theme.colors.primary : theme.colors.background,
+                            borderWidth: 1, borderColor: recurrence === r ? theme.colors.primary : theme.colors.border,
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontFamily: 'Inter_500Medium', color: recurrence === r ? '#fff' : theme.colors.text }}>
+                            {r}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </GHScrollView>
+                </View>
+              </View>
             </BottomSheetScrollView>
 
-            {/* ── Time section — outside BottomSheetScrollView so pan gestures work ── */}
-            <View style={s.divider} />
-            <View style={[s.timeSection, { paddingTop: 12 }]}>
-              <Text style={s.timeLabel}>TIME</Text>
-
-              <GHScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginBottom: 14 }}
-                keyboardShouldPersistTaps="always"
-              >
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {TIME_OPTIONS.map((t) => {
-                    const isActive = t.value === 'custom' ? isCustomTime : selectedTime === t.value;
-                    return (
-                      <TouchableOpacity
-                        key={t.label}
-                        style={[s.timeChip, isActive && s.timeChipActive]}
-                        onPress={() => {
-                          Haptics.selectionAsync();
-                          if (t.value === 'custom') { setSelectedTime('custom'); setIsCustomTime(true); }
-                          else { setSelectedTime(t.value); setIsCustomTime(false); }
-                        }}
-                      >
-                        <Text style={[s.timeChipText, isActive && s.timeChipTextActive]}>{t.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </GHScrollView>
-
-              {isCustomTime && (
-                <View style={[
-                  s.customTime,
-                  { backgroundColor: theme.colors.cardPrimary ?? theme.colors.secondary, borderColor: theme.colors.border }
-                ]}>
-                  <View style={{ alignItems: 'center', gap: 2 }}>
-                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.6 }}>HOUR</Text>
-                    <TimeSlot theme={theme} value={customHour} onChange={setCustomHour} min={1} max={12} pad={false} />
-                  </View>
-
-                  <Text style={s.timeSep}>:</Text>
-
-                  <View style={{ alignItems: 'center', gap: 2 }}>
-                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', letterSpacing: 0.6 }}>MIN</Text>
-                    <TimeSlot theme={theme} value={customMinute} onChange={setCustomMinute} min={0} max={59} pad={true} />
-                  </View>
-
-                  <View style={[s.periodToggle, { backgroundColor: theme.colors.background }]}>
-                    {(['AM', 'PM'] as const).map((p) => (
-                      <TouchableOpacity
-                        key={p}
-                        style={[s.periodBtn, customPeriod === p && s.periodBtnActive]}
-                        onPress={() => { Haptics.selectionAsync(); setCustomPeriod(p); }}
-                      >
-                        <Text style={[s.periodBtnTxt, customPeriod === p && s.periodBtnTxtActive]}>{p}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
-            </View>
+            {/* Native Android Time Picker */}
+            {timePicker.visible && (
+              <RNDateTimePicker
+                mode="time"
+                value={timePicker.field === 'start' ? timeStrToDate(startTime) : timeStrToDate(endTime)}
+                is24Hour={false}
+                display="default"
+                onChange={(_event: any, selectedDate?: Date) => {
+                  setTimePicker(prev => ({ ...prev, visible: false }));
+                  if (!selectedDate) return;
+                  const newTime = dateToTimeStr(selectedDate);
+                  if (timePicker.field === 'start') {
+                    setStartTime(newTime);
+                  } else {
+                    validateAndSetEndTime(newTime);
+                  }
+                }}
+              />
+            )}
 
             {/* Confirm button */}
             <TouchableOpacity
               onPress={handleConfirm}
-              style={[s.confirmBtn, { backgroundColor: conflicts.length > 0 ? '#D97706' : theme.colors.primary, marginBottom: Math.max(insets.bottom, 48) }]}
+              style={[s.confirmBtn, { backgroundColor: conflicts.length > 0 ? '#D97706' : theme.colors.primary, marginBottom: Math.max(insets.bottom, 16), marginTop: 8 }]}
             >
               <Text style={s.confirmTxt}>
                 {conflicts.length > 0
-                  ? `⚠️ Confirm anyway • ${fromISO(startISO)}`
+                  ? `⚠️ Confirm anyway · ${fromISO(startISO)}${effectiveTimeLabel}`
                   : hasRange
-                    ? `Confirm ${fromISO(startISO)} → ${fromISO(endISO!)} (${daysSelected} days)`
-                    : `Confirm ${fromISO(startISO)}`}
+                    ? `Set ${fromISO(startISO)} → ${fromISO(endISO!)}${effectiveTimeLabel}`
+                    : `Set ${fromISO(startISO)}${effectiveTimeLabel}`}
               </Text>
             </TouchableOpacity>
           </BottomSheetModal>
@@ -916,3 +1103,5 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
     </Modal>
   );
 }
+
+

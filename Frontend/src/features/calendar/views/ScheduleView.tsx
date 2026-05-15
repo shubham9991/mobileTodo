@@ -10,6 +10,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { parseISO, format, addDays, eachDayOfInterval } from 'date-fns';
 import { useTheme } from '../../../themes/ThemeContext';
 import { CalendarItem } from '../../hooks/useCalendarData';
+import { useDashboard } from '../../../core/DashboardContext';
+import { TaskItem } from '../../tasks/TaskItem';
+import { Task } from '../../../core/dummyData';
 
 interface Props {
   startISO: string;
@@ -40,6 +43,7 @@ export const ScheduleView: React.FC<Props> = ({
   startISO, endISO, getItemsForDate, onItemPress, onSlotPress,
 }) => {
   const { theme } = useTheme();
+  const { taskGroups, updateTask } = useDashboard();
   const days = eachDayOfInterval({ start: parseISO(startISO), end: parseISO(endISO) });
 
   // Only show days that have items OR are today
@@ -116,58 +120,83 @@ export const ScheduleView: React.FC<Props> = ({
               </TouchableOpacity>
             ) : (
               <View style={styles.itemsList}>
-                {items.map((item, idx) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    onPress={() => onItemPress?.(item)}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.itemCard,
-                      {
-                        backgroundColor: `${item.color}12`,
-                        borderLeftColor: item.color,
-                      }
-                    ]}
-                  >
-                    {/* Left icon */}
-                    <View style={[styles.iconWrap, { backgroundColor: `${item.color}20` }]}>
-                      <MaterialIcons
-                        name={
-                          item.type === 'birthday' ? 'cake' :
-                          item.type === 'holiday'  ? 'flag' :
-                          item.completed ? 'check-circle' : 'radio-button-unchecked'
-                        }
-                        size={18}
-                        color={item.color}
-                      />
-                    </View>
+                {items.map((item, idx) => {
+                  if (item.type === 'task' && item.taskId) {
+                    const originalTask = taskGroups.flatMap(g => g.tasks).find(t => t.id === item.taskId);
+                    if (originalTask) {
+                      return (
+                        <TaskItem
+                          key={item.id}
+                          task={originalTask}
+                          onPress={() => onItemPress?.(item)}
+                          onToggle={(id, completed) => updateTask(id, t => ({ ...t, completed }))}
+                        />
+                      );
+                    }
+                  }
 
-                    {/* Content */}
-                    <View style={styles.itemContent}>
-                      <Text style={[
-                        styles.itemTitle,
-                        { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
-                        item.completed && { textDecorationLine: 'line-through', opacity: 0.5 }
-                      ]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <View style={styles.itemMeta}>
-                        <Text style={[styles.itemTime, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                          {timeLabel(item)}
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      onPress={() => onItemPress?.(item)}
+                      activeOpacity={0.7}
+                      style={[
+                        styles.itemCard,
+                        {
+                          backgroundColor: theme.colors.cardPrimary || theme.colors.background,
+                          borderColor: theme.colors.border,
+                        }
+                      ]}
+                    >
+                      {/* Checkbox / Icon */}
+                      <View style={[
+                        styles.checkbox,
+                        item.completed ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { borderColor: theme.colors.border }
+                      ]}>
+                        {item.completed && <MaterialIcons name="check" size={11} color="#FFF" />}
+                        {!item.completed && item.type !== 'task' && item.type !== 'event' && (
+                          <MaterialIcons
+                            name={item.type === 'birthday' ? 'cake' : item.type === 'holiday' ? 'flag' : 'event'}
+                            size={11}
+                            color={item.color || theme.colors.textSecondary}
+                          />
+                        )}
+                      </View>
+
+                      {/* Content */}
+                      <View style={styles.itemContent}>
+                        <Text style={[
+                          styles.itemTitle,
+                          { color: theme.colors.text, fontFamily: 'Inter_500Medium', letterSpacing: -0.1 },
+                          item.completed && { textDecorationLine: 'line-through', color: theme.colors.textSecondary }
+                        ]} numberOfLines={2}>
+                          {item.title}
                         </Text>
+                        
+                        <View style={styles.dueRow}>
+                          <MaterialIcons name="schedule" size={11} color={theme.colors.textSecondary} />
+                          <Text style={[styles.dueText, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                            {timeLabel(item)}
+                          </Text>
+                        </View>
+
                         {item.tag && (
-                          <View style={[styles.tagPill, { backgroundColor: `${item.color}20` }]}>
-                            <Text style={[styles.tagText, { color: item.color, fontFamily: 'Inter_600SemiBold' }]}>
-                              {item.tag}
-                            </Text>
+                          <View style={styles.metaRow}>
+                            <View style={[styles.tagPill, { backgroundColor: `${item.color || theme.colors.primary}15` }]}>
+                              <Text style={[styles.tagText, { color: item.color || theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                                {item.tag}
+                              </Text>
+                            </View>
                           </View>
                         )}
                       </View>
-                    </View>
 
-                    <MaterialIcons name="chevron-right" size={18} color={`${theme.colors.textSecondary}60`} />
-                  </TouchableOpacity>
-                ))}
+                      <View style={styles.actionsHint}>
+                        <MaterialIcons name="chevron-right" size={18} color={theme.colors.border} />
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
           </View>

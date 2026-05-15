@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ScrollView, View, Text, TouchableOpacity, StyleSheet, Modal, Pressable,
+  ScrollView, View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { useTheme, ACCENT_COLORS } from '../../themes/ThemeContext';
 import {
   useDashboard, SectionId, SECTION_META, LAYOUT_MODES, DEFAULT_ORDER,
 } from '../../core/DashboardContext';
+import { useManage } from '../../core/ManageContext';
 // Removed TopNavbar import to break the require cycle
 import { BottomNavbar } from '../../layout/BottomNavbar';
 import { SettingRow, ToggleRow, SectionHeader, SettingsCard } from './components/SettingRow';
@@ -402,6 +403,38 @@ const PluginSection = () => {
   );
 };
 
+// ─── Calendar Interaction Section ────────────────────────────────────────────
+const CalendarInteractionSection = () => {
+  const { theme } = useTheme();
+  const { longPressDateStart, setLongPressDateStart } = useManage();
+
+  return (
+    <SettingsCard>
+      <View style={[s.inlineRow, { borderBottomColor: theme.colors.border }]}>
+        <View style={[s.iconWrap, { backgroundColor: theme.colors.secondary }]}>
+          <MaterialIcons name="touch-app" size={16} color={theme.colors.text} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+            Long Press for Date Range
+          </Text>
+          <Text style={[s.rowSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+            {longPressDateStart
+              ? 'Tap = single date. Long press = extend range'
+              : 'Tap any future date to extend the range automatically'}
+          </Text>
+        </View>
+        <Switch
+          value={longPressDateStart}
+          onValueChange={setLongPressDateStart}
+          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+          thumbColor="#fff"
+        />
+      </View>
+    </SettingsCard>
+  );
+};
+
 // ─── Profile Card ─────────────────────────────────────────────────────────────
 const ProfileCard = () => {
   const { theme } = useTheme();
@@ -477,6 +510,9 @@ export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
           <SettingRow icon="lock" label="Privacy & Data" onPress={() => { }} />
           <SettingRow icon="help-outline" label="Help & Support" onPress={() => { }} isLast />
         </SettingsCard>
+
+        <SectionHeader label="CALENDAR" />
+        <CalendarInteractionSection />
 
         <SectionHeader label="ACCOUNT" />
         <SettingsCard>

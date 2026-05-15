@@ -91,6 +91,9 @@ interface ManageContextType {
   addReminderPreset: (r: string) => void;
   deleteReminderPreset: (r: string) => void;
   setDefaultPriority: (id: string | null) => void;
+  // Calendar interaction
+  longPressDateStart: boolean;
+  setLongPressDateStart: (v: boolean) => void;
 }
 
 const ManageContext = createContext<ManageContextType>({
@@ -116,6 +119,8 @@ const ManageContext = createContext<ManageContextType>({
   addReminderPreset: () => { },
   deleteReminderPreset: () => { },
   setDefaultPriority: () => { },
+  longPressDateStart: false,
+  setLongPressDateStart: () => { },
 });
 
 export const ManageProvider = ({ children }: { children: ReactNode }) => {
@@ -124,6 +129,7 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [reminderPresets, setReminderPresets] = useState<string[]>(DEFAULT_REMINDER_PRESETS);
   const [defaultPriority, setDefaultPriority] = useState<string | null>(null);
   const [birthdays, setBirthdays] = useState<Birthday[]>([]);
+  const [longPressDateStart, setLongPressDateStart] = useState(false);
 
   const addBirthday = (b: Omit<Birthday, 'id'>) => {
     const id = `bday_${Date.now()}`;
@@ -202,6 +208,7 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
       setTags, addTag: addTagAndSync, updateTag, deleteTag,
       setReminderPresets, addReminderPreset, deleteReminderPreset,
       setDefaultPriority,
+      longPressDateStart, setLongPressDateStart,
     }}>
       {children}
     </ManageContext.Provider>
