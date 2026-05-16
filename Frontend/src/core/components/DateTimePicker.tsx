@@ -18,6 +18,7 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
   BottomSheetBackdrop,
+  BottomSheetFooter,
 } from '@gorhom/bottom-sheet';
 
 // ─── TimeSlot: drag to change, tap ✏ icon to type ──────────────────────────
@@ -394,6 +395,7 @@ function buildMarkedDates(
   calendarMarkings: any[],
   primaryColor: string,
   showHistory: boolean,
+  recurrence: string,
 ): Record<string, any> {
   const marks: Record<string, any> = {};
 
@@ -444,6 +446,92 @@ function buildMarkedDates(
         marks[iso].color = primaryColor;
         marks[iso].textColor = '#fff';
       });
+
+      // ── 3. Recurrence preview (light pill highlight) ──────────────
+      if (recurrence && recurrence !== 'Does not repeat') {
+        const lengthInDays = differenceInCalendarDays(ed, sd);
+        let lightColor = primaryColor + '25';
+        if (primaryColor.length === 4) lightColor = '#' + primaryColor[1] + primaryColor[1] + primaryColor[2] + primaryColor[2] + primaryColor[3] + primaryColor[3] + '25';
+        const textColor = primaryColor;
+
+        let nextStarts: Date[] = [];
+        if (recurrence === 'Every weekday (Mon - Fri)') {
+          let cur = addDays(sd, 1);
+          while (nextStarts.length < 30) {
+            if (cur.getDay() !== 0 && cur.getDay() !== 6) nextStarts.push(cur);
+            cur = addDays(cur, 1);
+          }
+        } else if (recurrence === 'Every weekend (Sat - Sun)') {
+          let cur = addDays(sd, 1);
+          while (nextStarts.length < 30) {
+            if (cur.getDay() === 0 || cur.getDay() === 6) nextStarts.push(cur);
+            cur = addDays(cur, 1);
+          }
+        } else if (recurrence === 'Custom' && customRule) {
+          const { interval, freq, days } = customRule;
+          if (freq === 'Day') {
+            for (let i = 1; i <= 30; i++) nextStarts.push(addDays(sd, i * interval));
+          } else if (freq === 'Week') {
+            let cur = addDays(sd, 1);
+            const sdSunday = addDays(sd, -sd.getDay());
+            while (nextStarts.length < 30) {
+              const curSunday = addDays(cur, -cur.getDay());
+              const weeksPassed = Math.round(differenceInCalendarDays(curSunday, sdSunday) / 7);
+              if (weeksPassed % interval === 0) {
+                if (days.includes(cur.getDay())) {
+                  nextStarts.push(cur);
+                }
+              }
+              cur = addDays(cur, 1);
+            }
+          } else if (freq === 'Month') {
+            for (let i = 1; i <= 12; i++) {
+              let cur = new Date(sd);
+              cur.setMonth(cur.getMonth() + (i * interval));
+              nextStarts.push(cur);
+            }
+          } else if (freq === 'Year') {
+            for (let i = 1; i <= 5; i++) {
+              let cur = new Date(sd);
+              cur.setFullYear(cur.getFullYear() + (i * interval));
+              nextStarts.push(cur);
+            }
+          }
+        } else if (recurrence === 'Daily') {
+          for (let i = 1; i <= 30; i++) nextStarts.push(addDays(sd, i));
+        } else if (recurrence === 'Weekly') {
+          for (let i = 1; i <= 12; i++) nextStarts.push(addDays(sd, i * 7));
+        } else if (recurrence === 'Monthly') {
+          for (let i = 1; i <= 12; i++) {
+            let cur = new Date(sd);
+            cur.setMonth(cur.getMonth() + i);
+            nextStarts.push(cur);
+          }
+        } else if (recurrence === 'Yearly') {
+          for (let i = 1; i <= 5; i++) {
+            let cur = new Date(sd);
+            cur.setFullYear(cur.getFullYear() + i);
+            nextStarts.push(cur);
+          }
+        }
+
+        nextStarts.forEach(ns => {
+          try {
+            const ne = addDays(ns, lengthInDays);
+            eachDayOfInterval({ start: ns, end: ne }).forEach((day, idx, arr) => {
+              const iso = format(day, 'yyyy-MM-dd');
+              if (!marks[iso]) marks[iso] = {};
+              if (marks[iso].color !== primaryColor) {
+                marks[iso].startingDay = idx === 0;
+                marks[iso].endingDay = idx === arr.length - 1;
+                marks[iso].color = lightColor;
+                marks[iso].textColor = textColor;
+              }
+            });
+          } catch { /**/ }
+        });
+      }
+
     } catch { /**/ }
   }
 
@@ -497,6 +585,19 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
 
   const [isAllDay, setIsAllDay] = useState(false);
   const [recurrence, setRecurrence] = useState('Does not repeat');
+  const [customInterval, setCustomInterval] = useState(1);
+  const [customFreq, setCustomFreq] = useState<'Day'|'Week'|'Month'|'Year'>('Week');
+  const [customDays, setCustomDays] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (startISO) {
+      const d = parseISO(startISO);
+      if (isValid(d) && customDays.length === 0) {
+        setCustomDays([d.getDay()]);
+      }
+    }
+  }, [startISO, customDays.length]);
+
   // Native time picker state
   const [timePicker, setTimePicker] = useState<{ visible: boolean; field: 'start' | 'end' }>({ visible: false, field: 'start' });
   const [endTimeError, setEndTimeError] = useState<string | null>(null);
@@ -570,14 +671,24 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
     setStartTimeState(initStart);
     setEndTimeState(initEnd);
     setIsAllDay(initialIsAllDay ?? false);
-    setRecurrence(initialRecurrence ?? 'Does not repeat');
+    
+    if (initialRecurrence?.startsWith('Custom:')) {
+      const parts = initialRecurrence.split(':');
+      setRecurrence('Custom');
+      setCustomInterval(parseInt(parts[1], 10) || 1);
+      setCustomFreq(parts[2] as any || 'Week');
+      setCustomDays(parts[3] ? parts[3].split(',').map(d => parseInt(d, 10)) : []);
+    } else {
+      setRecurrence(initialRecurrence ?? 'Does not repeat');
+    }
+
     setEndTimeError(null);
     setTimePicker({ visible: false, field: 'start' });
   }, [visible, initialDate, initialEndDate, initialTime, initialEndTime, initialIsAllDay, initialRecurrence, todayISO]);
 
   const markedDates = useMemo(
-    () => buildMarkedDates(startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory),
-    [startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory]
+    () => buildMarkedDates(startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence),
+    [startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence]
   );
 
   // Days selected count
@@ -664,6 +775,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
   const REPEAT_OPTIONS = [
     'Does not repeat',
     'Every weekday (Mon - Fri)',
+    'Every weekend (Sat - Sun)',
     'Daily',
     'Weekly',
     'Monthly',
@@ -703,9 +815,14 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
       }
     }
 
-    onConfirm(dateLabel, startTime, endLabel, finalEndTime, isAllDay, recurrence);
+    let finalRecurrence = recurrence;
+    if (recurrence === 'Custom') {
+      finalRecurrence = `Custom:${customInterval}:${customFreq}:${customDays.join(',')}`;
+    }
+
+    onConfirm(dateLabel, startTime, endLabel, finalEndTime, isAllDay, finalRecurrence);
     onClose();
-  }, [startISO, endISO, startTime, endTime, isAllDay, recurrence, onConfirm, onClose]);
+  }, [startISO, endISO, startTime, endTime, isAllDay, recurrence, customInterval, customFreq, customDays, onConfirm, onClose]);
   const effectiveTimeLabel = startTime
     ? (endTime ? ` · ${startTime} → ${endTime}` : ` at ${startTime}`)
     : '';
@@ -794,6 +911,35 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
     confirmTxt: { color: '#fff', fontSize: 15, fontFamily: 'Inter_700Bold' },
   }), [theme, isDark]);
 
+  const renderFooter = useCallback(
+    (props: any) => (
+      <BottomSheetFooter {...props} bottomInset={0}>
+        <View style={{
+          paddingHorizontal: 16,
+          paddingTop: 6,
+          paddingBottom: insets.bottom + 6,
+          backgroundColor: theme.colors.background,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: theme.colors.border,
+        }}>
+          <TouchableOpacity
+            onPress={handleConfirm}
+            style={[s.confirmBtn, { backgroundColor: conflicts.length > 0 ? '#D97706' : theme.colors.primary, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }]}
+          >
+            <Text style={s.confirmTxt}>
+              {conflicts.length > 0
+                ? `⚠️ Confirm anyway · ${fromISO(startISO)}${effectiveTimeLabel}`
+                : hasRange
+                  ? `Set ${fromISO(startISO)} → ${fromISO(endISO!)}${effectiveTimeLabel}`
+                  : `Set ${fromISO(startISO)}${effectiveTimeLabel}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheetFooter>
+    ),
+    [handleConfirm, conflicts.length, theme.colors, startISO, endISO, hasRange, effectiveTimeLabel, insets.bottom, s.confirmBtn, s.confirmTxt]
+  );
+
   return (
     // Own RN Modal → creates a native window layer that sits ABOVE the
     // TaskComposer Modal. GestureHandlerRootView + BottomSheetModalProvider
@@ -819,6 +965,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
             keyboardBehavior="interactive"
             keyboardBlurBehavior="restore"
             topInset={insets.top}
+            footerComponent={renderFooter}
           >
             {/* Header */}
             <View style={s.header}>
@@ -861,7 +1008,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
               style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="always"
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 120 }}
             >
               {/* Calendar */}
               <View
@@ -926,7 +1073,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
                 marginHorizontal: 16, marginTop: 12,
                 borderRadius: 14,
                 borderWidth: 1, borderColor: theme.colors.border,
-                backgroundColor: theme.colors.secondary,
+                backgroundColor: theme.colors.background,
                 overflow: 'hidden',
               }}>
 
@@ -1060,6 +1207,52 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
                       ))}
                     </View>
                   </GHScrollView>
+
+                  {/* Custom Recurrence Editor */}
+                  {recurrence === 'Custom' && (
+                    <View style={{ marginTop: 4, padding: 12, marginBottom: 12, backgroundColor: `${theme.colors.textSecondary}15`, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: customFreq === 'Week' ? 12 : 0 }}>
+                        <Text style={{ fontSize: 13, fontFamily: 'Inter_500Medium', color: theme.colors.text }}>Repeat every</Text>
+                        
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.background, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
+                          <TouchableOpacity onPress={() => setCustomInterval(Math.max(1, customInterval - 1))} style={{ padding: 6 }}>
+                            <MaterialCommunityIcons name="minus" size={16} color={theme.colors.textSecondary} />
+                          </TouchableOpacity>
+                          <Text style={{ fontSize: 13, fontFamily: 'Inter_600SemiBold', color: theme.colors.text, minWidth: 20, textAlign: 'center' }}>{customInterval}</Text>
+                          <TouchableOpacity onPress={() => setCustomInterval(customInterval + 1)} style={{ padding: 6 }}>
+                            <MaterialCommunityIcons name="plus" size={16} color={theme.colors.textSecondary} />
+                          </TouchableOpacity>
+                        </View>
+                        
+                        <GHScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            {['Day', 'Week', 'Month', 'Year'].map(f => (
+                              <TouchableOpacity key={f} onPress={() => { Haptics.selectionAsync(); setCustomFreq(f as any); }} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: customFreq === f ? theme.colors.primary : theme.colors.background, borderWidth: 1, borderColor: customFreq === f ? theme.colors.primary : theme.colors.border }}>
+                                <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: customFreq === f ? '#fff' : theme.colors.text }}>{f}{customInterval > 1 ? 's' : ''}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </GHScrollView>
+                      </View>
+
+                      {customFreq === 'Week' && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayChar, i) => {
+                            const isSelected = customDays.includes(i);
+                            return (
+                              <TouchableOpacity key={i} onPress={() => {
+                                Haptics.selectionAsync();
+                                if (isSelected && customDays.length > 1) setCustomDays(customDays.filter(d => d !== i));
+                                else if (!isSelected) setCustomDays([...customDays, i].sort());
+                              }} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isSelected ? theme.colors.primary : theme.colors.background, borderWidth: 1, borderColor: isSelected ? theme.colors.primary : theme.colors.border, alignItems: 'center', justifyContent: 'center' }}>
+                                <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: isSelected ? '#fff' : theme.colors.textSecondary }}>{dayChar}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
               </View>
             </BottomSheetScrollView>
@@ -1083,20 +1276,6 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
                 }}
               />
             )}
-
-            {/* Confirm button */}
-            <TouchableOpacity
-              onPress={handleConfirm}
-              style={[s.confirmBtn, { backgroundColor: conflicts.length > 0 ? '#D97706' : theme.colors.primary, marginBottom: Math.max(insets.bottom, 16), marginTop: 8 }]}
-            >
-              <Text style={s.confirmTxt}>
-                {conflicts.length > 0
-                  ? `⚠️ Confirm anyway · ${fromISO(startISO)}${effectiveTimeLabel}`
-                  : hasRange
-                    ? `Set ${fromISO(startISO)} → ${fromISO(endISO!)}${effectiveTimeLabel}`
-                    : `Set ${fromISO(startISO)}${effectiveTimeLabel}`}
-              </Text>
-            </TouchableOpacity>
           </BottomSheetModal>
         </BottomSheetModalProvider>
       </GestureHandlerRootView>
