@@ -18,10 +18,8 @@ module.exports = function withWindowsShortPaths(config) {
     // 2. Add multiDexEnabled true
     if (!config.modResults.contents.includes("multiDexEnabled true")) {
       config.modResults.contents = config.modResults.contents.replace(
-        /defaultConfig\s*\{([^}]*)\}/m,
-        (match, p1) => {
-          return `defaultConfig {${p1}        multiDexEnabled true\n    }`;
-        }
+        /defaultConfig\s*\{/,
+        "defaultConfig {\n        multiDexEnabled true"
       );
     }
 
