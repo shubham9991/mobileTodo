@@ -11,6 +11,7 @@ import { dummyData } from '../../core/dummyData';
 import { useFabBottom } from '../../core/hooks/useFabBottom';
 import { FABMenu } from '../../core/components/FABMenu';
 import { format } from 'date-fns';
+import { useRouter } from 'expo-router';
 
 // ── Empty State ──────────────────────────────────────────────────────────────
 const EmptyState = () => {
@@ -59,9 +60,17 @@ const emptyStyles = StyleSheet.create({
 // ── Main Screen ──────────────────────────────────────────────────────────────
 export const EventsScreen = () => {
   const { theme } = useTheme();
+  const router = useRouter();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
   const [activeISO, setActiveISO] = useState<string>(todayISO);
   const fabBottom = useFabBottom();
+
+  // When the user taps a date, update local state AND navigate to the
+  // Calendar tab in Day view for that date via a URL param.
+  const handleSelectDate = (iso: string) => {
+    setActiveISO(iso);
+    router.push(`/(tabs)/calendar?date=${iso}` as any);
+  };
 
   // EventsByDate is keyed by day number (legacy). Map ISO → day number for lookup.
   const activeDayNum = useMemo(() => {
@@ -87,7 +96,7 @@ export const EventsScreen = () => {
         <View style={{ backgroundColor: theme.colors.background }}>
           <CalendarStrip
             activeDate={activeISO}
-            onSelectDate={setActiveISO}
+            onSelectDate={handleSelectDate}
           />
         </View>
 

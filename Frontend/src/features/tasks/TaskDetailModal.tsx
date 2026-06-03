@@ -261,7 +261,7 @@ const formatHistoryDate = (timestamp: number): string => {
 export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalProps) => {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { taskGroups, updateTask, handleComposerSave, addHistoryEvent, taskHistory } = useDashboard();
+  const { taskGroups, updateTask, deleteTask, handleComposerSave, addHistoryEvent, taskHistory } = useDashboard();
 
   // Replaced `newComment` state with a Ref to prevent re-renders when typing
   const unsavedTextRef = useRef('');
@@ -513,7 +513,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     { label: 'Save as Template', icon: 'bookmark-add', onPress: () => Alert.alert('Template Saved', 'Saved as reusable template.') },
     { label: 'Share Task', icon: 'share', onPress: () => Alert.alert('Share', `"${task?.title}"`) },
     { label: 'Archive Task', icon: 'archive', onPress: () => { if (!task) return; Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); updateTask(task.id, (t: any) => ({ ...t, archived: true })); dismiss(); } },
-    { label: 'Delete Task', icon: 'delete-outline', destructive: true, onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); dismiss(); } }]) },
+    { label: 'Delete Task', icon: 'delete-outline', destructive: true, onPress: () => Alert.alert('Delete Task', 'This cannot be undone.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Delete', style: 'destructive', onPress: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); deleteTask(task.id); dismiss(); } }]) },
   ];
 
   const versionHistory: VersionEntry[] = useMemo(() => {
@@ -624,12 +624,34 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                   )}
                 </View>
 
-                {/* Due date */}
-                {(task.dueDate || task.dueTime) && (
+                {/* Due date & time details */}
+                {(task.dueDate || task.dueEndDate || task.dueTime || task.dueEndTime) && (
                   <View style={st.dateRow}>
                     <MaterialIcons name="event" size={14} color={theme.colors.textSecondary} />
-                    <Text style={[st.dateTxt, { color: theme.colors.textSecondary }]}>
-                      {task.dueDate || 'No date'}{task.dueTime ? `  ·  ${task.dueTime}` : ''}
+                    <Text style={[st.dateTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                      {(() => {
+                        let label = '';
+                        if (task.dueDate && task.dueEndDate && task.dueDate !== task.dueEndDate) {
+                          label = `${task.dueDate} - ${task.dueEndDate}`;
+                        } else if (task.dueDate) {
+                          label = task.dueDate;
+                        } else if (task.dueEndDate) {
+                          label = task.dueEndDate;
+                        } else {
+                          label = 'No date';
+                        }
+                        
+                        if (task.dueTime) {
+                          if (task.dueEndTime) {
+                            label += `  ·  ${task.dueTime} - ${task.dueEndTime}`;
+                          } else {
+                            label += `  ·  ${task.dueTime}`;
+                          }
+                        } else if (task.dueEndTime) {
+                          label += `  ·  ${task.dueEndTime}`;
+                        }
+                        return label;
+                      })()}
                     </Text>
                   </View>
                 )}
@@ -875,7 +897,9 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         initialDescription={task.description}
         initialPriority={task.priority}
         initialDueDate={task.dueDate}
+        initialDueEndDate={task.dueEndDate}
         initialDueTime={task.dueTime}
+        initialDueEndTime={task.dueEndTime}
         initialReminder={task.hasReminder ? 'At due time' : ''}
         initialTags={task.tag ? [task.tag.toLowerCase().replace(/\s+/g, '-')] : []}
         editMode={true}
@@ -892,7 +916,9 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             description: taskData.description,
             priority: taskData.priority,
             dueDate: taskData.dueDate,
+            dueEndDate: taskData.dueEndDate,
             dueTime: taskData.dueTime,
+            dueEndTime: taskData.dueEndTime,
             hasReminder: !!taskData.reminder,
             tag: taskData.tags?.[0]?.label,
             tagType: taskData.tags?.[0]?.label,

@@ -2,7 +2,7 @@
  * ScheduleView — Agenda (list) view for MasterCalendarScreen.
  * Groups calendar items by date with proper card styling and tap interactions.
  */
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
 } from 'react-native';
@@ -17,6 +17,7 @@ import { Task } from '../../../core/dummyData';
 interface Props {
   startISO: string;
   endISO: string;
+  anchorISO: string;
   getItemsForDate: (iso: string) => CalendarItem[];
   onItemPress?: (item: CalendarItem) => void;
   onSlotPress?: (iso: string, time?: string) => void;
@@ -32,7 +33,9 @@ function friendlyDate(iso: string): string {
 }
 
 function timeLabel(item: CalendarItem): string {
-  if (item.time) return item.time;
+  if (item.time) {
+    return `${item.time}${item.dueEndTime ? ` – ${item.dueEndTime}` : ''}`;
+  }
   if (item.endDate && item.endDate !== item.startDate) {
     return `${format(parseISO(item.startDate), 'MMM d')} – ${format(parseISO(item.endDate), 'MMM d')}`;
   }
@@ -40,17 +43,33 @@ function timeLabel(item: CalendarItem): string {
 }
 
 export const ScheduleView: React.FC<Props> = ({
-  startISO, endISO, getItemsForDate, onItemPress, onSlotPress,
+  startISO, endISO, anchorISO, getItemsForDate, onItemPress, onSlotPress,
 }) => {
   const { theme } = useTheme();
   const { taskGroups, updateTask } = useDashboard();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [anchorOffset, setAnchorOffset] = useState<number | null>(null);
+  const hasScrolledRef = useRef(false);
+
+  useEffect(() => {
+    hasScrolledRef.current = false;
+    setAnchorOffset(null);
+  }, [anchorISO]);
+
+  useEffect(() => {
+    if (anchorOffset !== null && !hasScrolledRef.current && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ y: anchorOffset, animated: true });
+      hasScrolledRef.current = true;
+    }
+  }, [anchorOffset]);
+
   const days = eachDayOfInterval({ start: parseISO(startISO), end: parseISO(endISO) });
 
-  // Only show days that have items OR are today
+  // Only show days that have items OR are today/anchor
   const todayISO = format(new Date(), 'yyyy-MM-dd');
   const visibleDays = days.filter(day => {
     const iso = format(day, 'yyyy-MM-dd');
-    return getItemsForDate(iso).length > 0 || iso === todayISO;
+    return getItemsForDate(iso).length > 0 || iso === todayISO || iso === anchorISO;
   });
 
   if (visibleDays.length === 0) {
@@ -69,6 +88,7 @@ export const ScheduleView: React.FC<Props> = ({
 
   return (
     <ScrollView
+      ref={scrollViewRef}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: 100, paddingTop: 4 }}
     >
@@ -76,9 +96,18 @@ export const ScheduleView: React.FC<Props> = ({
         const iso = format(day, 'yyyy-MM-dd');
         const items = getItemsForDate(iso);
         const isToday = iso === todayISO;
+        const isAnchor = iso === anchorISO;
 
         return (
-          <View key={iso} style={styles.daySection}>
+          <View 
+            key={iso} 
+            style={styles.daySection}
+            onLayout={(e) => {
+              if (isAnchor) {
+                setAnchorOffset(e.nativeEvent.layout.y);
+              }
+            }}
+          >
             {/* Day Header */}
             <View style={styles.dayHeader}>
               <View style={[

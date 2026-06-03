@@ -25,6 +25,17 @@ function AppShell() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        {/* Full-screen note editor — no tab bar, no header */}
+        <Stack.Screen
+          name="note"
+          options={{
+            headerShown: false,
+            // Slide up from bottom for a native sheet feel
+            animation: 'slide_from_bottom',
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
+          }}
+        />
       </Stack>
     </>
   );

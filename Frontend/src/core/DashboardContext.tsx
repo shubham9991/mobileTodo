@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-
+import { format, addDays, parse, isValid } from 'date-fns';
 import { dummyData, Task } from './dummyData';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +40,35 @@ export interface HistoryEvent {
   icon: string;
 }
 
+// ─── Date Normalizer ─────────────────────────────────────────────────────────
+// Converts any human-readable date label to ISO yyyy-MM-dd so the calendar
+// never receives an ambiguous string that JS's Date constructor can't parse.
+function normalizeToISO(dateStr?: string): string | undefined {
+  if (!dateStr) return undefined;
+  // Already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  const today = new Date();
+  const lower = dateStr.toLowerCase().trim();
+  if (lower === 'today') return format(today, 'yyyy-MM-dd');
+  if (lower === 'tomorrow') return format(addDays(today, 1), 'yyyy-MM-dd');
+  // "Wed, May 20" format (from DateTimePicker's fromISO)
+  const withDay = dateStr.match(/^\w+,\s+(\w+)\s+(\d{1,2})$/);
+  if (withDay) {
+    const d = parse(`${withDay[1]} ${withDay[2]} ${today.getFullYear()}`, 'MMM d yyyy', today);
+    if (isValid(d)) return format(d, 'yyyy-MM-dd');
+  }
+  // "May 20" format (from smartParser)
+  const monthDay = dateStr.match(/^(\w+)\s+(\d{1,2})$/);
+  if (monthDay) {
+    const d = parse(`${monthDay[1]} ${monthDay[2]} ${today.getFullYear()}`, 'MMM d yyyy', today);
+    if (isValid(d)) return format(d, 'yyyy-MM-dd');
+  }
+  // "next Monday", "May 20, 2026" etc. — last-resort native parse
+  const attempt = new Date(dateStr);
+  if (isValid(attempt)) return format(attempt, 'yyyy-MM-dd');
+  return undefined;
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface DashboardContextType {
   sectionOrder: SectionId[];
@@ -53,6 +82,7 @@ interface DashboardContextType {
   setTaskGroups: React.Dispatch<React.SetStateAction<TaskGroup[]>>;
   handleComposerSave: (taskData: any) => void;
   updateTask: (taskId: string, updater: (t: Task) => Task) => void;
+  deleteTask: (taskId: string) => void;
   addHistoryEvent: (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => void;
 }
 
@@ -68,6 +98,7 @@ const DashboardContext = createContext<DashboardContextType>({
   setTaskGroups: () => { },
   handleComposerSave: () => { },
   updateTask: () => { },
+  deleteTask: () => { },
   addHistoryEvent: () => { },
 });
 
@@ -101,24 +132,29 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       tagType: (taskData.tags?.[0]?.id || taskData.tags?.[0] || 'personal') as any,
       priority: taskData.priority,
       completed: false,
-      dueDate: taskData.dueDate,
-      dueEndDate: taskData.dueEndDate,
+      // ← Normalize to ISO yyyy-MM-dd so the calendar always gets a clean date
+      dueDate: normalizeToISO(taskData.dueDate),
+      dueEndDate: normalizeToISO(taskData.dueEndDate),
       dueTime: taskData.dueTime,
+      dueEndTime: taskData.dueEndTime,
       hasReminder: !!taskData.reminder,
       subtasks: taskData.subtasks,
       attachments: taskData.attachments,
     };
 
     setTaskGroups(prev => {
-      const todayISO = new Date().toISOString().slice(0, 10);
-      const dueISO = taskData.dueDate || '';
+      const todayISO = format(new Date(), 'yyyy-MM-dd');
+      const dueISO = newTask.dueDate || '';
       // Put in "today" group if due today or earlier, otherwise "week"
-      const targetGroupId = !dueISO || dueISO === 'Today' || dueISO === todayISO ? 'today' : 'week';
-      return prev.map(g =>
-        g.id === targetGroupId
-          ? { ...g, tasks: [newTask, ...g.tasks] }
-          : g
-      );
+      const targetGroupId = !dueISO || dueISO <= todayISO ? 'today' : 'week';
+      // Append to matched group; if no group found, append to first group
+      const matched = prev.some(g => g.id === targetGroupId);
+      return prev.map(g => {
+        if (matched ? g.id === targetGroupId : prev.indexOf(g) === 0) {
+          return { ...g, tasks: [newTask, ...g.tasks] };
+        }
+        return g;
+      });
     });
     addHistoryEvent(newTask.id, { action: 'Task created', icon: 'add-task' });
   };
@@ -168,11 +204,41 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  const deleteTask = (taskId: string) => {
+    const deleteFromTree = (subs: any[] | undefined): any[] => {
+      if (!subs) return [];
+      return subs
+        .filter((s) => s.id !== taskId)
+        .map((s) => {
+          const children = s.subtasks || s.children;
+          if (children && children.length > 0) {
+            if (s.subtasks) return { ...s, subtasks: deleteFromTree(s.subtasks) };
+            return { ...s, children: deleteFromTree(s.children) };
+          }
+          return s;
+        });
+    };
+
+    setTaskGroups((prev) =>
+      prev.map((group) => ({
+        ...group,
+        tasks: group.tasks
+          .filter((t) => t.id !== taskId)
+          .map((t) => {
+            if (t.subtasks && t.subtasks.length > 0) {
+              return { ...t, subtasks: deleteFromTree(t.subtasks) };
+            }
+            return t;
+          }),
+      }))
+    );
+  };
+
   return (
     <DashboardContext.Provider value={{
       sectionOrder, sectionVisibility, layoutMode, taskGroups, taskHistory,
       setSectionOrder, toggleSectionVisibility, setLayoutMode,
-      setTaskGroups, handleComposerSave, updateTask, addHistoryEvent,
+      setTaskGroups, handleComposerSave, updateTask, deleteTask, addHistoryEvent,
     }}>
       {children}
     </DashboardContext.Provider>

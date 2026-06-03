@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!--
+    NATIVE FEEL CHECKLIST #1 & #2:
+    - maximum-scale=1.0 + user-scalable=no → kills pinch-to-zoom
+    - viewport-fit=cover → respects notch/cutout
+    - This single tag eliminates ~80% of "it feels like a browser" complaints
+  -->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
+  <title>Editor</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

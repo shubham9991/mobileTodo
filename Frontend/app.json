@@ -46,7 +46,16 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-navigation-bar",
+        {
+          "position": "absolute",
+          "backgroundColor": "#00000000",
+          "visibility": "hidden",
+          "behavior": "inset-swipe"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

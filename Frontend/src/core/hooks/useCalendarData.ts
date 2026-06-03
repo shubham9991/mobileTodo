@@ -18,6 +18,7 @@ export interface CalendarItem {
   startDate: string;   // ISO of first day
   endDate?: string;    // ISO of last day (multi-day tasks)
   time?: string;
+  dueEndTime?: string;
   color: string;
   tag?: string;
   tagType?: string;
@@ -113,11 +114,12 @@ export function useCalendarData(startISO: string, endISO: string): {
           startDate: taskStartISO,
           endDate: isMultiDay ? taskEndISO : undefined,
           time: task.dueTime,
+          dueEndTime: task.dueEndTime,
           color,
           tag: task.tag,
           tagType: tagId,
           completed: task.completed,
-          isAllDay: !task.dueTime || isMultiDay,
+          isAllDay: !task.dueTime && !task.dueEndTime,
           isRangeStart: isMultiDay ? idx === 0 : undefined,
           isRangeMid: isMultiDay ? (idx > 0 && idx < daysInRange.length - 1) : undefined,
           isRangeEnd: isMultiDay ? idx === daysInRange.length - 1 : undefined,

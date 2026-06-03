@@ -770,7 +770,7 @@ const attachPanelStyles = StyleSheet.create({
 export const TaskComposer = ({
   visible, onClose, onSave,
   initialTitle = '', initialDescription = '',
-  initialPriority = null, initialDueDate = '', initialDueEndDate = null, initialDueTime = '', initialReminder = '', initialTags = [], initialLocation = '',
+  initialPriority = null, initialDueDate = '', initialDueEndDate = null, initialDueTime = '', initialDueEndTime = null, initialReminder = '', initialTags = [], initialLocation = '',
   editMode = false
 }: {
   visible: boolean;
@@ -782,6 +782,7 @@ export const TaskComposer = ({
   initialDueDate?: string;
   initialDueEndDate?: string | null;
   initialDueTime?: string;
+  initialDueEndTime?: string | null;
   initialReminder?: string;
   initialTags?: string[];
   initialLocation?: string;
@@ -798,7 +799,7 @@ export const TaskComposer = ({
   const [dueDate, setDueDate] = useState(initialDueDate);
   const [dueEndDate, setDueEndDate] = useState<string | null>(initialDueEndDate ?? null);
   const [dueTime, setDueTime] = useState(initialDueTime);
-  const [dueEndTime, setDueEndTime] = useState<string | null>(null);
+  const [dueEndTime, setDueEndTime] = useState<string | null>(initialDueEndTime ?? null);
   const [reminder, setReminder] = useState(initialReminder);
   const [location, setLocation] = useState(initialLocation);
   const [description, setDesc] = useState(initialDescription);
@@ -947,6 +948,7 @@ export const TaskComposer = ({
       setDueDate(initialDueDate);
       setDueEndDate(initialDueEndDate ?? null);
       setDueTime(initialDueTime);
+      setDueEndTime(initialDueEndTime ?? null);
       setReminder(initialReminder);
       setLocation(initialLocation);
       setSelectedTags(initialTags);
@@ -990,7 +992,9 @@ export const TaskComposer = ({
       description.trim() !== initialDescription.trim() ||
       priority !== initialPriority ||
       dueDate !== initialDueDate ||
+      dueEndDate !== initialDueEndDate ||
       dueTime !== initialDueTime ||
+      dueEndTime !== initialDueEndTime ||
       reminder !== initialReminder ||
       location !== initialLocation ||
       JSON.stringify(selectedTags.slice().sort()) !== JSON.stringify(initialTags.slice().sort()) ||
@@ -1009,7 +1013,7 @@ export const TaskComposer = ({
             text: 'Discard',
             style: 'destructive',
             onPress: () => {
-              setTitle(''); setPriority(null); setDueDate(''); setDueEndDate(null); setDueTime(''); setReminder(''); setLocation('');
+              setTitle(''); setPriority(null); setDueDate(''); setDueEndDate(null); setDueTime(''); setDueEndTime(null); setReminder(''); setLocation('');
               setSelectedTags([]); setSubtasks([]); setDesc(''); setAttachments([]);
               setActivePanel(null); setSuggestions([]); setErrors({}); setTouched({});
               setIsSubmitting(false); setSubInput('');
@@ -1385,10 +1389,14 @@ export const TaskComposer = ({
                           label = dueEndDate;
                         }
                         if (dueTime) {
-                          label += ` · ${dueTime}`;
+                          if (dueEndTime) {
+                            label += ` · ${dueTime} - ${dueEndTime}`;
+                          } else {
+                            label += ` · ${dueTime}`;
+                          }
                         }
                         return (
-                          <Pill color="#6366F1" icon="calendar-month" label={label} onRemove={() => { setDueDate(''); setDueEndDate(null); setDueTime(''); }} />
+                          <Pill color="#6366F1" icon="calendar-month" label={label} onRemove={() => { setDueDate(''); setDueEndDate(null); setDueTime(''); setDueEndTime(null); }} />
                         );
                       })()}
                       {reminder && (
@@ -1631,7 +1639,7 @@ export const TaskComposer = ({
             setDueDate(date);
             setDueTime(time || '');
             setDueEndDate(endDate || null);
-            if (endTime) setDueEndTime(endTime);
+            setDueEndTime(endTime || null);
             setShowDatePicker(false);
           }}
           initialDate={dueDate}

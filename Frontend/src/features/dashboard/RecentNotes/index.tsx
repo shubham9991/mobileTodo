@@ -1,19 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../../../themes/ThemeContext';
-import { dummyData } from '../../../core/dummyData';
+import { getAllNotes, formatRelativeTime, type Note } from '../../../core/db/notesStore';
 import { NoteCardSkeleton } from '../../../core/components/Skeleton';
 
 export const RecentNotes = () => {
   const { theme } = useTheme();
-  const notes = dummyData.recentNotes;
+  const router = useRouter();
+  const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 900);
-    return () => clearTimeout(t);
+  const loadNotes = useCallback(async () => {
+    const all = await getAllNotes();
+    // Show pinned first, then most recent, max 4 on dashboard
+    const sorted = [
+      ...all.filter(n => n.pinned),
+      ...all.filter(n => !n.pinned),
+    ].slice(0, 4);
+    setNotes(sorted);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { loadNotes(); }, [loadNotes]);
+
+  const openNote = useCallback((note: Note) => {
+    router.push({ pathname: '/note', params: { noteId: note.id, noteTitle: note.title } });
+  }, [router]);
+
+  const createNote = useCallback(() => {
+    const id = `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    router.push({ pathname: '/note', params: { noteId: id } });
+  }, [router]);
 
   return (
     <View style={styles.container}>
@@ -22,8 +41,10 @@ export const RecentNotes = () => {
         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
           RECENT NOTES
         </Text>
-        <TouchableOpacity>
-          <MaterialIcons name="grid-view" size={18} color={theme.colors.textSecondary} />
+        <TouchableOpacity onPress={() => router.push('/(tabs)/notes')}>
+          <Text style={[styles.seeAll, { color: theme.colors.primary, fontFamily: 'Inter_500Medium' }]}>
+            See all
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -34,49 +55,61 @@ export const RecentNotes = () => {
             <NoteCardSkeleton />
             <NoteCardSkeleton />
           </>
+        ) : notes.length === 0 ? (
+          /* Empty state card that opens a new note */
+          <TouchableOpacity
+            style={[styles.emptyCard, { borderColor: theme.colors.border, borderStyle: 'dashed' }]}
+            onPress={createNote}
+          >
+            <MaterialIcons name="add" size={22} color={theme.colors.primary} />
+            <Text style={[styles.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+              New note
+            </Text>
+          </TouchableOpacity>
         ) : (
           notes.map((note) => (
-            <View
+            <TouchableOpacity
               key={note.id}
               style={[styles.noteCard, {
                 backgroundColor: theme.colors.cardPrimary,
                 borderColor: theme.colors.border,
               }]}
+              onPress={() => openNote(note)}
+              activeOpacity={0.7}
             >
+              {note.pinned && (
+                <MaterialIcons name="push-pin" size={11} color={theme.colors.primary} style={styles.pinIcon} />
+              )}
               <View style={styles.noteHeader}>
                 <Text
                   style={[styles.noteTitle, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}
                   numberOfLines={2}
                 >
-                  {note.title}
+                  {note.title || 'Untitled'}
                 </Text>
-                <MaterialIcons
-                  name={note.pinned ? 'push-pin' : 'edit-note'}
-                  size={14}
-                  color={theme.colors.textSecondary}
-                />
               </View>
 
               <Text
                 style={[styles.notePreview, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}
                 numberOfLines={3}
               >
-                {note.preview}
+                {note.preview || 'No content'}
               </Text>
 
               <View style={styles.noteFooter}>
                 <MaterialIcons name="schedule" size={11} color={theme.colors.textSecondary} />
                 <Text style={[styles.noteTime, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                  {note.time}
+                  {formatRelativeTime(note.updatedAt)}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </View>
     </View>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -132,4 +165,17 @@ const styles = StyleSheet.create({
   noteTime: {
     fontSize: 11,
   },
+  seeAll: { fontSize: 12 },
+  emptyCard: {
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    minHeight: 90,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  emptyText: { fontSize: 12 },
+  pinIcon: { position: 'absolute', top: 8, right: 8 },
 });
