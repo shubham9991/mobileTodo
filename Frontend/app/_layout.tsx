@@ -13,13 +13,24 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import * as NavigationBar from 'expo-navigation-bar';
 
 
 // Inner shell that has access to ThemeContext
 function AppShell() {
   const { isDark } = useTheme();
+
+  React.useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setPositionAsync('absolute');
+      NavigationBar.setBackgroundColorAsync('#00000000');
+      NavigationBar.setVisibilityAsync('hidden');
+      NavigationBar.setBehaviorAsync('inset-swipe');
+    }
+  }, []);
+
   return (
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />
