@@ -64,7 +64,7 @@ html, body, #root {
   caret-color: var(--accent, #6366F1);
   font-family: -apple-system, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.45;
   color: var(--text, #09090B);
   word-break: break-word;
   white-space: pre-wrap;
@@ -117,7 +117,7 @@ html, body, #root {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.5px;
-  margin: 20px 0 8px;
+  margin: 12px 0 6px;
   color: var(--text);
 }
 .editor-heading-h2 {
@@ -125,21 +125,25 @@ html, body, #root {
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.3px;
-  margin: 16px 0 6px;
+  margin: 10px 0 4px;
   color: var(--text);
 }
 .editor-heading-h3 {
   font-size: 18px;
   font-weight: 600;
   line-height: 1.4;
-  margin: 12px 0 4px;
+  margin: 8px 0 4px;
   color: var(--text);
 }
 
 /* ── Paragraph ──────────────────────────────────────────────── */
 .editor-paragraph {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--text);
+}
+.editor-input p {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* ── Quote ──────────────────────────────────────────────────── */
@@ -154,25 +158,152 @@ html, body, #root {
 /* ── Code (block) ───────────────────────────────────────────── */
 .editor-code {
   background: var(--code-bg);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 42px 12px 12px 42px; /* 42px top padding for the action header */
   font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--text);
-  margin: 8px 0;
+  margin: 12px 0;
   overflow-x: auto;
   white-space: pre;
+  position: relative; /* For absolute positioning of the gutter */
 }
-.editor-code:before {
-  content: attr(data-highlight-language);
-  display: block;
-  font-size: 11px;
-  font-family: -apple-system, system-ui, sans-serif;
+/* The Line Numbers Gutter */
+.editor-code::before {
+  content: attr(data-gutter);
+  position: absolute;
+  top: 34px; /* Start below the 34px header */
+  left: 0;
+  bottom: 0;
+  width: 32px;
+  padding: 8px 8px 12px 0; /* Padding aligns with text padding */
+  background-color: transparent;
+  border-right: 1px solid var(--border);
   color: var(--text-secondary);
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  text-align: right;
+  white-space: pre-wrap;
+  overflow: hidden;
+  user-select: none;
+  font-size: 11px;
+  line-height: 1.6;
+}
+[data-theme="dark"] .editor-code::before {
+  background-color: transparent;
+}
+
+/* ── Code Action Menu (GitHub Style) ───────────────────────────────── */
+.code-github-header {
+  height: 42px;
+  background: #161b22; /* GitHub dark header */
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 0;
+  z-index: 10;
+}
+[data-theme="dark"] .code-github-header {
+  background: #0d1117;
+  border-bottom: 1px solid #30363d;
+}
+.code-github-tab-wrapper {
+  position: relative;
+  height: 100%;
+}
+.code-github-tab {
+  height: 100%;
+  padding: 0 16px;
+  background: #21262d; /* GitHub active tab */
+  color: #c9d1d9;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  align-items: center;
+  border: none;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 6px;
+  border-right: 1px solid #30363d;
+  cursor: pointer;
+}
+.code-github-tab:hover {
+  background: #30363d;
+}
+[data-theme="dark"] .code-github-tab {
+  background: #161b22;
+}
+.code-github-lang-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 1px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  min-width: 150px;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 20;
+}
+.code-github-lang-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+.code-github-lang-dropdown::-webkit-scrollbar-thumb {
+  background-color: #30363d;
+  border-radius: 3px;
+}
+.code-github-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.code-github-dots {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.code-github-dots:active {
+  background: rgba(255,255,255,0.1);
+  color: #c9d1d9;
+}
+.code-github-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  min-width: 130px;
+}
+.code-github-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #c9d1d9;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.code-github-dropdown-item:active {
+  background: rgba(255,255,255,0.1);
 }
 
 /* Code syntax highlighting tokens */

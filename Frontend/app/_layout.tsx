@@ -6,16 +6,11 @@ import { ManageProvider } from "../src/core/ManageContext";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
-import {
-  useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+import { useFonts } from 'expo-font';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as NavigationBar from 'expo-navigation-bar';
+import { loadAllDownloadedFonts } from '../src/features/notes/fontManager';
 
 
 // Inner shell that has access to ThemeContext
@@ -24,12 +19,9 @@ function AppShell() {
 
   React.useEffect(() => {
     if (Platform.OS === 'android') {
-      NavigationBar.setPositionAsync('absolute');
-      NavigationBar.setBackgroundColorAsync('#00000000');
-      NavigationBar.setVisibilityAsync('hidden');
-      NavigationBar.setBehaviorAsync('inset-swipe');
+      NavigationBar.setButtonStyleAsync(isDark ? 'light' : 'dark');
     }
-  }, []);
+  }, [isDark]);
 
   return (
     <>
@@ -41,10 +33,9 @@ function AppShell() {
           name="note"
           options={{
             headerShown: false,
-            // Slide up from bottom for a native sheet feel
-            animation: 'slide_from_bottom',
+            animation: 'slide_from_right',
             gestureEnabled: true,
-            gestureDirection: 'vertical',
+            gestureDirection: 'horizontal',
           }}
         />
       </Stack>
@@ -54,11 +45,15 @@ function AppShell() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Inter_400Regular: require('../assets/fonts/Inter_400Regular.ttf'),
+    Inter_500Medium: require('../assets/fonts/Inter_500Medium.ttf'),
+    Inter_600SemiBold: require('../assets/fonts/Inter_600SemiBold.ttf'),
+    Inter_700Bold: require('../assets/fonts/Inter_700Bold.ttf'),
   });
+
+  React.useEffect(() => {
+    loadAllDownloadedFonts();
+  }, []);
 
   if (!fontsLoaded) {
     return (

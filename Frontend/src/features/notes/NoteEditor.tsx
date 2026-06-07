@@ -64,6 +64,12 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
     setTimeout(() => { if (!isReady) sendCommand('FOCUS'); }, 500);
   }, [isReady, sendCommand]);
 
+  // Directly inject JS to blur the WebView's active element — the only reliable
+  // way to dismiss the keyboard when it is owned by the WebView.
+  const blurWebView = useCallback(() => {
+    webviewRef.current?.injectJavaScript('document.activeElement && document.activeElement.blur(); true;');
+  }, [webviewRef]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <WebView
@@ -110,6 +116,7 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
         selectionState={selectionState}
         isEditorReady={isReady}
         onActionTriggered={onActionTriggered}
+        blurWebView={blurWebView}
       />
     </View>
   );

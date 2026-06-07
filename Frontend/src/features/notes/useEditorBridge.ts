@@ -10,6 +10,7 @@
  *   and this hook parses and routes the incoming message.
  */
 import { useRef, useCallback, useState } from 'react';
+import { Keyboard } from 'react-native';
 import WebView from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 
@@ -25,6 +26,10 @@ export interface SelectionState {
   highlight: boolean;
   /** 'paragraph' | 'h1' | 'h2' | 'h3' | 'quote' | 'code' | 'bullet' | 'number' | 'check' */
   blockType: string;
+  fontFamily: string;
+  fontSize?: string;
+  codeLanguage: string;
+  align?: 'left' | 'center' | 'right' | 'justify';
 }
 
 const DEFAULT_SELECTION: SelectionState = {
@@ -37,6 +42,9 @@ const DEFAULT_SELECTION: SelectionState = {
   superscript: false,
   highlight: false,
   blockType: 'paragraph',
+  fontFamily: 'System',
+  fontSize: '16px',
+  codeLanguage: '',
 };
 
 export type SavePayload = {
@@ -110,6 +118,9 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
         break;
       case 'EDITOR_ERROR':
         handlers.onError?.(payload as string);
+        break;
+      case 'EDITOR_BLUR':
+        Keyboard.dismiss();
         break;
     }
   }, [handlers]);

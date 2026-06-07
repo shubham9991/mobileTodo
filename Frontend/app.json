@@ -32,6 +32,7 @@
     },
     "plugins": [
       "./withWindowsShortPaths",
+      "./withAndroidEditorAsset",
       "expo-router",
       "react-native-fast-tflite",
       [

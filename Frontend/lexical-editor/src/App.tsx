@@ -31,11 +31,14 @@ import {
   OUTDENT_CONTENT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
+  SELECTION_CHANGE_COMMAND,
+  COMMAND_PRIORITY_HIGH,
   $getRoot,
   $getSelection,
   $isRangeSelection,
   $createParagraphNode,
   $isParagraphNode,
+  $setSelection,
   TextFormatType,
   ElementFormatType,
 } from 'lexical';
@@ -46,14 +49,14 @@ import {
   REMOVE_LIST_COMMAND,
   $isListNode,
 } from '@lexical/list';
-import { $setBlocksType } from '@lexical/selection';
+import { $setBlocksType, $patchStyleText, $getSelectionStyleValueForProperty } from '@lexical/selection';
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode } from '@lexical/rich-text';
 import { $createCodeNode } from '@lexical/code';
 import { TOGGLE_LINK_COMMAND } from '@lexical/link';
 import { INSERT_TABLE_COMMAND } from '@lexical/table';
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
 import { $generateHtmlFromNodes } from '@lexical/html';
-import { $patchStyleText } from '@lexical/selection';
+
 import editorTheme from './theme/editorTheme';
 import { allNodes } from './plugins/nodes';
 import { $createImageNode } from './plugins/nodes/ImageNode';
@@ -64,13 +67,28 @@ import {
   $createCollapsibleTitleNode,
   $createCollapsibleContentNode,
 } from './plugins/nodes/CollapsibleNodes';
+import CodeActionMenuPlugin from './plugins/CodeActionMenuPlugin';
 
 // ── Type declaration for React Native bridge ─────────────────────────────────
 declare global {
   interface Window {
     ReactNativeWebView?: { postMessage: (msg: string) => void };
+    onNativeCommand?: (type: string, payload?: any) => void;
   }
 }
+
+// ── Global: always tracks the last non-null Lexical selection ────────────────
+// Updated by SelectionSaverPlugin on every editor update where selection != null.
+// Used by ToolbarBridgePlugin to restore selection before executing a command.
+import type { BaseSelection } from 'lexical';
+let _lastKnownSelection: BaseSelection | null = null;
+
+// ── Global: tracks the format state the user WANTS at the cursor ─────────────
+// Key = TextFormatType string (e.g. 'bold'), Value = desired active state.
+// Set when toolbar buttons are tapped. The SELECTION_CHANGE_COMMAND listener
+// in ToolbarBridgePlugin re-applies these after Android resets them.
+// Cleared per-format when user explicitly toggles off, or auto-expires.
+const _desiredFormats = new Map<string, { active: boolean; expiresAt: number }>();
 
 // ── URL matchers for AutoLinkPlugin ──────────────────────────────────────────
 const URL_MATCHER =
@@ -109,6 +127,22 @@ function SelectionStatePlugin() {
         else if ($isListNode(element)) blockType = element.getListType();
         else if (!$isParagraphNode(element)) blockType = element.getType();
 
+        // Check for font-family style
+        const fontFamily = $getSelectionStyleValueForProperty(selection, 'font-family', 'System');
+        // Check for font-size style
+        const fontSize = $getSelectionStyleValueForProperty(selection, 'font-size', '16px');
+        // Check alignment
+        const align = typeof element.getFormatType === 'function' ? element.getFormatType() : '';
+        
+        // Check code language
+        let codeLanguage = '';
+        if (blockType === 'code') {
+          const codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
+          if (codeNode) {
+            codeLanguage = codeNode.getLanguage() || '';
+          }
+        }
+
         window.ReactNativeWebView?.postMessage(JSON.stringify({
           type: 'SELECTION_STATE',
           payload: {
@@ -123,6 +157,14 @@ function SelectionStatePlugin() {
             highlight: selection.hasFormat('highlight'),
             // Block type
             blockType,
+            // Font Family
+            fontFamily,
+            // Font Size
+            fontSize,
+            // Alignment
+            align,
+            // Code Language
+            codeLanguage,
           },
         }));
       });
@@ -198,6 +240,32 @@ function KeyboardScrollPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SELECTION SAVER PLUGIN — continuously tracks last known non-null selection.
+// Using registerUpdateListener is MORE RELIABLE than blur because:
+//   • blur fires AFTER Android already cleared the DOM selection
+//   • Lexical may update its own selection to null before our blur handler runs
+//   • registerUpdateListener fires synchronously as part of each commit cycle
+// ═══════════════════════════════════════════════════════════════════════════════
+function SelectionSaverPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    return editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const sel = $getSelection();
+        // Only save when non-null — a null selection after blur must not overwrite
+        // the last valid position the user was at.
+        if (sel !== null) {
+          _lastKnownSelection = sel.clone();
+        }
+      });
+    });
+  }, [editor]);
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TOOLBAR BRIDGE PLUGIN — receives commands from native RN toolbar
 // ═══════════════════════════════════════════════════════════════════════════════
 function ToolbarBridgePlugin() {
@@ -205,242 +273,391 @@ function ToolbarBridgePlugin() {
 
   useEffect(() => {
     const executeCommand = (type: string, payload?: string) => {
-      const skipFocus = ['LOAD_STATE', 'GET_STATE', 'SET_THEME', 'SET_ACCENT'].includes(type);
-      if (!skipFocus) {
-        editor.focus();
-      }
+      const skipFocus = ['LOAD_STATE', 'GET_STATE', 'SET_THEME', 'SET_ACCENT', 'BLUR'].includes(type);
 
-      switch (type) {
-        // ── Inline text formatting ──────────────────────────────────
-        case 'FORMAT_TEXT':
-          editor.dispatchCommand(FORMAT_TEXT_COMMAND, payload as TextFormatType);
-          break;
-
-        // ── Element / block alignment ───────────────────────────────
-        case 'FORMAT_ELEMENT':
-          editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, payload as ElementFormatType);
-          break;
-
-        // ── Indentation ─────────────────────────────────────────────
-        case 'INDENT':
-          editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined);
-          break;
-        case 'OUTDENT':
-          editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined);
-          break;
-
-        // ── History ─────────────────────────────────────────────────
-        case 'UNDO':
-          editor.dispatchCommand(UNDO_COMMAND, undefined);
-          break;
-        case 'REDO':
-          editor.dispatchCommand(REDO_COMMAND, undefined);
-          break;
-
-        // ── Lists ────────────────────────────────────────────────────
-        case 'INSERT_UL':
-          editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined);
-          break;
-        case 'INSERT_OL':
-          editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined);
-          break;
-        case 'INSERT_CHECK':
-          editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined);
-          break;
-        case 'REMOVE_LIST':
-          editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined);
-          break;
-
-        // ── Headings ─────────────────────────────────────────────────
-        case 'SET_HEADING':
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) {
-              $setBlocksType(sel, () => $createHeadingNode(payload as 'h1' | 'h2' | 'h3'));
-            }
-          });
-          break;
-
-        // ── Block types ───────────────────────────────────────────────
-        case 'SET_PARAGRAPH':
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createParagraphNode());
-          });
-          break;
-        case 'SET_QUOTE':
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createQuoteNode());
-          });
-          break;
-        case 'SET_CODE':
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createCodeNode());
-          });
-          break;
-
-        // ── Insert elements ───────────────────────────────────────────
-        case 'INSERT_HR':
-          editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
-          break;
-        case 'INSERT_TABLE': {
-          const [rows = '3', cols = '3'] = (payload ?? '3,3').split(',');
-          editor.dispatchCommand(INSERT_TABLE_COMMAND, { rows, columns: cols, includeHeaders: true });
-          break;
+      // Helper: restores the last known cursor/selection before the toolbar tap.
+      // MUST be called inside an editor.update() callback.
+      // Uses _lastKnownSelection (continuously updated) so we always have the
+      // latest valid position regardless of blur timing issues.
+      const restoreSelection = () => {
+        if (_lastKnownSelection) {
+          $setSelection(_lastKnownSelection.clone());
         }
-        case 'TOGGLE_LINK':
-          editor.dispatchCommand(TOGGLE_LINK_COMMAND, payload ?? null);
-          break;
-        case 'INSERT_IMAGE': {
-          if (!payload) break;
-          try {
-            const { src, altText } = JSON.parse(payload);
+      };
+
+      const run = () => {
+        switch (type) {
+          // ── Inline text formatting ──────────────────────────────────
+          // Payload: 'bold:1' (activate) or 'bold:0' (deactivate).
+          //
+          // Root problem on Android: when the keyboard appears after a toolbar
+          // tap, Android fires a `selectionchange` DOM event. Lexical rebuilds
+          // its RangeSelection from the DOM — wiping the pendingFormat we set.
+          //
+          // Fix: we store the desired state in the module-level _desiredFormats
+          // Map with a 12-second TTL.  A single persistent SELECTION_CHANGE_COMMAND
+          // listener (registered once when the plugin mounts) re-applies the
+          // desired format after every Android-triggered reset.  Using a single
+          // always-on listener avoids the "remaining counter" race that plagued
+          // per-tap listener registration.
+          case 'FORMAT_TEXT': {
+            let fmt: TextFormatType;
+            let desiredActive: boolean;
+            if (payload && payload.includes(':')) {
+              const col = payload.lastIndexOf(':');
+              fmt = payload.substring(0, col) as TextFormatType;
+              desiredActive = payload.substring(col + 1) === '1';
+            } else {
+              fmt = payload as TextFormatType;
+              desiredActive = true; 
+            }
+
+            _desiredFormats.set(fmt, { active: desiredActive, expiresAt: Date.now() + 12_000 });
+
             editor.update(() => {
-              const sel = $getSelection();
-              if (sel) {
-                const imageNode = $createImageNode(src, altText ?? '');
-                sel.insertNodes([imageNode]);
+              restoreSelection();
+            }, {
+              onUpdate: () => {
+                editor.getEditorState().read(() => {
+                  const sel = $getSelection();
+                  if ($isRangeSelection(sel)) {
+                    const has = sel.hasFormat(fmt);
+                    // Only dispatch toggle command if current state doesn't match desired
+                    if (has !== desiredActive) {
+                      editor.dispatchCommand(FORMAT_TEXT_COMMAND, fmt);
+                    }
+                  }
+                });
               }
             });
-          } catch {}
-          break;
-        }
-        case 'INSERT_YOUTUBE': {
-          if (!payload) break;
-          editor.update(() => {
-            const sel = $getSelection();
-            if (sel) sel.insertNodes([$createYouTubeNode(payload)]);
-          });
-          break;
-        }
-        case 'INSERT_EQUATION': {
-          if (!payload) break;
-          try {
-            const { equation, inline } = JSON.parse(payload);
-            editor.update(() => {
-              const sel = $getSelection();
-              if (sel) sel.insertNodes([$createEquationNode(equation, inline ?? false)]);
-            });
-          } catch {}
-          break;
-        }
-        case 'INSERT_COLLAPSIBLE': {
-          editor.update(() => {
-            const sel = $getSelection();
-            if (!sel) return;
-            const container = $createCollapsibleContainerNode(true);
-            const title = $createCollapsibleTitleNode();
-            const content = $createCollapsibleContentNode();
-            const p = $createParagraphNode();
-            content.append(p);
-            container.append(title);
-            container.append(content);
-            sel.insertNodes([container]);
-            title.selectStart();
-          });
-          break;
-        }
-
-        // ── Text color / highlight color ──────────────────────────────
-        case 'SET_TEXT_COLOR': {
-          if (!payload) break;
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) $patchStyleText(sel, { color: payload });
-          });
-          break;
-        }
-        case 'SET_HIGHLIGHT_COLOR': {
-          if (!payload) break;
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) $patchStyleText(sel, { 'background-color': payload });
-          });
-          break;
-        }
-        case 'CLEAR_FORMATTING': {
-          editor.update(() => {
-            const sel = $getSelection();
-            if ($isRangeSelection(sel)) {
-              const formats: TextFormatType[] = ['bold', 'italic', 'underline', 'strikethrough', 'code', 'highlight', 'subscript', 'superscript'];
-              formats.forEach(f => { if (sel.hasFormat(f)) editor.dispatchCommand(FORMAT_TEXT_COMMAND, f); });
-              $patchStyleText(sel, { color: '', 'background-color': '' });
-            }
-          });
-          break;
-        }
-
-        // ── Text transform ────────────────────────────────────────────
-        case 'TEXT_TRANSFORM': {
-          editor.update(() => {
-            const sel = $getSelection();
-            if (!$isRangeSelection(sel)) return;
-            const nodes = sel.getNodes();
-            nodes.forEach(node => {
-              if (node.getType() === 'text') {
-                const textNode = node as import('lexical').TextNode;
-                const current = textNode.getTextContent();
-                let transformed = current;
-                if (payload === 'uppercase') transformed = current.toUpperCase();
-                else if (payload === 'lowercase') transformed = current.toLowerCase();
-                else if (payload === 'capitalize') transformed = current.replace(/\b\w/g, c => c.toUpperCase());
-                textNode.setTextContent(transformed);
-              }
-            });
-          });
-          break;
-        }
-
-        // ── Theme sync ────────────────────────────────────────────────
-        case 'SET_THEME': {
-          document.documentElement.setAttribute('data-theme', payload === 'dark' ? 'dark' : 'light');
-          break;
-        }
-        case 'SET_ACCENT': {
-          if (payload) document.documentElement.style.setProperty('--accent', payload);
-          break;
-        }
-
-        // ── State management ──────────────────────────────────────────
-        case 'LOAD_STATE': {
-          if (!payload) break;
-          try {
-            const parsed = editor.parseEditorState(payload);
-            editor.setEditorState(parsed);
-          } catch (e) {
-            console.error('[Lexical] LOAD_STATE failed:', e);
+            break;
           }
-          break;
+
+          // ── Element / block alignment ───────────────────────────────
+          case 'FORMAT_ELEMENT':
+            editor.update(() => {
+              restoreSelection();
+              editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, payload as ElementFormatType);
+            });
+            break;
+
+          // ── Indentation ─────────────────────────────────────────────
+          case 'INDENT':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined); });
+            break;
+          case 'OUTDENT':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined); });
+            break;
+
+          // ── History ─────────────────────────────────────────────────
+          case 'UNDO':
+            editor.dispatchCommand(UNDO_COMMAND, undefined);
+            break;
+          case 'REDO':
+            editor.dispatchCommand(REDO_COMMAND, undefined);
+            break;
+
+          // ── Lists ────────────────────────────────────────────────────
+          case 'INSERT_UL':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined); });
+            break;
+          case 'INSERT_OL':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined); });
+            break;
+          case 'INSERT_CHECK':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined); });
+            break;
+          case 'REMOVE_LIST':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined); });
+            break;
+
+          // ── Headings ─────────────────────────────────────────────────
+          case 'SET_HEADING':
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createHeadingNode(payload as 'h1' | 'h2' | 'h3'));
+            });
+            break;
+
+          // ── Block types ───────────────────────────────────────────────
+          case 'SET_PARAGRAPH':
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createParagraphNode());
+            });
+            break;
+          case 'SET_QUOTE':
+            editor.update(() => {
+              restoreSelection();
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                $setBlocksType(selection, () => $createQuoteNode());
+              }
+            });
+            break;
+          case 'SET_CODE':
+            editor.update(() => {
+              restoreSelection();
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                $setBlocksType(selection, () => $createCodeNode());
+              }
+            });
+            break;
+          case 'SET_CODE_LANGUAGE':
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) {
+                const anchorNode = selection.anchor.getNode();
+                const codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
+                if (codeNode) {
+                  codeNode.setLanguage(payload || '');
+                }
+              }
+            });
+            break;
+
+          // ── Insert elements ───────────────────────────────────────────
+          case 'INSERT_HR':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined); });
+            break;
+          case 'INSERT_TABLE': {
+            const [rows = '3', cols = '3'] = (payload ?? '3,3').split(',');
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_TABLE_COMMAND, { rows, columns: cols, includeHeaders: true }); });
+            break;
+          }
+          case 'TOGGLE_LINK':
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(TOGGLE_LINK_COMMAND, payload ?? null); });
+            break;
+          case 'INSERT_IMAGE': {
+            if (!payload) break;
+            try {
+              const { src, altText } = JSON.parse(payload);
+              editor.update(() => {
+                restoreSelection();
+                const sel = $getSelection();
+                if (sel) sel.insertNodes([$createImageNode(src, altText ?? '')]);
+              });
+            } catch {}
+            break;
+          }
+          case 'INSERT_YOUTUBE': {
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if (sel) sel.insertNodes([$createYouTubeNode(payload)]);
+            });
+            break;
+          }
+          case 'INSERT_EQUATION': {
+            if (!payload) break;
+            try {
+              const { equation, inline } = JSON.parse(payload);
+              editor.update(() => {
+                restoreSelection();
+                const sel = $getSelection();
+                if (sel) sel.insertNodes([$createEquationNode(equation, inline ?? false)]);
+              });
+            } catch {}
+            break;
+          }
+          case 'INSERT_COLLAPSIBLE': {
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if (!sel) return;
+              const container = $createCollapsibleContainerNode(true);
+              const title = $createCollapsibleTitleNode();
+              const content = $createCollapsibleContentNode();
+              const p = $createParagraphNode();
+              content.append(p);
+              container.append(title);
+              container.append(content);
+              sel.insertNodes([container]);
+              title.selectStart();
+            });
+            break;
+          }
+
+          // ── Text color / highlight color ──────────────────────────────
+          case 'SET_TEXT_COLOR': {
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) $patchStyleText(sel, { color: payload });
+            });
+            break;
+          }
+          case 'SET_HIGHLIGHT_COLOR': {
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) $patchStyleText(sel, { 'background-color': payload });
+            });
+            break;
+          }
+          case 'SET_FONT_FAMILY': {
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                $patchStyleText(sel, { 'font-family': payload === 'System' ? '' : payload });
+              }
+            });
+            break;
+          }
+          case 'SET_FONT_SIZE': {
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                $patchStyleText(sel, { 'font-size': payload });
+              }
+            });
+            break;
+          }
+          case 'CLEAR_FORMATTING': {
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                const formats: TextFormatType[] = ['bold', 'italic', 'underline', 'strikethrough', 'code', 'highlight', 'subscript', 'superscript'];
+                formats.forEach(f => { if (sel.hasFormat(f)) editor.dispatchCommand(FORMAT_TEXT_COMMAND, f); });
+                $patchStyleText(sel, { color: '', 'background-color': '' });
+              }
+            });
+            break;
+          }
+
+          // ── Text transform ────────────────────────────────────────────
+          case 'TEXT_TRANSFORM': {
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if (!$isRangeSelection(sel)) return;
+              sel.getNodes().forEach(node => {
+                if (node.getType() === 'text') {
+                  const textNode = node as import('lexical').TextNode;
+                  const current = textNode.getTextContent();
+                  let transformed = current;
+                  if (payload === 'uppercase') transformed = current.toUpperCase();
+                  else if (payload === 'lowercase') transformed = current.toLowerCase();
+                  else if (payload === 'capitalize') transformed = current.replace(/\b\w/g, c => c.toUpperCase());
+                  textNode.setTextContent(transformed);
+                }
+              });
+            });
+            break;
+          }
+
+          case 'FOCUS': break;
+          case 'BLUR': {
+            const rootEl = editor.getRootElement();
+            if (rootEl) rootEl.blur();
+            if (document.activeElement && typeof (document.activeElement as any).blur === 'function') {
+              (document.activeElement as any).blur();
+            }
+            window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'EDITOR_BLUR' }));
+            break;
+          }
+          case 'CLEAR': {
+            editor.update(() => {
+              const root = $getRoot();
+              root.clear();
+              const p = $createParagraphNode();
+              root.append(p);
+              p.select();
+            });
+            break;
+          }
         }
-        case 'GET_STATE': {
-          editor.getEditorState().read(() => {
-            const json = editor.getEditorState().toJSON();
-            const html = $generateHtmlFromNodes(editor, null);
-            window.ReactNativeWebView?.postMessage(JSON.stringify({
-              type: 'STATE_SNAPSHOT',
-              payload: { json, html },
-            }));
-          });
-          break;
-        }
-        case 'FOCUS': {
-          editor.focus();
-          break;
-        }
-        case 'CLEAR': {
-          editor.update(() => {
-            const root = $getRoot();
-            root.clear();
-            const p = $createParagraphNode();
-            root.append(p);
-            p.select();
-          });
-          break;
+      };
+
+      if (!skipFocus) {
+        // Focus the DOM element directly FIRST.
+        const rootEl = editor.getRootElement();
+        if (rootEl) rootEl.focus({ preventScroll: true });
+
+        // Defer command execution by 50ms.
+        // Why? When the browser focuses the contenteditable, it fires selection/focus events.
+        // If we apply the format synchronously, Lexical's internal event listeners will catch
+        // the browser's focus events shortly after and re-read the DOM selection, which WIPES
+        // our pending format state (e.g., toggling bold for the next typed character).
+        // Waiting 50ms lets the browser settle, THEN we restore selection and apply the format.
+        setTimeout(() => {
+          run();
+        }, 50);
+      } else {
+        // Run state/theme adjustments synchronously (no focus needed)
+        switch (type) {
+          case 'SET_THEME': {
+            document.documentElement.setAttribute('data-theme', payload === 'dark' ? 'dark' : 'light');
+            break;
+          }
+          case 'SET_ACCENT': {
+            if (payload) document.documentElement.style.setProperty('--accent', payload);
+            break;
+          }
+          case 'LOAD_STATE': {
+            if (!payload) break;
+            try {
+              const parsed = editor.parseEditorState(payload);
+              editor.setEditorState(parsed);
+            } catch (e) {
+              console.error('[Lexical] LOAD_STATE failed:', e);
+            }
+            break;
+          }
+          case 'GET_STATE': {
+            editor.getEditorState().read(() => {
+              const json = editor.getEditorState().toJSON();
+              const html = $generateHtmlFromNodes(editor, null);
+              window.ReactNativeWebView?.postMessage(JSON.stringify({
+                type: 'STATE_SNAPSHOT',
+                payload: { json, html },
+              }));
+            });
+            break;
+          }
         }
       }
     };
+
+    // ── Persistent SELECTION_CHANGE guard ────────────────────────────────
+    // This single listener watches _desiredFormats and re-applies any format
+    // that Android's selectionchange events wiped.  It runs at HIGH priority
+    // so it fires before Lexical's own selection reconciliation completes.
+    const unregisterSelChange = editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      () => {
+        if (_desiredFormats.size === 0) return false;
+        const now = Date.now();
+        const sel = $getSelection();
+        if (!$isRangeSelection(sel) || !sel.isCollapsed()) {
+          // User selected a range — our pending formats are consumed / irrelevant.
+          _desiredFormats.clear();
+          return false;
+        }
+        _desiredFormats.forEach(({ active, expiresAt }, fmt) => {
+          if (now > expiresAt) {
+            _desiredFormats.delete(fmt);
+            return;
+          }
+          const has = sel.hasFormat(fmt as TextFormatType);
+          if (active && !has) sel.formatText(fmt as TextFormatType);
+          else if (!active && has) sel.formatText(fmt as TextFormatType);
+        });
+        return false;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
 
     // Bind to window for direct injectJavaScript calls
     window.onNativeCommand = (type: string, payload?: any) => {
@@ -466,6 +683,8 @@ function ToolbarBridgePlugin() {
     window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'EDITOR_READY' }));
 
     return () => {
+      unregisterSelChange();
+      _desiredFormats.clear();
       window.onNativeCommand = undefined;
       document.removeEventListener('message', handleMessage as EventListener);
       window.removeEventListener('message', handleMessage);
@@ -584,11 +803,7 @@ export default function App() {
             contentEditable={
               <ContentEditable
                 className="editor-input"
-                aria-placeholder="Start writing…"
                 aria-label="Note editor"
-                placeholder={
-                  <div className="editor-placeholder">Start writing…</div>
-                }
                 spellCheck={false}
               />
             }
@@ -605,11 +820,13 @@ export default function App() {
           <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
           <HorizontalRulePlugin />
           <CodeHighlightPlugin />
+          <CodeActionMenuPlugin />
 
           {/* Tier 2: Structural plugins */}
           <TablePlugin />
 
           {/* Bridge & UX plugins */}
+          <SelectionSaverPlugin />
           <ToolbarBridgePlugin />
           <SelectionStatePlugin />
           <AutoSavePlugin />
