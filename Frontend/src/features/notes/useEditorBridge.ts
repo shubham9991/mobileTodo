@@ -58,6 +58,11 @@ export type EditorEventHandler = {
   onSave?: (payload: SavePayload) => void;
   onReady?: () => void;
   onError?: (message: string) => void;
+  onCopied?: () => void;
+  onDownloadCode?: (payload: { content: string; filename: string; language: string }) => void;
+  onCopyFallback?: (content: string) => void;
+  onFeatureNote?: (message: string) => void;
+  onLayoutChange?: (layout: object) => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -119,8 +124,24 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
       case 'EDITOR_ERROR':
         handlers.onError?.(payload as string);
         break;
+      case 'COPY_CODE_RESULT':
+        handlers.onCopied?.();
+        break;
+      case 'COPY_CODE_CONTENT':
+        // Clipboard API failed — fall back to native clipboard
+        handlers.onCopyFallback?.(payload as string);
+        break;
+      case 'DOWNLOAD_CODE_CONTENT':
+        handlers.onDownloadCode?.(payload as { content: string; filename: string; language: string });
+        break;
       case 'EDITOR_BLUR':
         Keyboard.dismiss();
+        break;
+      case 'FEATURE_NOTE':
+        handlers.onFeatureNote?.(payload as string);
+        break;
+      case 'PAGE_LAYOUT_CHANGE':
+        handlers.onLayoutChange?.(payload as object);
         break;
     }
   }, [handlers]);

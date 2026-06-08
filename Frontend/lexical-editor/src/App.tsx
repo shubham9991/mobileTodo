@@ -8,6 +8,15 @@
  *   Tier 2 (bridge-activated): Table, Image, YouTube, Equation,
  *                               Collapsible, Color, Link editor
  */
+// Prism must be imported before @lexical/code registers highlighting.
+// @lexical/code reads from globalThis.Prism || window.Prism, so we
+// assign it explicitly after import to guarantee it's found.
+import Prism from 'prismjs';
+// Extra languages not bundled by @lexical/code by default
+import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-xml-doc';
+(window as any).Prism = Prism;
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
@@ -51,7 +60,7 @@ import {
 } from '@lexical/list';
 import { $setBlocksType, $patchStyleText, $getSelectionStyleValueForProperty } from '@lexical/selection';
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode } from '@lexical/rich-text';
-import { $createCodeNode } from '@lexical/code';
+import { $createCodeNode, $isCodeNode } from '@lexical/code';
 import { TOGGLE_LINK_COMMAND } from '@lexical/link';
 import { INSERT_TABLE_COMMAND } from '@lexical/table';
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
@@ -67,7 +76,16 @@ import {
   $createCollapsibleTitleNode,
   $createCollapsibleContentNode,
 } from './plugins/nodes/CollapsibleNodes';
+// CodeActionMenuPlugin is now a no-op (all code block UI is in native toolbar)
 import CodeActionMenuPlugin from './plugins/CodeActionMenuPlugin';
+
+// ── Code file extension map ───────────────────────────────────────────────────
+const CODE_EXTENSIONS: Record<string, string> = {
+  javascript: 'js', typescript: 'ts', python: 'py', css: 'css',
+  html: 'html', java: 'java', cpp: 'cpp', c: 'c', go: 'go',
+  rust: 'rs', sql: 'sql', swift: 'swift', markdown: 'md',
+  powershell: 'ps1', objectivec: 'm', xml: 'xml', plaintext: 'txt', '': 'txt',
+};
 
 // ── Type declaration for React Native bridge ─────────────────────────────────
 declare global {
@@ -273,7 +291,7 @@ function ToolbarBridgePlugin() {
 
   useEffect(() => {
     const executeCommand = (type: string, payload?: string) => {
-      const skipFocus = ['LOAD_STATE', 'GET_STATE', 'SET_THEME', 'SET_ACCENT', 'BLUR'].includes(type);
+      const skipFocus = ['LOAD_STATE', 'GET_STATE', 'SET_THEME', 'SET_ACCENT', 'BLUR', 'COPY_CODE', 'DOWNLOAD_CODE'].includes(type);
 
       // Helper: restores the last known cursor/selection before the toolbar tap.
       // MUST be called inside an editor.update() callback.
@@ -481,6 +499,68 @@ function ToolbarBridgePlugin() {
             });
             break;
           }
+          case 'INSERT_PAGE_BREAK': {
+            // Insert a horizontal rule as a page-break separator
+            editor.update(() => {
+              restoreSelection();
+              editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
+            });
+            break;
+          }
+          case 'INSERT_DATE': {
+            // payload = formatted date string
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                sel.insertText(payload);
+              }
+            });
+            break;
+          }
+          case 'INSERT_STICKY_NOTE': {
+            // Insert a styled quote block used as a sticky note
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                $setBlocksType(sel, () => $createQuoteNode());
+              }
+            });
+            break;
+          }
+          case 'INSERT_COLUMNS': {
+            // For now, post a message back to RN informing columns aren't
+            // natively supported — shows feedback to user
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type: 'FEATURE_NOTE',
+              payload: 'Columns layout coming soon',
+            }));
+            break;
+          }
+          case 'INSERT_TWEET': {
+            // Store tweet URL as a paragraph with a visible link
+            if (!payload) break;
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                sel.insertText(`🐦 ${payload}`);
+              }
+            });
+            break;
+          }
+          case 'PAGE_LAYOUT': {
+            // Store layout preference and post back for native handling
+            if (payload) {
+              window.ReactNativeWebView?.postMessage(JSON.stringify({
+                type: 'PAGE_LAYOUT_CHANGE',
+                payload: JSON.parse(payload),
+              }));
+            }
+            break;
+          }
 
           // ── Text color / highlight color ──────────────────────────────
           case 'SET_TEXT_COLOR': {
@@ -553,6 +633,52 @@ function ToolbarBridgePlugin() {
                   textNode.setTextContent(transformed);
                 }
               });
+            });
+            break;
+          }
+
+          // ── Code block actions ────────────────────────────────────
+          case 'COPY_CODE': {
+            // Find active code node and copy its content
+            editor.getEditorState().read(() => {
+              const sel = $getSelection();
+              if (!$isRangeSelection(sel)) return;
+              const anchor = sel.anchor.getNode();
+              const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+              if (codeNode && $isCodeNode(codeNode)) {
+                const content = codeNode.getTextContent();
+                // Use clipboard API (works in modern Android WebView)
+                navigator.clipboard.writeText(content).then(() => {
+                  window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_RESULT', payload: 'ok' }));
+                }).catch(() => {
+                  // Fallback: send content to RN so it can use native clipboard
+                  window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content }));
+                });
+              }
+            });
+            break;
+          }
+          case 'DOWNLOAD_CODE': {
+            // payload is the language code, we need content from active code node
+            editor.getEditorState().read(() => {
+              const sel = $getSelection();
+              if (!$isRangeSelection(sel)) return;
+              const anchor = sel.anchor.getNode();
+              const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+              if (codeNode && $isCodeNode(codeNode)) {
+                const content = codeNode.getTextContent();
+                const lang = codeNode.getLanguage() || '';
+                const ext = CODE_EXTENSIONS[lang] || 'txt';
+                const now = new Date();
+                const pad = (n: number) => n.toString().padStart(2, '0');
+                const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+                const filename = `${ts}.${ext}`;
+                // Post to RN for native file sharing
+                window.ReactNativeWebView?.postMessage(JSON.stringify({
+                  type: 'DOWNLOAD_CODE_CONTENT',
+                  payload: { content, filename, language: lang },
+                }));
+              }
             });
             break;
           }

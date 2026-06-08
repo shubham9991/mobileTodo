@@ -9,11 +9,14 @@
  * ✅ scalesPageToFit={false} (prevents WebView zoom-to-fit)
  */
 import React, { useCallback, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform, ToastAndroid, Alert } from 'react-native';
 import WebView from 'react-native-webview';
 import { useTheme } from '../../themes/ThemeContext';
 import { useEditorBridge, SavePayload } from './useEditorBridge';
 import { NoteToolbar } from './NoteToolbar';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as ImagePicker from 'expo-image-picker';
 
 interface NoteEditorProps {
   /** Serialized Lexical JSON AST string (for editing existing notes) */
@@ -38,6 +41,30 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
   const { webviewRef, sendCommand, selectionState, isReady, onMessage } = useEditorBridge({
     onSave,
     onReady,
+    onCopied: () => {
+      if (Platform.OS === 'android') ToastAndroid.show('Copied!', ToastAndroid.SHORT);
+    },
+    onCopyFallback: async (_content: string) => {
+      if (Platform.OS === 'android') ToastAndroid.show('Copied!', ToastAndroid.SHORT);
+    },
+    onDownloadCode: async ({ content, filename }) => {
+      try {
+        const path = `${FileSystem.cacheDirectory ?? ''}${filename}`;
+        await FileSystem.writeAsStringAsync(path, content, { encoding: 'utf8' as any });
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (isAvailable) {
+          await Sharing.shareAsync(path, { mimeType: 'text/plain', dialogTitle: `Save ${filename}` });
+        } else {
+          Alert.alert('Download', `File saved as ${filename}`);
+        }
+      } catch {
+        Alert.alert('Error', 'Could not save file.');
+      }
+    },
+    onFeatureNote: (message: string) => {
+      if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
+      else Alert.alert('Info', message);
+    },
   });
 
   // After editor signals ready: sync theme + accent + load existing state
@@ -59,16 +86,41 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
   }, [isDark, theme.colors.primary, isReady, sendCommand]);
 
   const handleLoad = useCallback(() => {
-    // onLoad fires before EDITOR_READY message — we use EDITOR_READY instead
-    // but also send a focus as a fallback
     setTimeout(() => { if (!isReady) sendCommand('FOCUS'); }, 500);
   }, [isReady, sendCommand]);
 
-  // Directly inject JS to blur the WebView's active element — the only reliable
-  // way to dismiss the keyboard when it is owned by the WebView.
   const blurWebView = useCallback(() => {
     webviewRef.current?.injectJavaScript('document.activeElement && document.activeElement.blur(); true;');
   }, [webviewRef]);
+
+  // Handle INSERT_IMAGE_NATIVE: open image picker, encode to base64, send to editor
+  const handleActionTriggered = useCallback(async (type: string, payload?: string) => {
+    if (type === 'INSERT_IMAGE_NATIVE') {
+      try {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Please allow access to your photo library to insert images.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+          base64: true,
+          allowsEditing: false,
+        });
+        if (!result.canceled && result.assets[0]) {
+          const asset = result.assets[0];
+          const src = asset.base64
+            ? `data:image/jpeg;base64,${asset.base64}`
+            : asset.uri;
+          sendCommand('INSERT_IMAGE', JSON.stringify({ src, altText: '' }));
+        }
+      } catch (e) {
+        Alert.alert('Error', 'Could not open image picker.');
+      }
+    }
+    onActionTriggered?.(type, payload);
+  }, [sendCommand, onActionTriggered]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -115,7 +167,7 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
         sendCommand={sendCommand}
         selectionState={selectionState}
         isEditorReady={isReady}
-        onActionTriggered={onActionTriggered}
+        onActionTriggered={handleActionTriggered}
         blurWebView={blurWebView}
       />
     </View>

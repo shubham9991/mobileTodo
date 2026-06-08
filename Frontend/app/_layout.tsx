@@ -1,3 +1,32 @@
+// Silence developer tools promise rejection errors during hot reload (e.g. keep-awake / navigation-bar)
+if (__DEV__) {
+  const originalConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    const errorStr = args.map(a => {
+      if (a instanceof Error) {
+        return a.message + '\n' + a.stack;
+      }
+      if (typeof a === 'object' && a !== null) {
+        try {
+          return a.message || JSON.stringify(a);
+        } catch {
+          return String(a);
+        }
+      }
+      return String(a);
+    }).join(' ');
+
+    if (
+      errorStr.includes('Unable to activate keep awake') ||
+      errorStr.includes('setButtonStyleAsync') ||
+      errorStr.includes('The current activity is no longer available')
+    ) {
+      return;
+    }
+    originalConsoleError(...args);
+  };
+}
+
 import React from 'react';
 import { Stack } from "expo-router";
 import { ThemeProvider, useTheme } from "../src/themes/ThemeContext";
@@ -19,7 +48,7 @@ function AppShell() {
 
   React.useEffect(() => {
     if (Platform.OS === 'android') {
-      NavigationBar.setButtonStyleAsync(isDark ? 'light' : 'dark');
+      NavigationBar.setButtonStyleAsync(isDark ? 'light' : 'dark').catch(() => {});
     }
   }, [isDark]);
 

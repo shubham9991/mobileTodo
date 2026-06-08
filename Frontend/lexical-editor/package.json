@@ -8,24 +8,25 @@
     "build:rn": "vite build && node scripts/copy-to-assets.mjs"
   },
   "dependencies": {
-    "@lexical/react": "^0.21.0",
-    "@lexical/rich-text": "^0.21.0",
-    "@lexical/markdown": "^0.21.0",
-    "@lexical/html": "^0.21.0",
-    "@lexical/list": "^0.21.0",
-    "@lexical/link": "^0.21.0",
+    "@lexical/clipboard": "^0.21.0",
     "@lexical/code": "^0.21.0",
-    "@lexical/table": "^0.21.0",
     "@lexical/hashtag": "^0.21.0",
     "@lexical/history": "^0.21.0",
-    "@lexical/selection": "^0.21.0",
-    "@lexical/utils": "^0.21.0",
-    "@lexical/clipboard": "^0.21.0",
+    "@lexical/html": "^0.21.0",
+    "@lexical/link": "^0.21.0",
+    "@lexical/list": "^0.21.0",
+    "@lexical/markdown": "^0.21.0",
+    "@lexical/offset": "^0.21.0",
     "@lexical/overflow": "^0.21.0",
     "@lexical/plain-text": "^0.21.0",
-    "@lexical/offset": "^0.21.0",
-    "lexical": "^0.21.0",
+    "@lexical/react": "^0.21.0",
+    "@lexical/rich-text": "^0.21.0",
+    "@lexical/selection": "^0.21.0",
+    "@lexical/table": "^0.21.0",
+    "@lexical/utils": "^0.21.0",
     "katex": "^0.16.11",
+    "lexical": "^0.21.0",
+    "prismjs": "^1.30.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -34,8 +35,8 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.8.3",
     "vite": "^6.3.5",
-    "vite-plugin-singlefile": "^2.1.0",
-    "typescript": "^5.8.3"
+    "vite-plugin-singlefile": "^2.1.0"
   }
 }
