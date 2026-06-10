@@ -20,6 +20,7 @@ import {
   CollapsibleTitleNode,
   CollapsibleContentNode,
 } from './CollapsibleNodes';
+import { PollNode } from './PollNode';
 
 export const allNodes: Array<Klass<LexicalNode>> = [
   // Built-in rich text
@@ -50,4 +51,6 @@ export const allNodes: Array<Klass<LexicalNode>> = [
   CollapsibleContainerNode,
   CollapsibleTitleNode,
   CollapsibleContentNode,
+  PollNode,
 ];
+

@@ -16,7 +16,7 @@ export default defineConfig({
     // Minify aggressively — smaller HTML = faster load into WebView
     minify: 'terser',
     terserOptions: {
-      compress: { drop_console: true, drop_debugger: true },
+      compress: { drop_console: false, drop_debugger: false },
     },
     // viteSingleFile needs assetsInlineLimit very high
     assetsInlineLimit: 100_000_000,

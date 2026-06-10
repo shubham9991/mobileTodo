@@ -1,68 +1,140 @@
 /**
- * CodeActionMenuPlugin — command handler for code block actions.
- * All visual UI (language selector, copy, download) is handled by the
- * native NoteToolbar. This plugin only processes those commands from RN.
+ * CodeActionMenuPlugin — renders Copy & Download action buttons
+ * in the top-right corner of every code block in the editor.
+ *
+ * Uses a React portal to mount buttons inside each .editor-code DOM node.
+ * Communicates with React Native via window.ReactNativeWebView.postMessage.
  */
-import { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { $isCodeNode, CodeNode } from '@lexical/code';
-import { $getSelection, $isRangeSelection } from 'lexical';
+import { LexicalEditor, $getNearestNodeFromDOMNode } from 'lexical';
+import { CodeNode, $isCodeNode } from '@lexical/code';
 
-const LANGUAGE_EXTENSIONS: Record<string, string> = {
+const CODE_EXTENSIONS: Record<string, string> = {
   javascript: 'js',
   typescript: 'ts',
-  python: 'py',
-  css: 'css',
   html: 'html',
-  java: 'java',
+  css: 'css',
+  python: 'py',
+  markdown: 'md',
+  json: 'json',
+  rust: 'rs',
+  go: 'go',
   cpp: 'cpp',
   c: 'c',
-  go: 'go',
-  rust: 'rs',
-  sql: 'sql',
-  swift: 'swift',
-  markdown: 'md',
-  powershell: 'ps1',
-  objectivec: 'm',
-  xml: 'xml',
-  plaintext: 'txt',
-  '': 'txt',
+  java: 'java',
 };
 
-function getCodeContent(editor: any, codeNodeKey: string): string {
-  let content = '';
-  editor.getEditorState().read(() => {
-    const node = editor.getEditorState()._nodeMap.get(codeNodeKey);
-    if ($isCodeNode(node)) {
-      content = node.getTextContent();
-    }
-  });
-  return content;
+// ── Code action bar rendered into each code block ─────────────────────────────
+function CodeActionBar({ codeEl, editor }: { codeEl: HTMLElement; editor: LexicalEditor }) {
+  const [copied, setCopied] = useState(false);
+
+  const getContentAndLanguage = (): { content: string; language: string } => {
+    let content = '';
+    let language = '';
+    editor.getEditorState().read(() => {
+      const node = $getNearestNodeFromDOMNode(codeEl);
+      if ($isCodeNode(node)) {
+        content = node.getTextContent();
+        language = node.getLanguage() || '';
+      }
+    });
+    return { content, language };
+  };
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { content } = getContentAndLanguage();
+    
+    // Attempt standard browser clipboard copy first
+    navigator.clipboard.writeText(content).then(() => {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_RESULT', payload: 'ok' }));
+    }).catch(() => {
+      // Fallback to React Native clipboard if clipboard API is blocked
+      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content }));
+    });
+    
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const handleDownload = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { content, language } = getContentAndLanguage();
+    const ext = CODE_EXTENSIONS[language] || 'txt';
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+    const filename = `${ts}.${ext}`;
+
+    window.ReactNativeWebView?.postMessage(JSON.stringify({
+      type: 'DOWNLOAD_CODE_CONTENT',
+      payload: { content, filename, language },
+    }));
+  };
+
+  return (
+    <div className="code-action-bar" onMouseDown={e => e.preventDefault()}>
+      <button
+        className="code-action-btn"
+        onMouseDown={handleCopy}
+        title="Copy code"
+      >
+        {copied ? '✓ Copied' : '⎘ Copy'}
+      </button>
+      <button
+        className="code-action-btn"
+        onMouseDown={handleDownload}
+        title="Download file"
+      >
+        ↓ Save
+      </button>
+    </div>
+  );
 }
 
-function getActiveCodeNode(editor: any): { node: CodeNode; key: string } | null {
-  let result: { node: CodeNode; key: string } | null = null;
-  editor.getEditorState().read(() => {
-    const selection = $getSelection();
-    if (!$isRangeSelection(selection)) return;
-    const anchorNode = selection.anchor.getNode();
-    const codeNode = anchorNode.getParents().find($isCodeNode) ||
-                     ($isCodeNode(anchorNode) ? anchorNode : null);
-    if (codeNode) {
-      result = { node: codeNode as CodeNode, key: (codeNode as any).getKey() };
-    }
-  });
-  return result;
-}
-
-export default function CodeActionMenuPlugin(): null {
+// ── Main plugin ───────────────────────────────────────────────────────────────
+export default function CodeActionMenuPlugin(): React.ReactElement | null {
   const [editor] = useLexicalComposerContext();
+  const [codeEls, setCodeEls] = useState<HTMLElement[]>([]);
 
   useEffect(() => {
-    // Listen for COPY_CODE and DOWNLOAD_CODE commands dispatched from App.tsx
-    // These are handled there via the bridge; this plugin is now a no-op visual renderer.
-    // Keeping file for potential future extension.
+    const root = editor.getRootElement();
+    if (!root) return;
+
+    const updateCodeEls = () => {
+      const els = Array.from(
+        (root.closest('.editor-container') ?? root.parentElement ?? document.body)
+          .querySelectorAll<HTMLElement>('code.editor-code')
+      );
+      setCodeEls(els);
+    };
+
+    updateCodeEls();
+
+    const observer = new MutationObserver(updateCodeEls);
+    observer.observe(root.parentElement ?? document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => { observer.disconnect(); };
   }, [editor]);
 
-  return null;
+  if (codeEls.length === 0) return null;
+
+  return (
+    <>
+      {codeEls.map((el, i) => {
+        if (!el.style.position) el.style.position = 'relative';
+        return ReactDOM.createPortal(
+          <CodeActionBar key={i} codeEl={el} editor={editor} />,
+          el,
+        );
+      })}
+    </>
+  );
 }

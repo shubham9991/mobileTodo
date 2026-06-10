@@ -24,7 +24,7 @@ export interface SelectionState {
   subscript: boolean;
   superscript: boolean;
   highlight: boolean;
-  /** 'paragraph' | 'h1' | 'h2' | 'h3' | 'quote' | 'code' | 'bullet' | 'number' | 'check' */
+  /** 'paragraph' | 'h1' | 'h2' | 'h3' | 'quote' | 'code' | 'bullet' | 'number' | 'check' | 'table' */
   blockType: string;
   fontFamily: string;
   fontSize?: string;
@@ -63,6 +63,9 @@ export type EditorEventHandler = {
   onCopyFallback?: (content: string) => void;
   onFeatureNote?: (message: string) => void;
   onLayoutChange?: (layout: object) => void;
+  onSlashMenuOpen?: () => void;
+  onSlashMenuClose?: () => void;
+  onCodeLangClick?: () => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -142,6 +145,15 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
         break;
       case 'PAGE_LAYOUT_CHANGE':
         handlers.onLayoutChange?.(payload as object);
+        break;
+      case 'SLASH_MENU_OPEN':
+        handlers.onSlashMenuOpen?.();
+        break;
+      case 'SLASH_MENU_CLOSE':
+        handlers.onSlashMenuClose?.();
+        break;
+      case 'CODE_LANG_CLICK':
+        handlers.onCodeLangClick?.();
         break;
     }
   }, [handlers]);

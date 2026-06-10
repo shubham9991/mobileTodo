@@ -6,13 +6,11 @@
  *   Tier 1 (always loaded): RichText, History, List, Link, AutoLink,
  *                           Markdown shortcuts, Hashtag, Code highlight
  *   Tier 2 (bridge-activated): Table, Image, YouTube, Equation,
- *                               Collapsible, Color, Link editor
+ *                               Collapsible, Color, Link editor, Poll
  */
-// Prism must be imported before @lexical/code registers highlighting.
-// @lexical/code reads from globalThis.Prism || window.Prism, so we
-// assign it explicitly after import to guarantee it's found.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — no @types/prismjs bundled; prism works fine at runtime
 import Prism from 'prismjs';
-// Extra languages not bundled by @lexical/code by default
 import 'prismjs/components/prism-go';
 import 'prismjs/components/prism-xml-doc';
 (window as any).Prism = Prism;
@@ -42,6 +40,8 @@ import {
   REDO_COMMAND,
   SELECTION_CHANGE_COMMAND,
   COMMAND_PRIORITY_HIGH,
+  KEY_DOWN_COMMAND,
+  COMMAND_PRIORITY_LOW,
   $getRoot,
   $getSelection,
   $isRangeSelection,
@@ -50,6 +50,8 @@ import {
   $setSelection,
   TextFormatType,
   ElementFormatType,
+  $isTextNode,
+  $isElementNode,
 } from 'lexical';
 import {
   INSERT_UNORDERED_LIST_COMMAND,
@@ -62,7 +64,17 @@ import { $setBlocksType, $patchStyleText, $getSelectionStyleValueForProperty } f
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode } from '@lexical/rich-text';
 import { $createCodeNode, $isCodeNode } from '@lexical/code';
 import { TOGGLE_LINK_COMMAND } from '@lexical/link';
-import { INSERT_TABLE_COMMAND } from '@lexical/table';
+import {
+  INSERT_TABLE_COMMAND,
+  $isTableCellNode,
+  $isTableRowNode,
+  $isTableNode,
+  $insertTableRow__EXPERIMENTAL,
+  $insertTableColumn__EXPERIMENTAL,
+  $deleteTableRow__EXPERIMENTAL,
+  $deleteTableColumn__EXPERIMENTAL,
+  $getTableCellNodeFromLexicalNode,
+} from '@lexical/table';
 import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
 import { $generateHtmlFromNodes } from '@lexical/html';
 
@@ -76,7 +88,7 @@ import {
   $createCollapsibleTitleNode,
   $createCollapsibleContentNode,
 } from './plugins/nodes/CollapsibleNodes';
-// CodeActionMenuPlugin is now a no-op (all code block UI is in native toolbar)
+import { $createPollNode } from './plugins/nodes/PollNode';
 import CodeActionMenuPlugin from './plugins/CodeActionMenuPlugin';
 
 // ── Code file extension map ───────────────────────────────────────────────────
@@ -96,16 +108,10 @@ declare global {
 }
 
 // ── Global: always tracks the last non-null Lexical selection ────────────────
-// Updated by SelectionSaverPlugin on every editor update where selection != null.
-// Used by ToolbarBridgePlugin to restore selection before executing a command.
 import type { BaseSelection } from 'lexical';
 let _lastKnownSelection: BaseSelection | null = null;
 
 // ── Global: tracks the format state the user WANTS at the cursor ─────────────
-// Key = TextFormatType string (e.g. 'bold'), Value = desired active state.
-// Set when toolbar buttons are tapped. The SELECTION_CHANGE_COMMAND listener
-// in ToolbarBridgePlugin re-applies these after Android resets them.
-// Cleared per-format when user explicitly toggles off, or auto-expires.
 const _desiredFormats = new Map<string, { active: boolean; expiresAt: number }>();
 
 // ── URL matchers for AutoLinkPlugin ──────────────────────────────────────────
@@ -134,7 +140,6 @@ function SelectionStatePlugin() {
         const selection = $getSelection();
         if (!$isRangeSelection(selection)) return;
 
-        // Determine active block type for toolbar indicator
         const anchorNode = selection.anchor.getNode();
         const element = anchorNode.getKey() === 'root'
           ? anchorNode
@@ -145,14 +150,19 @@ function SelectionStatePlugin() {
         else if ($isListNode(element)) blockType = element.getListType();
         else if (!$isParagraphNode(element)) blockType = element.getType();
 
-        // Check for font-family style
+        // Detect if cursor is inside a table cell
+        let inTable = false;
+        let node: any = anchorNode;
+        while (node) {
+          if ($isTableCellNode(node)) { inTable = true; break; }
+          node = node.getParent?.();
+        }
+        if (inTable) blockType = 'table';
+
         const fontFamily = $getSelectionStyleValueForProperty(selection, 'font-family', 'System');
-        // Check for font-size style
         const fontSize = $getSelectionStyleValueForProperty(selection, 'font-size', '16px');
-        // Check alignment
-        const align = typeof element.getFormatType === 'function' ? element.getFormatType() : '';
-        
-        // Check code language
+        const align = typeof (element as any).getFormat === 'function' ? (element as any).getFormat() : '';
+
         let codeLanguage = '';
         if (blockType === 'code') {
           const codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
@@ -164,7 +174,6 @@ function SelectionStatePlugin() {
         window.ReactNativeWebView?.postMessage(JSON.stringify({
           type: 'SELECTION_STATE',
           payload: {
-            // Inline formats
             bold: selection.hasFormat('bold'),
             italic: selection.hasFormat('italic'),
             underline: selection.hasFormat('underline'),
@@ -173,15 +182,10 @@ function SelectionStatePlugin() {
             subscript: selection.hasFormat('subscript'),
             superscript: selection.hasFormat('superscript'),
             highlight: selection.hasFormat('highlight'),
-            // Block type
             blockType,
-            // Font Family
             fontFamily,
-            // Font Size
             fontSize,
-            // Alignment
             align,
-            // Code Language
             codeLanguage,
           },
         }));
@@ -192,7 +196,7 @@ function SelectionStatePlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUTO-SAVE PLUGIN — debounced 1.5s: sends JSON AST + HTML + plain text to RN
+// AUTO-SAVE PLUGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 function AutoSavePlugin() {
   const [editor] = useLexicalComposerContext();
@@ -200,9 +204,7 @@ function AutoSavePlugin() {
 
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
-      // Only save when there are actual content changes (not just selection moves)
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
-
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         editorState.read(() => {
@@ -222,18 +224,14 @@ function AutoSavePlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// KEYBOARD SCROLL PLUGIN — prevents cursor from hiding behind Android keyboard
+// KEYBOARD SCROLL PLUGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 function KeyboardScrollPlugin() {
   useEffect(() => {
     const handleViewportResize = () => {
-      // When the visual viewport shrinks (keyboard opens), scroll active element into view
       requestAnimationFrame(() => {
         const activeEl = document.activeElement as HTMLElement | null;
-        if (activeEl) {
-          activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-        // Additionally scroll the selection range into view
+        if (activeEl) activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
@@ -245,10 +243,8 @@ function KeyboardScrollPlugin() {
         }
       });
     };
-
     window.visualViewport?.addEventListener('resize', handleViewportResize);
     window.visualViewport?.addEventListener('scroll', handleViewportResize);
-
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportResize);
       window.visualViewport?.removeEventListener('scroll', handleViewportResize);
@@ -258,26 +254,122 @@ function KeyboardScrollPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SELECTION SAVER PLUGIN — continuously tracks last known non-null selection.
-// Using registerUpdateListener is MORE RELIABLE than blur because:
-//   • blur fires AFTER Android already cleared the DOM selection
-//   • Lexical may update its own selection to null before our blur handler runs
-//   • registerUpdateListener fires synchronously as part of each commit cycle
+// SELECTION SAVER PLUGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 function SelectionSaverPlugin() {
   const [editor] = useLexicalComposerContext();
-
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState }) => {
       editorState.read(() => {
         const sel = $getSelection();
-        // Only save when non-null — a null selection after blur must not overwrite
-        // the last valid position the user was at.
-        if (sel !== null) {
-          _lastKnownSelection = sel.clone();
+        if (sel !== null) _lastKnownSelection = sel.clone();
+      });
+    });
+  }, [editor]);
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SLASH COMMAND PLUGIN — detects "/" keypress, posts SLASH_MENU_OPEN to RN
+// ═══════════════════════════════════════════════════════════════════════════════
+// Helper to get all text in the current block up to the cursor position
+function getTextBeforeCursor(selection: any): string {
+  const anchor = selection.anchor;
+  const node = anchor.getNode();
+  if ($isTextNode(node)) {
+    let text = node.getTextContent().slice(0, anchor.offset);
+    let prevSibling = node.getPreviousSibling();
+    while (prevSibling !== null) {
+      text = prevSibling.getTextContent() + text;
+      prevSibling = prevSibling.getPreviousSibling();
+    }
+    return text;
+  } else if ($isElementNode(node)) {
+    const children = node.getChildren();
+    let text = '';
+    for (let i = 0; i < anchor.offset && i < children.length; i++) {
+      text += children[i].getTextContent();
+    }
+    return text;
+  }
+  return '';
+}
+
+function SlashCommandPlugin() {
+  const [editor] = useLexicalComposerContext();
+  const slashActiveRef = useRef(false);
+  const lastTriggerOffsetRef = useRef<{key: string, offset: number} | null>(null);
+
+  useEffect(() => {
+    const unregisterUpdate = editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const selection = $getSelection();
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+          return;
+        }
+
+        const anchor = selection.anchor;
+        const node = anchor.getNode();
+
+        // Retrieve the entire text in the current block up to the cursor
+        const textBefore = getTextBeforeCursor(selection);
+        console.log('[SlashCommandPlugin] Text before cursor:', JSON.stringify(textBefore));
+
+        // We want to trigger if the character just before the cursor is '/'
+        // and it's either the very first character or preceded by a space or newline.
+        const isSlashTrigger = textBefore === '/' || textBefore.endsWith(' /') || textBefore.endsWith('\n/');
+        console.log('[SlashCommandPlugin] isSlashTrigger:', isSlashTrigger, 'slashActiveRef:', slashActiveRef.current);
+
+        if (isSlashTrigger) {
+          // Check if we already triggered at this exact position (node key & offset)
+          const lastTrigger = lastTriggerOffsetRef.current;
+          if (lastTrigger && lastTrigger.key === node.getKey() && lastTrigger.offset === anchor.offset) {
+            console.log('[SlashCommandPlugin] Skip trigger: already triggered at this position.');
+            return;
+          }
+
+          if (!slashActiveRef.current) {
+            console.log('[SlashCommandPlugin] Posting SLASH_MENU_OPEN!');
+            lastTriggerOffsetRef.current = { key: node.getKey(), offset: anchor.offset };
+            slashActiveRef.current = true;
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type: 'SLASH_MENU_OPEN',
+            }));
+          }
+        } else {
+          // Reset the trigger block if they move away or delete the slash
+          if (!slashActiveRef.current) {
+            lastTriggerOffsetRef.current = null;
+          }
         }
       });
     });
+
+    const unregisterKey = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event: KeyboardEvent) => {
+        // Fallback for hardware keyboard Escape
+        if (event.key === 'Escape' && slashActiveRef.current) {
+          console.log('[SlashCommandPlugin] Escape key pressed, closing slash menu.');
+          window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'SLASH_MENU_CLOSE' }));
+          slashActiveRef.current = false;
+          return true;
+        }
+        return false;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+
+    const handleClose = () => {
+      console.log('[SlashCommandPlugin] __slashMenuClose called, resetting slashActiveRef.');
+      slashActiveRef.current = false;
+    };
+    (window as any).__slashMenuClose = handleClose;
+
+    return () => {
+      unregisterUpdate();
+      unregisterKey();
+    };
   }, [editor]);
 
   return null;
@@ -293,31 +385,13 @@ function ToolbarBridgePlugin() {
     const executeCommand = (type: string, payload?: string) => {
       const skipFocus = ['LOAD_STATE', 'GET_STATE', 'SET_THEME', 'SET_ACCENT', 'BLUR', 'COPY_CODE', 'DOWNLOAD_CODE'].includes(type);
 
-      // Helper: restores the last known cursor/selection before the toolbar tap.
-      // MUST be called inside an editor.update() callback.
-      // Uses _lastKnownSelection (continuously updated) so we always have the
-      // latest valid position regardless of blur timing issues.
       const restoreSelection = () => {
-        if (_lastKnownSelection) {
-          $setSelection(_lastKnownSelection.clone());
-        }
+        if (_lastKnownSelection) $setSelection(_lastKnownSelection.clone());
       };
 
       const run = () => {
         switch (type) {
           // ── Inline text formatting ──────────────────────────────────
-          // Payload: 'bold:1' (activate) or 'bold:0' (deactivate).
-          //
-          // Root problem on Android: when the keyboard appears after a toolbar
-          // tap, Android fires a `selectionchange` DOM event. Lexical rebuilds
-          // its RangeSelection from the DOM — wiping the pendingFormat we set.
-          //
-          // Fix: we store the desired state in the module-level _desiredFormats
-          // Map with a 12-second TTL.  A single persistent SELECTION_CHANGE_COMMAND
-          // listener (registered once when the plugin mounts) re-applies the
-          // desired format after every Android-triggered reset.  Using a single
-          // always-on listener avoids the "remaining counter" race that plagued
-          // per-tap listener registration.
           case 'FORMAT_TEXT': {
             let fmt: TextFormatType;
             let desiredActive: boolean;
@@ -327,23 +401,16 @@ function ToolbarBridgePlugin() {
               desiredActive = payload.substring(col + 1) === '1';
             } else {
               fmt = payload as TextFormatType;
-              desiredActive = true; 
+              desiredActive = true;
             }
-
             _desiredFormats.set(fmt, { active: desiredActive, expiresAt: Date.now() + 12_000 });
-
-            editor.update(() => {
-              restoreSelection();
-            }, {
+            editor.update(() => { restoreSelection(); }, {
               onUpdate: () => {
                 editor.getEditorState().read(() => {
                   const sel = $getSelection();
                   if ($isRangeSelection(sel)) {
                     const has = sel.hasFormat(fmt);
-                    // Only dispatch toggle command if current state doesn't match desired
-                    if (has !== desiredActive) {
-                      editor.dispatchCommand(FORMAT_TEXT_COMMAND, fmt);
-                    }
+                    if (has !== desiredActive) editor.dispatchCommand(FORMAT_TEXT_COMMAND, fmt);
                   }
                 });
               }
@@ -351,15 +418,10 @@ function ToolbarBridgePlugin() {
             break;
           }
 
-          // ── Element / block alignment ───────────────────────────────
           case 'FORMAT_ELEMENT':
-            editor.update(() => {
-              restoreSelection();
-              editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, payload as ElementFormatType);
-            });
+            editor.update(() => { restoreSelection(); editor.dispatchCommand(FORMAT_ELEMENT_COMMAND, payload as ElementFormatType); });
             break;
 
-          // ── Indentation ─────────────────────────────────────────────
           case 'INDENT':
             editor.update(() => { restoreSelection(); editor.dispatchCommand(INDENT_CONTENT_COMMAND, undefined); });
             break;
@@ -367,15 +429,9 @@ function ToolbarBridgePlugin() {
             editor.update(() => { restoreSelection(); editor.dispatchCommand(OUTDENT_CONTENT_COMMAND, undefined); });
             break;
 
-          // ── History ─────────────────────────────────────────────────
-          case 'UNDO':
-            editor.dispatchCommand(UNDO_COMMAND, undefined);
-            break;
-          case 'REDO':
-            editor.dispatchCommand(REDO_COMMAND, undefined);
-            break;
+          case 'UNDO': editor.dispatchCommand(UNDO_COMMAND, undefined); break;
+          case 'REDO': editor.dispatchCommand(REDO_COMMAND, undefined); break;
 
-          // ── Lists ────────────────────────────────────────────────────
           case 'INSERT_UL':
             editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined); });
             break;
@@ -389,7 +445,6 @@ function ToolbarBridgePlugin() {
             editor.update(() => { restoreSelection(); editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined); });
             break;
 
-          // ── Headings ─────────────────────────────────────────────────
           case 'SET_HEADING':
             editor.update(() => {
               restoreSelection();
@@ -398,7 +453,6 @@ function ToolbarBridgePlugin() {
             });
             break;
 
-          // ── Block types ───────────────────────────────────────────────
           case 'SET_PARAGRAPH':
             editor.update(() => {
               restoreSelection();
@@ -410,18 +464,14 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const selection = $getSelection();
-              if ($isRangeSelection(selection)) {
-                $setBlocksType(selection, () => $createQuoteNode());
-              }
+              if ($isRangeSelection(selection)) $setBlocksType(selection, () => $createQuoteNode());
             });
             break;
           case 'SET_CODE':
             editor.update(() => {
               restoreSelection();
               const selection = $getSelection();
-              if ($isRangeSelection(selection)) {
-                $setBlocksType(selection, () => $createCodeNode());
-              }
+              if ($isRangeSelection(selection)) $setBlocksType(selection, () => $createCodeNode());
             });
             break;
           case 'SET_CODE_LANGUAGE':
@@ -430,9 +480,7 @@ function ToolbarBridgePlugin() {
               if ($isRangeSelection(selection)) {
                 const anchorNode = selection.anchor.getNode();
                 const codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
-                if (codeNode) {
-                  codeNode.setLanguage(payload || '');
-                }
+                if (codeNode) codeNode.setLanguage(payload || '');
               }
             });
             break;
@@ -446,6 +494,27 @@ function ToolbarBridgePlugin() {
             editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_TABLE_COMMAND, { rows, columns: cols, includeHeaders: true }); });
             break;
           }
+
+          // ── Table row/col operations (__EXPERIMENTAL = operates on current focus cell) ──
+          case 'TABLE_ADD_ROW_ABOVE':
+            editor.update(() => { $insertTableRow__EXPERIMENTAL(false); });
+            break;
+          case 'TABLE_ADD_ROW_BELOW':
+            editor.update(() => { $insertTableRow__EXPERIMENTAL(true); });
+            break;
+          case 'TABLE_ADD_COL_LEFT':
+            editor.update(() => { $insertTableColumn__EXPERIMENTAL(false); });
+            break;
+          case 'TABLE_ADD_COL_RIGHT':
+            editor.update(() => { $insertTableColumn__EXPERIMENTAL(true); });
+            break;
+          case 'TABLE_DELETE_ROW':
+            editor.update(() => { $deleteTableRow__EXPERIMENTAL(); });
+            break;
+          case 'TABLE_DELETE_COL':
+            editor.update(() => { $deleteTableColumn__EXPERIMENTAL(); });
+            break;
+
           case 'TOGGLE_LINK':
             editor.update(() => { restoreSelection(); editor.dispatchCommand(TOGGLE_LINK_COMMAND, payload ?? null); });
             break;
@@ -499,8 +568,18 @@ function ToolbarBridgePlugin() {
             });
             break;
           }
+          case 'INSERT_POLL': {
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if (sel) {
+                const pollNode = $createPollNode();
+                sel.insertNodes([pollNode]);
+              }
+            });
+            break;
+          }
           case 'INSERT_PAGE_BREAK': {
-            // Insert a horizontal rule as a page-break separator
             editor.update(() => {
               restoreSelection();
               editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
@@ -508,31 +587,23 @@ function ToolbarBridgePlugin() {
             break;
           }
           case 'INSERT_DATE': {
-            // payload = formatted date string
             if (!payload) break;
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) {
-                sel.insertText(payload);
-              }
+              if ($isRangeSelection(sel)) sel.insertText(payload);
             });
             break;
           }
           case 'INSERT_STICKY_NOTE': {
-            // Insert a styled quote block used as a sticky note
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) {
-                $setBlocksType(sel, () => $createQuoteNode());
-              }
+              if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createQuoteNode());
             });
             break;
           }
           case 'INSERT_COLUMNS': {
-            // For now, post a message back to RN informing columns aren't
-            // natively supported — shows feedback to user
             window.ReactNativeWebView?.postMessage(JSON.stringify({
               type: 'FEATURE_NOTE',
               payload: 'Columns layout coming soon',
@@ -540,25 +611,35 @@ function ToolbarBridgePlugin() {
             break;
           }
           case 'INSERT_TWEET': {
-            // Store tweet URL as a paragraph with a visible link
             if (!payload) break;
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) {
-                sel.insertText(`🐦 ${payload}`);
-              }
+              if ($isRangeSelection(sel)) sel.insertText(`🐦 ${payload}`);
             });
             break;
           }
           case 'PAGE_LAYOUT': {
-            // Store layout preference and post back for native handling
             if (payload) {
               window.ReactNativeWebView?.postMessage(JSON.stringify({
                 type: 'PAGE_LAYOUT_CHANGE',
                 payload: JSON.parse(payload),
               }));
             }
+            break;
+          }
+
+          // ── Slash menu: delete the "/" character before inserting block ──
+          case 'DELETE_SLASH': {
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel) && sel.isCollapsed()) {
+                // Delete one character before the cursor (the "/")
+                sel.modify('extend', true, 'character');
+                sel.deleteCharacter(true);
+              }
+            });
             break;
           }
 
@@ -586,9 +667,7 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) {
-                $patchStyleText(sel, { 'font-family': payload === 'System' ? '' : payload });
-              }
+              if ($isRangeSelection(sel)) $patchStyleText(sel, { 'font-family': payload === 'System' ? '' : payload });
             });
             break;
           }
@@ -597,9 +676,7 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) {
-                $patchStyleText(sel, { 'font-size': payload });
-              }
+              if ($isRangeSelection(sel)) $patchStyleText(sel, { 'font-size': payload });
             });
             break;
           }
@@ -616,7 +693,6 @@ function ToolbarBridgePlugin() {
             break;
           }
 
-          // ── Text transform ────────────────────────────────────────────
           case 'TEXT_TRANSFORM': {
             editor.update(() => {
               restoreSelection();
@@ -639,7 +715,6 @@ function ToolbarBridgePlugin() {
 
           // ── Code block actions ────────────────────────────────────
           case 'COPY_CODE': {
-            // Find active code node and copy its content
             editor.getEditorState().read(() => {
               const sel = $getSelection();
               if (!$isRangeSelection(sel)) return;
@@ -647,11 +722,9 @@ function ToolbarBridgePlugin() {
               const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
               if (codeNode && $isCodeNode(codeNode)) {
                 const content = codeNode.getTextContent();
-                // Use clipboard API (works in modern Android WebView)
                 navigator.clipboard.writeText(content).then(() => {
                   window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_RESULT', payload: 'ok' }));
                 }).catch(() => {
-                  // Fallback: send content to RN so it can use native clipboard
                   window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content }));
                 });
               }
@@ -659,7 +732,6 @@ function ToolbarBridgePlugin() {
             break;
           }
           case 'DOWNLOAD_CODE': {
-            // payload is the language code, we need content from active code node
             editor.getEditorState().read(() => {
               const sel = $getSelection();
               if (!$isRangeSelection(sel)) return;
@@ -673,7 +745,6 @@ function ToolbarBridgePlugin() {
                 const pad = (n: number) => n.toString().padStart(2, '0');
                 const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
                 const filename = `${ts}.${ext}`;
-                // Post to RN for native file sharing
                 window.ReactNativeWebView?.postMessage(JSON.stringify({
                   type: 'DOWNLOAD_CODE_CONTENT',
                   payload: { content, filename, language: lang },
@@ -707,21 +778,10 @@ function ToolbarBridgePlugin() {
       };
 
       if (!skipFocus) {
-        // Focus the DOM element directly FIRST.
         const rootEl = editor.getRootElement();
         if (rootEl) rootEl.focus({ preventScroll: true });
-
-        // Defer command execution by 50ms.
-        // Why? When the browser focuses the contenteditable, it fires selection/focus events.
-        // If we apply the format synchronously, Lexical's internal event listeners will catch
-        // the browser's focus events shortly after and re-read the DOM selection, which WIPES
-        // our pending format state (e.g., toggling bold for the next typed character).
-        // Waiting 50ms lets the browser settle, THEN we restore selection and apply the format.
-        setTimeout(() => {
-          run();
-        }, 50);
+        setTimeout(() => { run(); }, 50);
       } else {
-        // Run state/theme adjustments synchronously (no focus needed)
         switch (type) {
           case 'SET_THEME': {
             document.documentElement.setAttribute('data-theme', payload === 'dark' ? 'dark' : 'light');
@@ -757,9 +817,6 @@ function ToolbarBridgePlugin() {
     };
 
     // ── Persistent SELECTION_CHANGE guard ────────────────────────────────
-    // This single listener watches _desiredFormats and re-applies any format
-    // that Android's selectionchange events wiped.  It runs at HIGH priority
-    // so it fires before Lexical's own selection reconciliation completes.
     const unregisterSelChange = editor.registerCommand(
       SELECTION_CHANGE_COMMAND,
       () => {
@@ -767,15 +824,11 @@ function ToolbarBridgePlugin() {
         const now = Date.now();
         const sel = $getSelection();
         if (!$isRangeSelection(sel) || !sel.isCollapsed()) {
-          // User selected a range — our pending formats are consumed / irrelevant.
           _desiredFormats.clear();
           return false;
         }
         _desiredFormats.forEach(({ active, expiresAt }, fmt) => {
-          if (now > expiresAt) {
-            _desiredFormats.delete(fmt);
-            return;
-          }
+          if (now > expiresAt) { _desiredFormats.delete(fmt); return; }
           const has = sel.hasFormat(fmt as TextFormatType);
           if (active && !has) sel.formatText(fmt as TextFormatType);
           else if (!active && has) sel.formatText(fmt as TextFormatType);
@@ -785,7 +838,6 @@ function ToolbarBridgePlugin() {
       COMMAND_PRIORITY_HIGH,
     );
 
-    // Bind to window for direct injectJavaScript calls
     window.onNativeCommand = (type: string, payload?: any) => {
       executeCommand(type, payload);
     };
@@ -801,11 +853,9 @@ function ToolbarBridgePlugin() {
       executeCommand(type, payload);
     };
 
-    // Android WebView sends to document; iOS to window — register both
     document.addEventListener('message', handleMessage as EventListener);
     window.addEventListener('message', handleMessage);
 
-    // Signal to RN that the editor is ready
     window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'EDITOR_READY' }));
 
     return () => {
@@ -877,7 +927,7 @@ function FloatingLinkEditorPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CLICK FOCUS PLUGIN — clicking anywhere in the container focuses the editor
+// CLICK FOCUS PLUGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 function ClickFocusPlugin() {
   const [editor] = useLexicalComposerContext();
@@ -885,24 +935,54 @@ function ClickFocusPlugin() {
   useEffect(() => {
     const handleContainerClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Focus if we click on the container background or padding area
       if (
         target.classList.contains('editor-container') ||
         target.classList.contains('editor-shell') ||
         target.tagName === 'BODY' ||
         target.tagName === 'HTML'
       ) {
-        editor.update(() => {
-          editor.focus();
-        });
+        editor.update(() => { editor.focus(); });
+      }
+    };
+    document.addEventListener('click', handleContainerClick);
+    return () => { document.removeEventListener('click', handleContainerClick); };
+  }, [editor]);
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CODE LANGUAGE CLICK PLUGIN — detects clicks on the code block's header label
+// ═══════════════════════════════════════════════════════════════════════════════
+function CodeLanguageClickPlugin() {
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const codeEl = target.closest('code.editor-code');
+      if (codeEl) {
+        if (target.closest('.code-action-bar')) {
+          return;
+        }
+
+        const rect = codeEl.getBoundingClientRect();
+        const clickY = e.clientY - rect.top;
+        if (clickY >= 0 && clickY < 34) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.ReactNativeWebView?.postMessage(JSON.stringify({
+            type: 'CODE_LANG_CLICK',
+          }));
+        }
       }
     };
 
-    document.addEventListener('click', handleContainerClick);
+    document.addEventListener('click', handleClick, true);
     return () => {
-      document.removeEventListener('click', handleContainerClick);
+      document.removeEventListener('click', handleClick, true);
     };
-  }, [editor]);
+  }, []);
 
   return null;
 }
@@ -959,6 +1039,8 @@ export default function App() {
           <KeyboardScrollPlugin />
           <FloatingLinkEditorPlugin />
           <ClickFocusPlugin />
+          <SlashCommandPlugin />
+          <CodeLanguageClickPlugin />
         </div>
       </div>
     </LexicalComposer>

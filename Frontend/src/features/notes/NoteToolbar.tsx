@@ -152,11 +152,21 @@ interface Props {
   isEditorReady: boolean;
   onActionTriggered?: (type: string, payload?: string) => void;
   blurWebView?: () => void;
+  codeLanguageClickTrigger?: number;
+  activeModalTrigger?: { type: string; count: number } | null;
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActionTriggered, blurWebView }: Props) {
+export function NoteToolbar({
+  sendCommand,
+  selectionState,
+  isEditorReady,
+  onActionTriggered,
+  blurWebView,
+  codeLanguageClickTrigger,
+  activeModalTrigger,
+}: Props) {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -199,6 +209,26 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
     const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setIsKeyboardVisible(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
+
+  useEffect(() => {
+    if (codeLanguageClickTrigger && codeLanguageClickTrigger > 0) {
+      blurWebView?.();
+      setTimeout(() => {
+        setIsExpanded(true);
+        setSubPanel('codeLanguage');
+      }, 80);
+    }
+  }, [codeLanguageClickTrigger]);
+
+  useEffect(() => {
+    if (activeModalTrigger && activeModalTrigger.count > 0) {
+      const { type } = activeModalTrigger;
+      if (type === 'TABLE_MODAL') setShowTableModal(true);
+      else if (type === 'EQUATION_MODAL') setShowEquationModal(true);
+      else if (type === 'YOUTUBE_MODAL') setShowYouTubeModal(true);
+      else if (type === 'TWEET_MODAL') setShowTweetModal(true);
+    }
+  }, [activeModalTrigger]);
 
   useEffect(() => {
     (async () => {
@@ -296,7 +326,8 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
     pageSize: 'Page Size', orientation: 'Orientation', margins: 'Margins', lineSpacing: 'Line Spacing',
   };
 
-  // ─── Code Mini Bar ────────────────────────────────────────────────────────
+  // ─── Code Mini Bar ─────────────────────────────────────────
+  // Copy/Download are now rendered inside the editor by CodeActionMenuPlugin
   const renderCodeMiniBar = () => {
     const langLabel = LANGUAGE_OPTIONS.find(l => l.id === (selectionState.codeLanguage || ''))?.label ?? 'Plain Text';
     return (
@@ -316,14 +347,44 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
           <MiniSep color={border} />
           <MiniBtn icon="undo" onPress={() => cmd('UNDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
           <MiniBtn icon="redo" onPress={() => cmd('REDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
-          <MiniSep color={border} />
-          <MiniBtn icon="content-copy" onPress={() => cmd('COPY_CODE')} color={textPri} />
-          <MiniBtn icon="file-download" onPress={() => cmd('DOWNLOAD_CODE')} color={textPri} />
           <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
         </View>
       </KeyboardStickyView>
     );
   };
+
+  // ─── Table Mini Bar ─────────────────────────────────────────
+  // Shown when cursor is inside a table cell
+  const renderTableMiniBar = () => (
+    <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+      <View style={[S.miniBar, { backgroundColor: surface, borderTopColor: border, paddingBottom: miniPb }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={S.miniScroll}>
+          {/* Table icon label */}
+          <View style={[S.tableMiniLabel, { borderColor: blue }]}>
+            <MaterialIcons name="table-chart" size={14} color={blue} />
+            <Text style={[S.langPillText, { color: blue }]}>Table</Text>
+          </View>
+          <MiniSep color={border} />
+          {/* Row operations */}
+          <MiniBtn icon="keyboard-arrow-up" onPress={() => cmd('TABLE_ADD_ROW_ABOVE')} color={textPri} />
+          <MiniBtn icon="keyboard-arrow-down" onPress={() => cmd('TABLE_ADD_ROW_BELOW')} color={textPri} />
+          <MiniSep color={border} />
+          {/* Column operations */}
+          <MiniBtn icon="keyboard-arrow-left" onPress={() => cmd('TABLE_ADD_COL_LEFT')} color={textPri} />
+          <MiniBtn icon="keyboard-arrow-right" onPress={() => cmd('TABLE_ADD_COL_RIGHT')} color={textPri} />
+          <MiniSep color={border} />
+          {/* Delete operations */}
+          <MiniBtn icon="delete-sweep" onPress={() => cmd('TABLE_DELETE_ROW')} color="#EF4444" />
+          <MiniBtn icon="view-column" onPress={() => cmd('TABLE_DELETE_COL')} color="#EF4444" />
+          <MiniSep color={border} />
+          {/* Undo / redo */}
+          <MiniBtn icon="undo" onPress={() => cmd('UNDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
+          <MiniBtn icon="redo" onPress={() => cmd('REDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
+        </ScrollView>
+        <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
+      </View>
+    </KeyboardStickyView>
+  );
 
   // ─── Mini Bar ─────────────────────────────────────────────────────────────
   const renderMiniBar = () => (
@@ -571,18 +632,18 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
   // ─── INSERT TAB ───────────────────────────────────────────────────────────
   const renderInsertTab = () => {
     const items = [
-      { icon: 'table-chart', label: 'Table', onPress: () => setShowTableModal(true) },
-      { icon: 'image', label: 'Image', onPress: () => cmd('INSERT_IMAGE_NATIVE') },
-      { icon: 'link', label: 'Link', onPress: () => setShowLinkModal(true) },
-      { icon: 'horizontal-rule', label: 'H. Rule', onPress: () => cmd('INSERT_HR') },
-      { icon: 'insert-page-break', label: 'Page Break', onPress: () => cmd('INSERT_PAGE_BREAK') },
-      { icon: 'functions', label: 'Equation', onPress: () => setShowEquationModal(true) },
-      { icon: 'play-circle-outline', label: 'YouTube', onPress: () => setShowYouTubeModal(true) },
-      { icon: 'alternate-email', label: 'Tweet / X', onPress: () => setShowTweetModal(true) },
+      { icon: 'table-chart', label: 'Table',       onPress: () => setShowTableModal(true) },
+      { icon: 'image',       label: 'Image',       onPress: () => cmd('INSERT_IMAGE_NATIVE') },
+      { icon: 'poll',        label: 'Poll',        onPress: () => cmd('INSERT_POLL') },
+      { icon: 'link',        label: 'Link',        onPress: () => setShowLinkModal(true) },
+      { icon: 'horizontal-rule',    label: 'H. Rule',   onPress: () => cmd('INSERT_HR') },
+      { icon: 'insert-page-break',  label: 'Page Break', onPress: () => cmd('INSERT_PAGE_BREAK') },
+      { icon: 'functions',   label: 'Equation',    onPress: () => setShowEquationModal(true) },
+      { icon: 'play-circle-outline', label: 'YouTube',  onPress: () => setShowYouTubeModal(true) },
+      { icon: 'alternate-email',     label: 'Tweet / X', onPress: () => setShowTweetModal(true) },
       { icon: 'expand-more', label: 'Collapsible', onPress: () => cmd('INSERT_COLLAPSIBLE') },
-      { icon: 'today', label: 'Date', onPress: () => cmd('INSERT_DATE', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })) },
-      { icon: 'note', label: 'Sticky Note', onPress: () => cmd('INSERT_STICKY_NOTE') },
-      { icon: 'view-column', label: 'Columns', onPress: () => cmd('INSERT_COLUMNS') },
+      { icon: 'today',       label: 'Date',        onPress: () => cmd('INSERT_DATE', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })) },
+      { icon: 'view-column', label: 'Columns',     onPress: () => cmd('INSERT_COLUMNS') },
     ];
     return (
       <View style={S.insertGrid}>
@@ -923,45 +984,32 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
   };
 
   // ─── Table modal ─────────────────────────────────────────────────────────
-  const TABLE_MAX = 8;
+  const TABLE_MAX = 100;
   const renderTableModal = () => (
     <Modal visible transparent animationType="fade" onRequestClose={() => setShowTableModal(false)}>
       <Pressable style={S.modalOverlay} onPress={() => setShowTableModal(false)}>
         <Pressable>
           <View style={[S.modalCard, { backgroundColor: surface, borderColor: border }]}>
             <Text style={[S.modalTitle, { color: textPri }]}>Insert Table</Text>
-            {tableHoverRow > 0 && tableHoverCol > 0 && (
-              <Text style={[S.modalSub, { color: blue }]}>{tableHoverRow} × {tableHoverCol}</Text>
-            )}
-            {/* Visual grid */}
-            <View style={S.tGrid}>
-              {Array.from({ length: TABLE_MAX }, (_, ri) =>
-                Array.from({ length: TABLE_MAX }, (_, ci) => {
-                  const r = ri + 1, c = ci + 1;
-                  const hl = r <= tableHoverRow && c <= tableHoverCol;
-                  return (
-                    <TouchableOpacity
-                      key={`${r}-${c}`}
-                      style={[S.tCell, { borderColor: hl ? blue : border, backgroundColor: hl ? blue + '20' : surfaceSub }]}
-                      onPress={() => { setTableRows(r); setTableCols(c); }}
-                      onPressIn={() => { setTableHoverRow(r); setTableHoverCol(c); }}
-                    />
-                  );
-                })
-              )}
-            </View>
-            {/* Steppers */}
+            <Text style={[S.modalSub, { color: textSec }]}>Set dimensions (max 100 × 100)</Text>
+            {/* Steppers only — no grid since max is 100 */}
             <View style={S.tStepperRow}>
               {[{ label: 'Rows', val: tableRows, set: setTableRows }, { label: 'Columns', val: tableCols, set: setTableCols }].map(({ label, val, set }) => (
                 <View key={label} style={S.tStepperGroup}>
                   <Text style={[S.tStepLabel, { color: textSec }]}>{label}</Text>
                   <View style={[S.tStepper, { borderColor: border }]}>
                     <TouchableOpacity style={S.tStepBtn} onPress={() => set(v => Math.max(1, v - 1))}>
-                      <MaterialIcons name="remove" size={16} color={textPri} />
+                      <MaterialIcons name="remove" size={18} color={textPri} />
                     </TouchableOpacity>
-                    <Text style={[S.tStepVal, { color: textPri }]}>{val}</Text>
+                    <TextInput
+                      style={[S.tStepValInput, { color: textPri, borderColor: border }]}
+                      value={String(val)}
+                      keyboardType="number-pad"
+                      onChangeText={t => { const n = parseInt(t, 10); if (!isNaN(n)) set(Math.max(1, Math.min(TABLE_MAX, n))); }}
+                      selectTextOnFocus
+                    />
                     <TouchableOpacity style={S.tStepBtn} onPress={() => set(v => Math.min(TABLE_MAX, v + 1))}>
-                      <MaterialIcons name="add" size={16} color={textPri} />
+                      <MaterialIcons name="add" size={18} color={textPri} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1028,7 +1076,8 @@ export function NoteToolbar({ sendCommand, selectionState, isEditorReady, onActi
   return (
     <>
       {!isExpanded && selectionState.blockType === 'code' && renderCodeMiniBar()}
-      {!isExpanded && selectionState.blockType !== 'code' && renderMiniBar()}
+      {!isExpanded && selectionState.blockType === 'table' && renderTableMiniBar()}
+      {!isExpanded && selectionState.blockType !== 'code' && selectionState.blockType !== 'table' && renderMiniBar()}
 
       {isExpanded && (
         <View style={[S.panel, { backgroundColor: surface, borderTopColor: border, paddingBottom: panelPb }]}>
@@ -1187,6 +1236,15 @@ const S = StyleSheet.create({
     maxWidth: 160,
   },
   langPillText: { fontSize: 13, fontFamily: 'Inter_500Medium', flexShrink: 1 },
+  tableMiniLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
 
   // ── Expanded panel ──
   panel: {
@@ -1409,6 +1467,16 @@ const S = StyleSheet.create({
   tStepper: { flexDirection: 'row', alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, overflow: 'hidden', width: 96, height: 36 },
   tStepBtn: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center' },
   tStepVal: { width: 32, textAlign: 'center', fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  tStepValInput: {
+    width: 40,
+    textAlign: 'center',
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    height: '100%',
+    padding: 0,
+  },
 
   // ── Modals ──
   modalOverlay: {
