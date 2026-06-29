@@ -176,7 +176,7 @@ export function NoteToolbar({
   const [showTabDropdown, setShowTabDropdown] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  const [pageSize, setPageSize] = useState('a4');
+  const [pageSize, setPageSize] = useState('pageless');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [margins, setMargins] = useState('normal');
   const [lineSpacing, setLineSpacing] = useState('1');
@@ -198,6 +198,12 @@ export function NoteToolbar({
 
   const [downloadedFonts, setDownloadedFonts] = useState<Record<string, boolean>>({});
   const [downloadingFonts, setDownloadingFonts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (isEditorReady) {
+      sendPageLayout({ pageSize, orientation, margins, lineSpacing });
+    }
+  }, [isEditorReady]);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => {

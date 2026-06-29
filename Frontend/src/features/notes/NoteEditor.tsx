@@ -15,7 +15,7 @@ import { useTheme } from '../../themes/ThemeContext';
 import { useEditorBridge, SavePayload } from './useEditorBridge';
 import { NoteToolbar } from './NoteToolbar';
 import { SlashCommandMenu } from './SlashCommandMenu';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
 

@@ -67,6 +67,16 @@ function AppShell() {
             gestureDirection: 'horizontal',
           }}
         />
+        {/* Full-screen drawing canvas — no tab bar, no header */}
+        <Stack.Screen
+          name="drawing"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_bottom',
+            gestureEnabled: true,
+            gestureDirection: 'vertical',
+          }}
+        />
       </Stack>
     </>
   );

@@ -57,35 +57,43 @@ export const FABMenu = ({ bottom }: FABMenuProps) => {
   const noteOpacity  = useSharedValue(0);
   const taskY        = useSharedValue(40);
   const taskOpacity  = useSharedValue(0);
+  const sketchY      = useSharedValue(40);
+  const sketchOpacity = useSharedValue(0);
   const backdropOp   = useSharedValue(0);
 
   const toggle = () => {
     if (open) {
       // Close
-      rotation.value    = withTiming(0,  { duration: 200 });
-      noteY.value       = withTiming(40, { duration: 150 });
-      noteOpacity.value = withTiming(0,  { duration: 120 });
-      taskY.value       = withTiming(40, { duration: 180 });
-      taskOpacity.value = withTiming(0,  { duration: 120 });
-      backdropOp.value  = withTiming(0,  { duration: 200 });
+      rotation.value     = withTiming(0,  { duration: 200 });
+      noteY.value        = withTiming(40, { duration: 120 });
+      noteOpacity.value  = withTiming(0,  { duration: 100 });
+      taskY.value        = withTiming(40, { duration: 150 });
+      taskOpacity.value  = withTiming(0,  { duration: 100 });
+      sketchY.value      = withTiming(40, { duration: 170 });
+      sketchOpacity.value = withTiming(0, { duration: 100 });
+      backdropOp.value   = withTiming(0,  { duration: 200 });
     } else {
-      // Open — options stagger upward
-      rotation.value    = withTiming(45, { duration: 200 });
-      backdropOp.value  = withTiming(1,  { duration: 200 });
-      taskY.value       = withSpring(0,  { damping: 15, stiffness: 200 });
-      taskOpacity.value = withTiming(1,  { duration: 200 });
-      noteY.value       = withSpring(0,  { damping: 13, stiffness: 180 });
-      noteOpacity.value = withTiming(1,  { duration: 220 });
+      // Open — options stagger upward (sketch → task → note)
+      rotation.value     = withTiming(45, { duration: 200 });
+      backdropOp.value   = withTiming(1,  { duration: 200 });
+      sketchY.value      = withSpring(0,  { damping: 15, stiffness: 200 });
+      sketchOpacity.value = withTiming(1, { duration: 180 });
+      taskY.value        = withSpring(0,  { damping: 13, stiffness: 190 });
+      taskOpacity.value  = withTiming(1,  { duration: 200 });
+      noteY.value        = withSpring(0,  { damping: 12, stiffness: 180 });
+      noteOpacity.value  = withTiming(1,  { duration: 220 });
     }
     setOpen((o) => !o);
   };
 
-  const closeAndOpen = (which: 'task' | 'note') => {
+  const closeAndOpen = (which: 'task' | 'note' | 'sketch') => {
     toggle();
     if (which === 'note') {
-      // Navigate to the full Lexical editor
       const id = `note_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       setTimeout(() => router.push({ pathname: '/note', params: { noteId: id } }), 250);
+    } else if (which === 'sketch') {
+      const id = `drawing_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      setTimeout(() => router.push({ pathname: '/drawing', params: { drawingId: id, drawingTitle: '' } }), 250);
     } else {
       setTimeout(() => setShowTask(true), 250);
     }
@@ -117,7 +125,7 @@ export const FABMenu = ({ bottom }: FABMenuProps) => {
           opacity={noteOpacity}
           onPress={() => closeAndOpen('note')}
         />
-        {/* Task option (below note) */}
+        {/* Task option */}
         <Option
           icon="task-alt"
           label="New Task"
@@ -126,6 +134,16 @@ export const FABMenu = ({ bottom }: FABMenuProps) => {
           translateY={taskY}
           opacity={taskOpacity}
           onPress={() => closeAndOpen('task')}
+        />
+        {/* Sketch option (bottom, closest to FAB) */}
+        <Option
+          icon="brush"
+          label="New Sketch"
+          iconBg="#10B981"
+          labelColor="#10B981"
+          translateY={sketchY}
+          opacity={sketchOpacity}
+          onPress={() => closeAndOpen('sketch')}
         />
 
         {/* Main FAB */}

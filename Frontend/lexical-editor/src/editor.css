@@ -87,9 +87,10 @@ html, body, #root {
   --card: #FFFFFF;
   /* Code block — GitHub-style light mode */
   --code-bg: #F6F8FA;
+  --code-header-bg: #F0F2F4;
   --code-text: #24292E;
   --code-border: #D0D7DE;
-  --code-gutter: #57606A;
+  --code-gutter: #6E7781;
   --inline-code-bg: rgba(99,102,241,0.08);
   --inline-code-border: rgba(99,102,241,0.25);
   --quote-border: #6366F1;
@@ -103,10 +104,11 @@ html, body, #root {
   --border: #3F3F46;
   --card: #18181B;
   /* Code block — VS Code Dark+ style */
-  --code-bg: #1E1E1E;
-  --code-text: #D4D4D4;
-  --code-border: #333333;
-  --code-gutter: #858585;
+  --code-bg: #161B22;
+  --code-header-bg: #21262D;
+  --code-text: #E6EDF3;
+  --code-border: #30363D;
+  --code-gutter: #6E7681;
   --inline-code-bg: rgba(129,140,248,0.15);
   --inline-code-border: rgba(129,140,248,0.3);
   --quote-border: #818CF8;
@@ -162,115 +164,98 @@ html, body, #root {
 /* ── Code (block) ───────────────────────────────────────────── */
 .editor-code {
   background: var(--code-bg);
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--code-border);
-  /* top: 38px reserved for language badge bar. left: 52px for gutter. */
-  padding: 38px 16px 16px 52px;
-  font-family: 'SF Mono', 'Fira Code', 'Menlo', 'Courier New', monospace;
+  /* padding-top: 44px = header height (32px) + 12px vertical spacing to first line */
+  padding: 44px 12px 12px 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
   font-size: 13px;
-  line-height: 21px;
+  line-height: 20px;
   color: var(--code-text);
   margin: 12px 0;
+  /* Critical: force the element to stay at 100% of parent width.
+     Without this, white-space:pre can expand the element to fit content,
+     causing the WHOLE block to scroll instead of scrolling internally. */
+  display: block !important;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   white-space: pre;
   position: relative;
-  display: block;
-  width: 100%;
   box-sizing: border-box;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
 }
 
-/* ── Top language label bar ─────────────────────────────────── */
+/* ── Header bar: language label (CSS-only, always renders) ─────── */
+/* ::after shows the language name on the LEFT, skipping the gutter */
 .editor-code::after {
   content: attr(data-highlight-language);
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 34px;
-  padding: 0 14px;
+  height: 32px;
+  /* padding-left: 12px aligns text nicely with the code block padding */
+  padding: 0 100px 0 12px;
   display: flex;
   align-items: center;
-  font-family: -apple-system, system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.8px;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  background: rgba(0,0,0,0.03);
+  color: var(--code-gutter);
+  background: var(--code-header-bg);
   border-bottom: 1px solid var(--code-border);
-  border-top-left-radius: 10px;
-  border-top-right-radius: 10px;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  box-sizing: border-box;
   user-select: none;
   pointer-events: none;
-}
-[data-theme="dark"] .editor-code::after {
-  background: rgba(255,255,255,0.04);
-}
-
-/* ── Line Numbers Gutter ──────────────────────────────────────── */
-.editor-code::before {
-  content: attr(data-gutter);
-  position: absolute;
-  top: 34px;
-  left: 0;
-  bottom: 0;
-  width: 44px;
-  padding: 2px 10px 16px 0;
-  background-color: transparent;
-  border-right: 1px solid var(--code-border);
-  color: var(--code-gutter);
-  text-align: right;
-  white-space: pre;
+  z-index: 2;
+  /* clip the language text if it's very long — don't let it overlap the copy button */
+  white-space: nowrap;
   overflow: hidden;
-  user-select: none;
-  font-family: 'SF Mono', 'Fira Code', 'Menlo', 'Courier New', monospace;
-  font-size: 13px;
-  line-height: 21px;
-  opacity: 0.5;
+  text-overflow: ellipsis;
+  /* Counter-scroll: stays pinned to visible left edge regardless of horizontal scroll */
+  transform: translateX(var(--csx, 0px));
 }
 
-/* ── Code copy/download action buttons (rendered by CodeActionMenuPlugin) ─ */
-.code-action-bar {
-  position: absolute;
-  top: 4px;
-  right: 8px;
+/* ── Line Numbers Gutter ─────────────────────────────────────── */
+.editor-code::before {
+  display: none !important;
+  content: none !important;
+  border: none !important;
+  width: 0 !important;
+  padding: 0 !important;
+}
+
+/* ── Copy button — position:fixed via inline style in React, class handles appearance ── */
+.code-copy-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  z-index: 10;
-  opacity: 0;
-  transition: opacity 0.18s;
-}
-.editor-code:hover .code-action-bar,
-.editor-code:focus-within .code-action-bar {
-  opacity: 1;
-}
-.code-action-btn {
-  background: none;
+  gap: 5px;
+  background: var(--code-header-bg);
   border: 1px solid var(--code-border);
-  border-radius: 5px;
-  padding: 3px 7px;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
-  font-family: -apple-system, system-ui, sans-serif;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--code-gutter);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  transition: background 0.12s, color 0.12s;
   user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
 }
-.code-action-btn:active {
+.code-copy-btn:active,
+.code-copy-btn.copied {
   background: var(--accent);
-  color: #fff;
+  color: #fff !important;
   border-color: var(--accent);
 }
 
-/* ── Syntax highlighting — light mode (GitHub-like) ───────────── */
+/* ── Syntax highlighting — light mode (GitHub) ───────────────── */
 :root .editor-tokenComment   { color: #6E7781; font-style: italic; }
 :root .editor-tokenPunctuation { color: #24292E; }
 :root .editor-tokenProperty  { color: #0550AE; }
@@ -280,18 +265,22 @@ html, body, #root {
 :root .editor-tokenVariable  { color: #953800; }
 :root .editor-tokenFunction  { color: #8250DF; }
 
-/* ── Syntax highlighting — dark mode (VS Code Dark+) ─────────── */
-[data-theme="dark"] .editor-tokenComment   { color: #6A9955; font-style: italic; }
-[data-theme="dark"] .editor-tokenPunctuation { color: #808080; }
-[data-theme="dark"] .editor-tokenProperty  { color: #9CDCFE; }
-[data-theme="dark"] .editor-tokenSelector  { color: #CE9178; }
-[data-theme="dark"] .editor-tokenOperator  { color: #D4D4D4; }
-[data-theme="dark"] .editor-tokenAttr      { color: #C586C0; }
-[data-theme="dark"] .editor-tokenVariable  { color: #4FC1FF; }
-[data-theme="dark"] .editor-tokenFunction  { color: #DCDCAA; }
+/* ── Syntax highlighting — dark mode (GitHub Dark) ───────────── */
+[data-theme="dark"] .editor-tokenComment   { color: #8B949E; font-style: italic; }
+[data-theme="dark"] .editor-tokenPunctuation { color: #E6EDF3; }
+[data-theme="dark"] .editor-tokenProperty  { color: #79C0FF; }
+[data-theme="dark"] .editor-tokenSelector  { color: #A5D6FF; }
+[data-theme="dark"] .editor-tokenOperator  { color: #FF7B72; }
+[data-theme="dark"] .editor-tokenAttr      { color: #FF7B72; }
+[data-theme="dark"] .editor-tokenVariable  { color: #FFA657; }
+[data-theme="dark"] .editor-tokenFunction  { color: #D2A8FF; }
 
-/* ── Old code action menu classes (kept for compat) ── */
+
+
+/* ── Old compat stubs ── */
 .code-github-header { display: none; }
+.code-action-bar { display: none; }
+.code-action-btn { display: none; }
 
 /* ── Inline code ─────────────────────────────────────────────── */
 .editor-text-code {
@@ -765,4 +754,190 @@ html, body, #root {
 .poll-multi-badge {
   font-size: 11px;
   color: var(--accent);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE LAYOUT & SIZING STYLES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Desk background for page layout modes */
+html:not([data-page-size="pageless"]) body {
+  background-color: var(--page-desk-bg) !important;
+}
+
+/* Styling the editor-input container as a physical page sheet */
+html:not([data-page-size="pageless"]) .editor-input {
+  background: var(--card);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.02);
+  border: 1px solid var(--border);
+  margin: 16px auto 160px auto;
+  width: 92vw;
+  max-width: 800px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  overflow-x: hidden; /* Clips visual page breaks exactly at the page border */
+}
+
+/* Margins styling */
+html[data-page-margins="narrow"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 16px;
+}
+html[data-page-margins="normal"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 28px;
+}
+html[data-page-margins="moderate"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 40px;
+}
+html[data-page-margins="wide"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 52px;
+}
+
+/* Page Start Visual Break Styling */
+html:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"] {
+  margin-top: 56px !important; /* Push element down to make space for page gap */
+  position: relative;
+}
+
+html:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  content: 'PAGE BREAK';
+  position: absolute;
+  top: -42px; /* Position page break divider in the margin area */
+  height: 24px;
+  background-color: var(--page-desk-bg); /* Filled with the desk color */
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Position page breaks to span the full width of the container, accounting for margin padding */
+html[data-page-margins="narrow"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -16px;
+  right: -16px;
+}
+html[data-page-margins="normal"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -28px;
+  right: -28px;
+}
+html[data-page-margins="moderate"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -40px;
+  right: -40px;
+}
+html[data-page-margins="wide"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -52px;
+  right: -52px;
+}
+
+/* Page Break view customization */
+html:not([data-page-size="pageless"]) .editor-hr {
+  border: none;
+  border-top: 2px dashed var(--border);
+  height: 1px;
+  margin: 24px 0;
+  position: relative;
+}
+html:not([data-page-size="pageless"]) .editor-hr::after {
+  content: 'PAGE BREAK';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card);
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+
+/* Line Spacing styles */
+html[data-page-line-spacing="1"] .editor-input p,
+html[data-page-line-spacing="1"] .editor-input li { line-height: 1.15 !important; }
+
+html[data-page-line-spacing="1.15"] .editor-input p,
+html[data-page-line-spacing="1.15"] .editor-input li { line-height: 1.30 !important; }
+
+html[data-page-line-spacing="1.5"] .editor-input p,
+html[data-page-line-spacing="1.5"] .editor-input li { line-height: 1.65 !important; }
+
+html[data-page-line-spacing="2"] .editor-input p,
+html[data-page-line-spacing="2"] .editor-input li { line-height: 2.15 !important; }
+
+html[data-page-line-spacing="2.5"] .editor-input p,
+html[data-page-line-spacing="2.5"] .editor-input li { line-height: 2.65 !important; }
+
+html[data-page-line-spacing="3"] .editor-input p,
+html[data-page-line-spacing="3"] .editor-input li { line-height: 3.15 !important; }
+
+/* Viewport-based responsive min-heights & widths for all page sizes (obvious visual differences) */
+
+/* A4: Standard width, standard height */
+html[data-page-size="a4"] .editor-input { width: 90% !important; }
+html[data-page-size="a4"][data-page-orientation="portrait"] .editor-input { min-height: 116vw; }
+html[data-page-size="a4"][data-page-orientation="landscape"] .editor-input { min-height: 58vw; }
+
+/* Letter: Slightly wider than A4, slightly shorter */
+html[data-page-size="letter"] .editor-input { width: 92% !important; }
+html[data-page-size="letter"][data-page-orientation="portrait"] .editor-input { min-height: 109vw; }
+html[data-page-size="letter"][data-page-orientation="landscape"] .editor-input { min-height: 65vw; }
+
+/* Legal: Wider than A4, much taller */
+html[data-page-size="legal"] .editor-input { width: 92% !important; }
+html[data-page-size="legal"][data-page-orientation="portrait"] .editor-input { min-height: 139vw; }
+html[data-page-size="legal"][data-page-orientation="landscape"] .editor-input { min-height: 51vw; }
+
+/* Tabloid: Full screen width, very tall */
+html[data-page-size="tabloid"] .editor-input { width: 100% !important; }
+html[data-page-size="tabloid"][data-page-orientation="portrait"] .editor-input { min-height: 142vw; }
+html[data-page-size="tabloid"][data-page-orientation="landscape"] .editor-input { min-height: 59vw; }
+
+/* A3: Full screen width, extremely tall */
+html[data-page-size="a3"] .editor-input { width: 100% !important; }
+html[data-page-size="a3"][data-page-orientation="portrait"] .editor-input { min-height: 130vw; }
+html[data-page-size="a3"][data-page-orientation="landscape"] .editor-input { min-height: 65vw; }
+
+/* A5: Much narrower, much shorter */
+html[data-page-size="a5"] .editor-input { width: 74% !important; }
+html[data-page-size="a5"][data-page-orientation="portrait"] .editor-input { min-height: 96vw; }
+html[data-page-size="a5"][data-page-orientation="landscape"] .editor-input { min-height: 48vw; }
+
+/* B4: Wider, tall */
+html[data-page-size="b4"] .editor-input { width: 96% !important; }
+html[data-page-size="b4"][data-page-orientation="portrait"] .editor-input { min-height: 124vw; }
+html[data-page-size="b4"][data-page-orientation="landscape"] .editor-input { min-height: 62vw; }
+
+/* B5: Compact width, shorter */
+html[data-page-size="b5"] .editor-input { width: 82% !important; }
+html[data-page-size="b5"][data-page-orientation="portrait"] .editor-input { min-height: 107vw; }
+html[data-page-size="b5"][data-page-orientation="landscape"] .editor-input { min-height: 53vw; }
+
+/* Statement: Very narrow and compact (like a memo) */
+html[data-page-size="statement"] .editor-input { width: 68% !important; }
+html[data-page-size="statement"][data-page-orientation="portrait"] .editor-input { min-height: 96vw; }
+html[data-page-size="statement"][data-page-orientation="landscape"] .editor-input { min-height: 40vw; }
+
+/* Executive: Clean semi-wide, shorter */
+html[data-page-size="executive"] .editor-input { width: 86% !important; }
+html[data-page-size="executive"][data-page-orientation="portrait"] .editor-input { min-height: 114vw; }
+html[data-page-size="executive"][data-page-orientation="landscape"] .editor-input { min-height: 54vw; }
+
+/* Folio: Normal width, taller */
+html[data-page-size="folio"] .editor-input { width: 90% !important; }
+html[data-page-size="folio"][data-page-orientation="portrait"] .editor-input { min-height: 126vw; }
+html[data-page-size="folio"][data-page-orientation="landscape"] .editor-input { min-height: 54vw; }
+
+/* Desk background color variables added to theme root */
+:root {
+  --page-desk-bg: #E2E8F0;
+}
+[data-theme="dark"] {
+  --page-desk-bg: #09090B;
 }
