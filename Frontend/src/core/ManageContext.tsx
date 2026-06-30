@@ -13,6 +13,7 @@ export interface ManagedTag {
   id: string;
   label: string;
   color: string;
+  isDefault?: boolean; // true if built-in
 }
 
 // Per-tag calendar marking preferences
@@ -50,11 +51,16 @@ export const DEFAULT_PRIORITIES: ManagedPriority[] = [
 ];
 
 export const DEFAULT_TAGS: ManagedTag[] = [
-  { id: "work", label: "Work", color: "#6366F1" },
-  { id: "personal", label: "Personal", color: "#71717A" },
-  { id: "health", label: "Health", color: "#22C55E" },
-  { id: "learning", label: "Learning", color: "#EC4899" },
-  { id: "review", label: "Review", color: "#F97316" },
+  { id: "work", label: "Work", color: "#6366F1", isDefault: true },
+  { id: "personal", label: "Personal", color: "#71717A", isDefault: true },
+  { id: "health", label: "Health", color: "#22C55E", isDefault: true },
+  { id: "learning", label: "Learning", color: "#EC4899", isDefault: true },
+  { id: "review", label: "Review", color: "#F97316", isDefault: true },
+  { id: "shopping", label: "Shopping", color: "#F59E0B", isDefault: true },
+  { id: "finance", label: "Finance", color: "#10B981", isDefault: true },
+  { id: "fitness", label: "Fitness", color: "#14B8A6", isDefault: true },
+  { id: "home", label: "Home", color: "#3B82F6", isDefault: true },
+  { id: "ideas", label: "Ideas", color: "#8B5CF6", isDefault: true },
 ];
 
 export const DEFAULT_REMINDER_PRESETS = [
@@ -124,6 +130,9 @@ interface ManageContextType {
   addReminderPreset: (r: string) => void;
   deleteReminderPreset: (r: string) => void;
   setDefaultPriority: (id: string | null) => void;
+  // Alarm tone
+  alarmTone: string;
+  setAlarmTone: (tone: string) => void;
   // Calendar interaction
   longPressDateStart: boolean;
   setLongPressDateStart: (v: boolean) => void;
@@ -152,6 +161,8 @@ const ManageContext = createContext<ManageContextType>({
   addReminderPreset: () => {},
   deleteReminderPreset: () => {},
   setDefaultPriority: () => {},
+  alarmTone: 'default',
+  setAlarmTone: () => {},
   longPressDateStart: false,
   setLongPressDateStart: () => {},
 });
@@ -166,6 +177,7 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [defaultPriority, setDefaultPriority] = useState<string | null>(null);
   const [birthdays, setBirthdays] = useState<Birthday[]>([]);
   const [longPressDateStart, setLongPressDateStart] = useState(false);
+  const [alarmTone, setAlarmTone] = useState<string>('default');
 
   const addBirthday = (b: Omit<Birthday, "id">) => {
     const id = `bday_${Date.now()}`;
@@ -254,7 +266,7 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
 
   const addTagAndSync = (t: Omit<ManagedTag, "id">) => {
     const id = t.label.toLowerCase().replace(/\s+/g, "-");
-    const newTag = { id, ...t };
+    const newTag = { id, ...t, isDefault: false };
     setTags((prev) => {
       const next = [...prev, newTag];
       syncMarkings(next);
@@ -287,6 +299,8 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
         addReminderPreset,
         deleteReminderPreset,
         setDefaultPriority,
+        alarmTone,
+        setAlarmTone,
         longPressDateStart,
         setLongPressDateStart,
       }}

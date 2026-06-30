@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../themes/ThemeContext';
 import { dummyData, Subtask } from '../../../core/dummyData';
+import { useManage } from '../../../core/ManageContext';
 
 type TagType = 'work' | 'personal' | 'review';
 
@@ -14,6 +15,7 @@ const TAG_CONFIG: Record<TagType, { text: string; bg: string }> = {
 
 export const Upcoming = () => {
   const { theme } = useTheme();
+  const { tags, calendarMarkings } = useManage();
   const { days, events, label } = dummyData.upcoming;
   const [activeDay, setActiveDay] = useState(24);
 
@@ -61,7 +63,12 @@ export const Upcoming = () => {
 
       {/* Events */}
       {events.map((event) => {
-        const tagStyle = TAG_CONFIG[event.tagType as TagType] || TAG_CONFIG.work;
+        const matchedTag = tags.find(t => t.id === event.tagType);
+        const tagSetting = calendarMarkings.find(m => m.tagId === event.tagType);
+        
+        const tagColor = matchedTag ? matchedTag.color : '#6366F1';
+        const tagBg = `${tagColor}15`;
+        const customEmoji = (tagSetting?.style === 'custom') ? tagSetting.customEmoji : undefined;
         const priorityStyle = event.priority === 'HIGH'
           ? { text: '#EF4444', bg: '#FEF2F2' }
           : null;
@@ -91,8 +98,10 @@ export const Upcoming = () => {
             <View style={styles.eventContent}>
               <Text style={[styles.eventTitle, { color: theme.colors.text }]}>{event.title}</Text>
               <View style={styles.eventMeta}>
-                <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
-                  <Text style={[styles.tagText, { color: tagStyle.text }]}>{event.tag}</Text>
+                <View style={[styles.tagPill, { backgroundColor: tagBg }]}>
+                  <Text style={[styles.tagText, { color: tagColor }]}>
+                    {customEmoji ? `${customEmoji} ` : ''}{event.tag}
+                  </Text>
                 </View>
 
                 <View style={styles.metaItem}>

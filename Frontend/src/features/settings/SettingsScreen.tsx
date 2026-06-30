@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, Switch,
 } from 'react-native';
+import { Audio } from 'expo-av';
+import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme, ACCENT_COLORS } from '../../themes/ThemeContext';
@@ -23,6 +25,27 @@ const OWNED_PLUGINS = [
   { id: 'finance', name: 'Finance Tracker', icon: 'account-balance', enabled: true, desc: 'Budget, expenses & goals' },
   { id: 'retail', name: 'Retail Manager', icon: 'storefront', enabled: false, desc: 'Inventory & order tracking' },
 ];
+
+const ALARM_TONES = [
+  { id: 'default',  label: 'Default',       icon: 'notifications' as const,       desc: 'System notification sound' },
+  { id: 'gentle',   label: 'Gentle Chime',  icon: 'music-note' as const,           desc: 'Soft chime for quiet alarms' },
+  { id: 'classic',  label: 'Classic Alarm', icon: 'alarm' as const,                desc: 'Traditional loud alarm tone' },
+  { id: 'bell',     label: 'Bell Ring',     icon: 'notifications-active' as const,  desc: 'Repeating bell pattern' },
+  { id: 'silent',   label: 'Silent',        icon: 'volume-off' as const,           desc: 'Vibrate only, no sound' },
+];
+
+const getToneLabel = (uriOrId: string) => {
+  const preset = ALARM_TONES.find(t => t.id === uriOrId);
+  if (preset) return preset.label;
+  try {
+    const decoded = decodeURIComponent(uriOrId);
+    const parts = decoded.split('/');
+    const filename = parts[parts.length - 1];
+    return filename || 'Custom Tone';
+  } catch (e) {
+    return 'Custom Tone';
+  }
+};
 const WIDGETS = [
   { id: 'focus', label: 'Focus Timer', icon: 'timer' },
   { id: 'ring', label: 'Progress Ring', icon: 'donut-large' },
@@ -191,6 +214,220 @@ const WidgetsModal = ({ visible, onClose }: { visible: boolean; onClose: () => v
         </TouchableOpacity>
       ))}
     </Sheet>
+  );
+};
+
+// ─── Alarm Tone Full Screen Modal ─────────────────────────────────────────────
+const AlarmToneModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
+  const { theme } = useTheme();
+  const { alarmTone, setAlarmTone } = useManage();
+  const [previewSound, setPreviewSound] = useState<Audio.Sound | null>(null);
+
+  // Clean up sound on unmount/re-selection
+  useEffect(() => {
+    return () => {
+      if (previewSound) {
+        previewSound.unloadAsync().catch(() => {});
+      }
+    };
+  }, [previewSound]);
+
+  const playPreview = async (toneId: string) => {
+    try {
+      if (previewSound) {
+        await previewSound.stopAsync().catch(() => {});
+        await previewSound.unloadAsync().catch(() => {});
+        setPreviewSound(null);
+      }
+
+      if (toneId === 'silent') return;
+
+      let soundAsset;
+      if (toneId === 'gentle') {
+        soundAsset = require('../../../assets/sounds/chimes.mp3');
+      } else if (toneId === 'classic') {
+        soundAsset = require('../../../assets/sounds/constant_beep.mp3');
+      } else if (toneId === 'bell') {
+        soundAsset = require('../../../assets/sounds/bell.mp3');
+      } else if (toneId === 'default') {
+        soundAsset = require('../../../assets/sounds/chimes.mp3');
+      } else {
+        // Custom picked URI
+        soundAsset = { uri: toneId };
+      }
+
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+      });
+
+      const { sound } = await Audio.Sound.createAsync(
+        soundAsset,
+        { shouldPlay: true, volume: 1.0 }
+      );
+      setPreviewSound(sound);
+
+      setTimeout(async () => {
+        try {
+          await sound.stopAsync();
+        } catch (e) {}
+      }, 4000);
+
+    } catch (err) {
+      console.warn('Failed to play sound preview:', err);
+    }
+  };
+
+  const handlePickCustomFile = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: 'audio/*',
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
+
+      const pickedAsset = res.assets[0];
+      setAlarmTone(pickedAsset.uri);
+      playPreview(pickedAsset.uri);
+    } catch (err) {
+      console.warn('Pick custom file error:', err);
+    }
+  };
+
+  const isCustomSelected = !ALARM_TONES.some(t => t.id === alarmTone);
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        {/* Header */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 16,
+          paddingTop: 8,
+          paddingBottom: 16,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: theme.colors.border
+        }}>
+          <TouchableOpacity onPress={onClose} style={{ padding: 4, marginRight: 12 }}>
+            <MaterialIcons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={{ fontSize: 20, color: theme.colors.text, fontFamily: 'Inter_600SemiBold', flex: 1 }}>
+            Alarm Tune
+          </Text>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 48 }}>
+          {/* Section: Presets */}
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+            BUILT-IN TONES
+          </Text>
+          
+          <View style={{ borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.cardPrimary, overflow: 'hidden', marginBottom: 24 }}>
+            {ALARM_TONES.map((tone, idx) => {
+              const isSelected = alarmTone === tone.id;
+              return (
+                <TouchableOpacity
+                  key={tone.id}
+                  style={[
+                    s.sheetRow,
+                    { paddingHorizontal: 14, borderBottomWidth: idx < ALARM_TONES.length - 1 ? StyleSheet.hairlineWidth : 0, borderBottomColor: theme.colors.border },
+                  ]}
+                  onPress={() => {
+                    setAlarmTone(tone.id);
+                    playPreview(tone.id);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[s.sheetIcon, { backgroundColor: isSelected ? theme.colors.primary : theme.colors.secondary }]}>
+                    <MaterialIcons name={tone.icon} size={15} color={isSelected ? '#FFFFFF' : theme.colors.textSecondary} />
+                  </View>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 14, color: theme.colors.text, fontFamily: 'Inter_500Medium' }}>
+                      {tone.label}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 2 }}>
+                      {tone.desc}
+                    </Text>
+                  </View>
+                  <View style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    borderWidth: 1.5,
+                    borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    {isSelected && (
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary }} />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Section: Custom music */}
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', letterSpacing: 1, marginBottom: 8, marginLeft: 4 }}>
+            CUSTOM MUSIC
+          </Text>
+
+          {isCustomSelected && (
+            <View style={{
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              backgroundColor: theme.colors.cardPrimary,
+              padding: 14,
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginBottom: 16,
+            }}>
+              <View style={[s.sheetIcon, { backgroundColor: theme.colors.primary }]}>
+                <MaterialIcons name="audiotrack" size={15} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1, marginHorizontal: 12 }}>
+                <Text style={{ fontSize: 14, color: theme.colors.text, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>
+                  {getToneLabel(alarmTone)}
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 2 }}>
+                  Selected from device
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setAlarmTone('default');
+                }}
+                style={{ padding: 4 }}
+              >
+                <MaterialIcons name="delete-outline" size={20} color="#EF4444" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: 52,
+              borderRadius: 26,
+              borderWidth: 1.5,
+              borderColor: theme.colors.primary,
+              backgroundColor: theme.colors.primary + '10',
+              gap: 8,
+            }}
+            onPress={handlePickCustomFile}
+          >
+            <MaterialIcons name="library-music" size={18} color={theme.colors.primary} />
+            <Text style={{ color: theme.colors.primary, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>
+              Select Custom Audio File
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 };
 
@@ -459,6 +696,7 @@ const ProfileCard = () => {
 export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
   const { theme } = useTheme();
   const { sectionVisibility, layoutMode } = useDashboard();
+  const { alarmTone } = useManage();
   const [notif, setNotif] = useState(true);
   const [remind, setRemind] = useState(true);
   const [sync, setSync] = useState(false);
@@ -466,9 +704,11 @@ export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
   const [showOrder, setShowOrder] = useState(false);
   const [showWidgets, setShowWidgets] = useState(false);
   const [showLayout, setShowLayout] = useState(false);
+  const [showTones, setShowTones] = useState(false);
 
   const visibleCount = Object.values(sectionVisibility).filter(Boolean).length;
   const activeMode = LAYOUT_MODES.find((m) => m.id === layoutMode)?.label ?? 'Comfortable';
+  const activeTone = getToneLabel(alarmTone);
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
@@ -507,6 +747,7 @@ export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
           <ToggleRow icon="notifications-none" label="Push Notifications" subtitle="Task reminders and updates" value={notif} onChange={setNotif} />
           <ToggleRow icon="alarm" label="Default Reminders" subtitle="30 min before due time" value={remind} onChange={setRemind} />
           <ToggleRow icon="cloud-sync" label="Sync & Backup" subtitle="Auto-sync every 6 hours" value={sync} onChange={setSync} />
+          <SettingRow icon="music-note" label="Alarm Tune" value={activeTone} onPress={() => setShowTones(true)} />
           <SettingRow icon="lock" label="Privacy & Data" onPress={() => { }} />
           <SettingRow icon="help-outline" label="Help & Support" onPress={() => { }} isLast />
         </SettingsCard>
@@ -530,6 +771,7 @@ export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
       <OrderModal visible={showOrder} onClose={() => setShowOrder(false)} />
       <WidgetsModal visible={showWidgets} onClose={() => setShowWidgets(false)} />
       <LayoutModal visible={showLayout} onClose={() => setShowLayout(false)} />
+      <AlarmToneModal visible={showTones} onClose={() => setShowTones(false)} />
     </SafeAreaView>
   );
 };
@@ -601,6 +843,8 @@ const s = StyleSheet.create({
 
   // Sheet rows
   sheetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, gap: 12 },
+  sheetIcon: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  sheetLabel: { fontSize: 14 },
 
   // Layout mode row — allows text to wrap
   layoutRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, gap: 12, borderBottomWidth: 0, paddingHorizontal: 4, borderRadius: 8 },

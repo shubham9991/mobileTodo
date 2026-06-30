@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../themes/ThemeContext';
 import { dummyData, Subtask } from '../../../core/dummyData';
 import { TaskCardSkeleton } from '../../../core/components/Skeleton';
+import { useManage } from '../../../core/ManageContext';
 
 type TagType = 'work' | 'personal' | 'review';
 
@@ -20,6 +21,7 @@ const PRIORITY_CONFIG: Record<string, { text: string; bg: string }> = {
 
 export const TodaysTasks = () => {
   const { theme } = useTheme();
+  const { tags, calendarMarkings } = useManage();
   const tasks = dummyData.todaysTasks;
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +51,12 @@ export const TodaysTasks = () => {
         </>
       ) : (
         tasks.map((task) => {
-          const tagStyle = TAG_CONFIG[task.tagType as TagType] || TAG_CONFIG.work;
+          const matchedTag = tags.find(t => t.id === task.tagType);
+          const tagSetting = calendarMarkings.find(m => m.tagId === task.tagType);
+          
+          const tagColor = matchedTag ? matchedTag.color : '#6366F1';
+          const tagBg = `${tagColor}15`;
+          const customEmoji = (tagSetting?.style === 'custom') ? tagSetting.customEmoji : undefined;
           const priorityStyle = PRIORITY_CONFIG[task.priority || ''];
 
           return (
@@ -92,9 +99,9 @@ export const TodaysTasks = () => {
                   </View>
 
                   <View style={styles.metaRow}>
-                    <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
-                      <Text style={[styles.tagText, { color: tagStyle.text, fontFamily: 'Inter_600SemiBold' }]}>
-                        {task.tag}
+                    <View style={[styles.tagPill, { backgroundColor: tagBg }]}>
+                      <Text style={[styles.tagText, { color: tagColor, fontFamily: 'Inter_600SemiBold' }]}>
+                        {customEmoji ? `${customEmoji} ` : ''}{task.tag}
                       </Text>
                     </View>
 

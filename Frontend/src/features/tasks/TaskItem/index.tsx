@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, LayoutAnimation, Pressable } 
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../../themes/ThemeContext';
 import { Task, Subtask } from '../../../core/dummyData';
+import { useManage } from '../../../core/ManageContext';
 
 type TagType = 'work' | 'personal' | 'review' | 'health' | 'learning';
 
@@ -33,7 +34,14 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
   const [done, setDone] = useState(task.completed);
   const [isPressed, setIsPressed] = useState(false);
 
-  const tagStyle  = TAG_CONFIG[task.tagType as TagType] || TAG_CONFIG.work;
+  const { tags, calendarMarkings } = useManage();
+  const matchedTag = tags.find(t => t.id === task.tagType);
+  const tagSetting = calendarMarkings.find(m => m.tagId === task.tagType);
+
+  const tagColor = matchedTag ? matchedTag.color : '#6366F1';
+  const tagBg = `${tagColor}15`; // 15% opacity background
+  const customEmoji = (tagSetting?.style === 'custom') ? tagSetting.customEmoji : undefined;
+  
   const priConfig = task.priority ? PRIORITY_CONFIG[task.priority] : null;
 
   // Derive subtask display text from Subtask[] array
@@ -140,9 +148,9 @@ export const TaskItem = ({ task, onToggle, onPress, onLongPress }: TaskItemProps
             )}
 
             {task.tag && (
-              <View style={[styles.tagPill, { backgroundColor: tagStyle.bg }]}>
-                <Text style={[styles.tagText, { color: tagStyle.text, fontFamily: 'Inter_600SemiBold' }]}>
-                  {task.tag}
+              <View style={[styles.tagPill, { backgroundColor: tagBg }]}>
+                <Text style={[styles.tagText, { color: tagColor, fontFamily: 'Inter_600SemiBold' }]}>
+                  {customEmoji ? `${customEmoji} ` : ''}{task.tag}
                 </Text>
               </View>
             )}

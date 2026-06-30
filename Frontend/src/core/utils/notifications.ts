@@ -60,12 +60,20 @@ export async function scheduleReminder(
   let triggerDate = targetDate;
   const chipLower = reminderChip.toLowerCase();
   
-  if (chipLower.includes('5 min before')) triggerDate = addMinutes(targetDate, -5);
-  else if (chipLower.includes('15 min before')) triggerDate = addMinutes(targetDate, -15);
-  else if (chipLower.includes('30 min before')) triggerDate = addMinutes(targetDate, -30);
-  else if (chipLower.includes('1 hr before')) triggerDate = addHours(targetDate, -1);
-  else if (chipLower.includes('2 hrs before')) triggerDate = addHours(targetDate, -2);
-  else if (chipLower.includes('1 day before')) triggerDate = addDays(targetDate, -1);
+  // Extract custom offsets dynamically: e.g. "45 min before", "12 hours before", "3 days before"
+  const numberMatch = chipLower.match(/(\d+)\s*(min|minute|hr|hour|day)s?\b/);
+  if (numberMatch) {
+    const value = parseInt(numberMatch[1], 10);
+    const unit = numberMatch[2];
+    
+    if (unit.startsWith('min')) {
+      triggerDate = addMinutes(targetDate, -value);
+    } else if (unit.startsWith('hr') || unit.startsWith('hour')) {
+      triggerDate = addHours(targetDate, -value);
+    } else if (unit.startsWith('day')) {
+      triggerDate = addDays(targetDate, -value);
+    }
+  }
 
   // If trigger date is in the past, don't schedule
   if (triggerDate.getTime() <= Date.now()) return;
@@ -76,14 +84,16 @@ export async function scheduleReminder(
     timestamp: triggerDate.getTime(),
   };
 
-  // 5. Create channel (Android required)
+  // 5. Create channel (Android required) with high importance
   const channelId = await notifee.createChannel({
     id: 'task-reminders',
     name: 'Task Reminders',
     sound: 'default',
+    importance: 4, // HIGH
+    vibration: true,
   });
 
-  // 6. Schedule
+  // 6. Schedule with fullScreenAction intent config
   await notifee.createTriggerNotification(
     {
       id: taskId,
@@ -91,9 +101,15 @@ export async function scheduleReminder(
       body: title,
       android: {
         channelId,
+        category: 'alarm',
+        importance: 4, // HIGH
+        fullScreenAction: {
+          id: 'default',
+        },
         pressAction: {
           id: 'default',
         },
+        asForegroundService: true, // keeps it active on screen
       },
     },
     trigger,

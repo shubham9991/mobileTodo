@@ -213,7 +213,7 @@ export const ScheduleView: React.FC<Props> = ({
                           <View style={styles.metaRow}>
                             <View style={[styles.tagPill, { backgroundColor: `${item.color || theme.colors.primary}15` }]}>
                               <Text style={[styles.tagText, { color: item.color || theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>
-                                {item.tag}
+                                {item.customEmoji ? `${item.customEmoji} ` : ''}{item.tag}
                               </Text>
                             </View>
                           </View>

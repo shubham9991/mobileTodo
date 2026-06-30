@@ -22,6 +22,7 @@ export interface CalendarItem {
   color: string;
   tag?: string;
   tagType?: string;
+  customEmoji?: string; // custom calendar marking emoji
   taskId?: string;     // original task id for actions
   completed?: boolean;
   isAllDay: boolean;
@@ -91,6 +92,7 @@ export function useCalendarData(startISO: string, endISO: string): {
       const tagSetting = calendarMarkings.find(m => m.tagId === tagId);
       if (tagSetting && !tagSetting.visible) return;
       const color = tagColorMap[tagId] ?? TAG_COLORS.work;
+      const customEmoji = (tagSetting?.style === 'custom') ? tagSetting.customEmoji : undefined;
 
       const isMultiDay = taskStartISO !== taskEndISO;
       const taskStart = parseISO(taskStartISO);
@@ -118,6 +120,7 @@ export function useCalendarData(startISO: string, endISO: string): {
           color,
           tag: task.tag,
           tagType: tagId,
+          customEmoji,
           completed: task.completed,
           isAllDay: !task.dueTime && !task.dueEndTime,
           isRangeStart: isMultiDay ? idx === 0 : undefined,

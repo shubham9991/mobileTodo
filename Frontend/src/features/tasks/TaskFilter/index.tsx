@@ -23,12 +23,13 @@ interface Props {
   onFilterChange: (f: FilterTab) => void;
   activeSort: string;
   onSortChange: (s: string) => void;
+  sortDir: 'asc' | 'desc';
+  onSortDirChange: (d: 'asc' | 'desc') => void;
 }
 
-export const TaskFilter = ({ activeFilter, onFilterChange, activeSort, onSortChange }: Props) => {
+export const TaskFilter = ({ activeFilter, onFilterChange, activeSort, onSortChange, sortDir, onSortDirChange }: Props) => {
   const { theme } = useTheme();
   const [showSortModal, setShowSortModal] = useState(false);
-  const [sortDir, setSortDir] = useState<SortDirection>('asc');
 
   const currentSortOption = SORT_OPTIONS.find((s) => s.key === activeSort) || SORT_OPTIONS[0];
 
@@ -112,7 +113,7 @@ export const TaskFilter = ({ activeFilter, onFilterChange, activeSort, onSortCha
                   backgroundColor: theme.colors.secondary,
                   borderColor: theme.colors.border,
                 }]}
-                onPress={() => setSortDir((d) => d === 'asc' ? 'desc' : 'asc')}
+                onPress={() => onSortDirChange(sortDir === 'asc' ? 'desc' : 'asc')}
               >
                 <MaterialIcons
                   name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'}

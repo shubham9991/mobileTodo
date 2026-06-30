@@ -192,12 +192,20 @@ const DayCell = React.memo(({ date, state, marking, theme, onDayPress, onGlideSt
           )}
         </View>
 
-        {/* Colored dot row (one dot per unique tag color) */}
+        {/* Colored dot row / emoji / period row */}
         {!isSelected && count > 0 && (
-          <View style={{ flexDirection: 'row', gap: 2, marginTop: 3, justifyContent: 'center' }}>
-            {[...new Set(busyTasks.map(t => t.color))].slice(0, 4).map((c, i) => (
-              <View key={i} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: c }} />
-            ))}
+          <View style={{ flexDirection: 'row', gap: 2, marginTop: 3, justifyContent: 'center', alignItems: 'center' }}>
+            {busyTasks.some(t => t.style === 'custom' && t.customEmoji) ? (
+              <Text style={{ fontSize: 9, lineHeight: 11 }}>
+                {busyTasks.find(t => t.style === 'custom' && t.customEmoji)?.customEmoji}
+              </Text>
+            ) : busyTasks.some(t => t.style === 'period') ? (
+              <View style={{ width: 12, height: 2, borderRadius: 1, backgroundColor: badgeColor }} />
+            ) : (
+              [...new Set(busyTasks.map(t => t.color))].slice(0, 4).map((c, i) => (
+                <View key={i} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: c }} />
+              ))
+            )}
           </View>
         )}
       </View>
@@ -426,7 +434,12 @@ function buildMarkedDates(
         eachDayOfInterval({ start: sd, end: ed }).forEach(day => {
           const iso = format(day, 'yyyy-MM-dd');
           ensureDay(iso);
-          marks[iso].busyTasks.push({ color, title: task.title });
+          marks[iso].busyTasks.push({
+            color,
+            title: task.title,
+            style: tagSetting?.style ?? 'dot',
+            customEmoji: tagSetting?.customEmoji ?? null
+          });
         });
       } catch { /**/ }
     });

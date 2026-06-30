@@ -30,6 +30,7 @@
     "date-fns": "^4.1.0",
     "date-holidays": "^3.28.0",
     "expo": "~54.0.33",
+    "expo-av": "~16.0.8",
     "expo-build-properties": "^56.0.16",
     "expo-constants": "~18.0.13",
     "expo-document-picker": "~14.0.8",

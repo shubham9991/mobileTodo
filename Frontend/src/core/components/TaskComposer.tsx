@@ -118,13 +118,13 @@ function buildSyncSuggestions(
   }
 
   // ── Priority ──
-  if (parsed.priority && !priority) {
-    const pKey = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : 'LOW';
+  const parsedPriKey = parsed.priority === 'high' ? 'HIGH' : parsed.priority === 'medium' ? 'MED' : parsed.priority === 'low' ? 'LOW' : null;
+  if (parsedPriKey && parsedPriKey !== priority) {
     suggestions.push({
       key: 'pri',
       icon: 'flag',
       label: `Priority: ${parsed.priority}`,
-      apply: () => setPriority(pKey),
+      apply: () => setPriority(parsedPriKey),
     });
   }
 
@@ -190,24 +190,22 @@ const ChipStrip = ({ options, active, onSelect, color }: {
 }) => {
   const { theme } = useTheme();
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
-      <View style={{ flexDirection: 'row', gap: 7, paddingHorizontal: 16 }}>
-        {options.map((opt) => {
-          const isActive = active === opt;
-          return (
-            <TouchableOpacity
-              key={opt}
-              style={[cs.chip, { backgroundColor: isActive ? color : theme.colors.secondary, borderColor: isActive ? color : theme.colors.border }]}
-              onPress={() => onSelect(isActive ? '' : opt)}
-            >
-              <Text style={[cs.txt, { color: isActive ? '#FFFFFF' : theme.colors.textSecondary, fontFamily: isActive ? 'Inter_600SemiBold' : 'Inter_400Regular' }]}>
-                {opt}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </ScrollView>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, marginBottom: 10 }}>
+      {options.map((opt) => {
+        const isActive = active === opt;
+        return (
+          <TouchableOpacity
+            key={opt}
+            style={[cs.chip, { backgroundColor: isActive ? color : theme.colors.secondary, borderColor: isActive ? color : theme.colors.border }]}
+            onPress={() => onSelect(isActive ? '' : opt)}
+          >
+            <Text style={[cs.txt, { color: isActive ? '#FFFFFF' : theme.colors.textSecondary, fontFamily: isActive ? 'Inter_600SemiBold' : 'Inter_400Regular' }]}>
+              {opt}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 };
 const cs = StyleSheet.create({
@@ -944,7 +942,7 @@ export const TaskComposer = ({
     if (visible) {
       setTitle(initialTitle);
       setDesc(initialDescription);
-      setPriority(initialPriority);
+      setPriority(initialPriority ?? (editMode ? null : manage.defaultPriority));
       setDueDate(initialDueDate);
       setDueEndDate(initialDueEndDate ?? null);
       setDueTime(initialDueTime);
@@ -1181,7 +1179,7 @@ export const TaskComposer = ({
           }]}>
               <ScrollView
                 showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 keyboardDismissMode="interactive"
                 style={{ flexShrink: 1 }}
               >

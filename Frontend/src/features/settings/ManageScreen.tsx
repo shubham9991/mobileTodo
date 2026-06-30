@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  TextInput, Pressable, Alert, LayoutAnimation, Switch,
+  TextInput, Pressable, Alert, LayoutAnimation, Switch, Animated, Easing,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Audio } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
 import { TopNavbar } from '../../layout/TopNavbar';
@@ -13,37 +14,351 @@ import {
   MarkingStyle, CalendarMarkingSetting,
 } from '../../core/ManageContext';
 
-// ─── Shared Bottom Sheet ──────────────────────────────────────────────────────
+// ─── Shared Top Sheet Modal ──────────────────────────────────────────────────
 const Sheet = ({
   visible, onClose, title, children,
 }: { visible: boolean; onClose: () => void; title: string; children: React.ReactNode }) => {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const slideAnim = useRef(new Animated.Value(-400)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 250,
+          easing: Easing.out(Easing.bezier(0.25, 1, 0.5, 1)),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        })
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: -400,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={sh.overlay} onPress={onClose}>
-        <Pressable style={[sh.panel, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => {}}>
-          <View style={[sh.handle, { backgroundColor: theme.colors.border }]} />
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <View style={sh.overlay}>
+        {/* Animated backdrop overlay */}
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim, backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+          <Pressable style={{ flex: 1 }} onPress={onClose} />
+        </Animated.View>
+
+        {/* Animated Top Panel taking 30-40% of screen height */}
+        <Animated.View 
+          style={[
+            sh.panel, 
+            { 
+              backgroundColor: theme.colors.cardPrimary, 
+              paddingTop: insets.top + 14,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
           <Text style={[sh.title, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>{title}</Text>
           <View style={[sh.divider, { backgroundColor: theme.colors.border }]} />
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          
+          <ScrollView 
+            showsVerticalScrollIndicator={false} 
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
             {children}
           </ScrollView>
-        </Pressable>
-      </Pressable>
+          <View style={[sh.handle, { backgroundColor: theme.colors.border, marginTop: 10 }]} />
+        </Animated.View>
+      </View>
     </Modal>
   );
 };
 
-// ─── Colour Picker Row ────────────────────────────────────────────────────────
-const ColorPicker = ({ selected, onSelect }: { selected: string; onSelect: (c: string) => void }) => (
-  <View style={cp.grid}>
-    {PALETTE_COLORS.map(c => (
-      <TouchableOpacity key={c} style={[cp.swatch, { backgroundColor: c }, selected === c && cp.swatchActive]} onPress={() => onSelect(c)}>
-        {selected === c && <MaterialIcons name="check" size={12} color="#FFF" />}
-      </TouchableOpacity>
-    ))}
-  </View>
-);
+// ─── Sheet TextInput with Focus Highlight ──────────────────────────────────────
+const SheetInput = ({
+  value, onChangeText, placeholder, autoFocus = false
+}: {
+  value: string;
+  onChangeText: (t: string) => void;
+  placeholder: string;
+  autoFocus?: boolean;
+}) => {
+  const { theme } = useTheme();
+  const [isFocused, setIsFocused] = useState(false);
+  return (
+    <TextInput
+      style={[
+        ms.sheetInput,
+        {
+          color: theme.colors.text,
+          backgroundColor: theme.colors.secondary,
+          borderColor: isFocused ? theme.colors.primary : theme.colors.border,
+          borderWidth: isFocused ? 1.5 : 1,
+          fontFamily: 'Inter_500Medium',
+        }
+      ]}
+      placeholder={placeholder}
+      placeholderTextColor={theme.colors.textSecondary}
+      value={value}
+      onChangeText={onChangeText}
+      autoFocus={autoFocus}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => setIsFocused(false)}
+    />
+  );
+};
+
+// Memory for color presets to persist custom hex entries during session.
+let COLOR_PRESETS_MEM = ['#6366F1', '#71717A', '#22C55E', '#EC4899', '#F97316', '#06B6D4'];
+
+const SPECTRUM_COLORS = [
+  '#F43F5E', '#EC4899', '#D946EF', '#A855F7', '#8B5CF6', '#6366F1', '#3B82F6', '#0EA5E9',
+  '#06B6D4', '#14B8A6', '#10B981', '#22C55E', '#84CC16', '#EAB308', '#F59E0B', '#F97316',
+  '#EF4444', '#B45309', '#78350F', '#000000', '#4B5563', '#9CA3AF', '#D1D5DB', '#FFFFFF'
+];
+
+// ─── Colour Picker Row (Premium Single Line: 6 Presets + Custom Hex Input) ────
+const ColorPicker = ({ selected, onSelect }: { selected: string; onSelect: (c: string) => void }) => {
+  const { theme } = useTheme();
+  const [presets, setPresets] = useState(COLOR_PRESETS_MEM);
+  const [hexText, setHexText] = useState(selected);
+  const [showPalette, setShowPalette] = useState(false);
+  const [tempColor, setTempColor] = useState(selected);
+
+  // Sync internal Hex input when selected color changes from outside preset taps
+  useEffect(() => {
+    setHexText(selected);
+    setTempColor(selected);
+  }, [selected]);
+
+  // Dynamic presets memory stack (push newly selected/typed color to index 0, shift others)
+  const pushToPresets = (color: string) => {
+    const cleanCol = color.trim().toUpperCase();
+    if (!cleanCol) return;
+    
+    // Check if it is already the first preset
+    if (presets[0] && presets[0].toUpperCase() === cleanCol) return;
+
+    // Filter out duplicates (case insensitive) to keep list unique
+    const filtered = presets.filter(p => p.toUpperCase() !== cleanCol);
+
+    // Add to front of presets, keep maximum 6 items
+    const nextPresets = [color, ...filtered].slice(0, 6);
+    
+    setPresets(nextPresets);
+    COLOR_PRESETS_MEM = nextPresets;
+  };
+
+  useEffect(() => {
+    if (selected) {
+      pushToPresets(selected);
+    }
+  }, [selected]);
+
+  const handleHexChange = (text: string) => {
+    setHexText(text);
+    const cleaned = text.trim();
+    // Match optional hashtag, 3 or 6 hex digits
+    const hexRegex = /^#?([0-9A-F]{3}|[0-9A-F]{6})$/i;
+    if (hexRegex.test(cleaned)) {
+      const fullHex = cleaned.startsWith('#') ? cleaned : `#${cleaned}`;
+      onSelect(fullHex);
+    }
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 }}>
+      {/* Presets Grid */}
+      <View style={{ flexDirection: 'row', gap: 8, flex: 1, justifyContent: 'space-between', alignItems: 'center' }}>
+        {presets.map(c => {
+          const isActive = selected.toLowerCase() === c.toLowerCase();
+          return (
+            <TouchableOpacity
+              key={c}
+              style={[
+                cp.swatch,
+                { backgroundColor: c },
+                isActive && cp.swatchActive
+              ]}
+              onPress={() => { onSelect(c); }}
+            >
+              {isActive && <MaterialIcons name="check" size={14} color="#FFF" />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Divider */}
+      <View style={{ width: 1, height: 26, backgroundColor: theme.colors.border }} />
+
+      {/* Custom HEX Manual Selector */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: selected, borderWidth: 1.5, borderColor: theme.colors.border }}
+          onPress={() => {
+            setTempColor(selected);
+            setShowPalette(true);
+          }}
+        />
+        <TextInput
+          style={{
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            borderRadius: 8,
+            paddingHorizontal: 8,
+            paddingVertical: 5,
+            fontSize: 12,
+            width: 76,
+            color: theme.colors.text,
+            backgroundColor: theme.colors.secondary,
+            textAlign: 'center',
+            fontFamily: 'Inter_600SemiBold'
+          }}
+          value={hexText}
+          onChangeText={handleHexChange}
+          placeholder="#HEX"
+          placeholderTextColor={theme.colors.textSecondary}
+          maxLength={7}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      {/* Premium Curated Color Palette spectrum Modal */}
+      <Modal visible={showPalette} transparent animationType="fade" onRequestClose={() => setShowPalette(false)}>
+        <Pressable style={paletteStyles.overlay} onPress={() => setShowPalette(false)}>
+          <Pressable style={[paletteStyles.container, { backgroundColor: theme.colors.cardPrimary }]} onPress={() => {}}>
+            <Text style={[paletteStyles.title, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>Select Color</Text>
+            
+            {/* Color Preview Block */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, backgroundColor: theme.colors.secondary, padding: 12, borderRadius: 10 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: tempColor, borderWidth: 1, borderColor: theme.colors.border }} />
+              <View>
+                <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: theme.colors.textSecondary }}>HEX CODE</Text>
+                <Text style={{ fontSize: 14, fontFamily: 'Inter_700Bold', color: theme.colors.text }}>{tempColor.toUpperCase()}</Text>
+              </View>
+            </View>
+
+            {/* Spectrum Colors Grid */}
+            <View style={paletteStyles.grid}>
+              {SPECTRUM_COLORS.map(c => {
+                const isTempActive = tempColor.toLowerCase() === c.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    key={c}
+                    activeOpacity={0.85}
+                    style={[paletteStyles.swatch, { backgroundColor: c }, isTempActive && paletteStyles.swatchActive]}
+                    onPress={() => setTempColor(c)}
+                  >
+                    {isTempActive && <MaterialIcons name="check" size={14} color="#FFF" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Modal Actions */}
+            <View style={paletteStyles.actions}>
+              <TouchableOpacity
+                style={[paletteStyles.btn, { backgroundColor: theme.colors.secondary }]}
+                onPress={() => setShowPalette(false)}
+              >
+                <Text style={{ color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[paletteStyles.btn, { backgroundColor: theme.colors.primary }]}
+                onPress={() => {
+                  onSelect(tempColor);
+                  setShowPalette(false);
+                }}
+              >
+                <Text style={{ color: '#FFF', fontFamily: 'Inter_600SemiBold' }}>Select</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+};
+
+const paletteStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  container: {
+    width: '100%',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  title: {
+    fontSize: 16,
+    marginBottom: 14,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  swatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  swatchActive: {
+    borderWidth: 2,
+    borderColor: '#FFF',
+    transform: [{ scale: 1.1 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  btn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+});
 
 // ─── Section Header ───────────────────────────────────────────────────────────
 const SectionHdr = ({ label, action, onAction }: { label: string; action?: string; onAction?: () => void }) => {
@@ -169,10 +484,8 @@ const PriorityManager = () => {
       {/* Add Sheet */}
       <Sheet visible={showAdd} onClose={() => setShowAdd(false)} title="New Priority">
         <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Label</Text>
-        <TextInput
-          style={[ms.sheetInput, { color: theme.colors.text, borderColor: theme.colors.border, fontFamily: 'Inter_500Medium' }]}
+        <SheetInput
           placeholder="e.g. Critical"
-          placeholderTextColor={theme.colors.textSecondary}
           value={newLabel}
           onChangeText={setNewLabel}
           autoFocus
@@ -187,10 +500,8 @@ const PriorityManager = () => {
       {/* Edit Sheet */}
       <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Edit Priority">
         <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Label</Text>
-        <TextInput
-          style={[ms.sheetInput, { color: theme.colors.text, borderColor: theme.colors.border, fontFamily: 'Inter_500Medium' }]}
+        <SheetInput
           placeholder="Label"
-          placeholderTextColor={theme.colors.textSecondary}
           value={newLabel}
           onChangeText={setNewLabel}
           autoFocus
@@ -201,21 +512,41 @@ const PriorityManager = () => {
           <Text style={[ms.doneTxt, { color: '#FFF', fontFamily: 'Inter_600SemiBold' }]}>Save Changes</Text>
         </TouchableOpacity>
       </Sheet>
+
+      <Text style={[ms.hint, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 6, paddingHorizontal: 2 }]}>
+        * Tap "Set default" next to a priority above to pre-select it automatically for new tasks.
+      </Text>
     </>
   );
 };
+// ──────────────────────────────────────────────────────────────────────────────
+const MARKING_STYLES: MarkingStyle[] = ['dot', 'period', 'custom'];
+const MARKING_STYLE_LABELS: Record<MarkingStyle, string> = {
+  dot: 'Dot',
+  period: 'Period',
+  custom: 'Custom',
+};
+const MARKING_STYLE_ICONS: Record<MarkingStyle, keyof typeof MaterialIcons.glyphMap> = {
+  dot: 'circle',
+  period: 'horizontal-rule',
+  custom: 'emoji-emotions',
+};
 
-// ──────────────────────────────────────────────────────────────────────────────
-// TAG MANAGER
-// ──────────────────────────────────────────────────────────────────────────────
 const TagManager = () => {
   const { theme } = useTheme();
-  const { tags, addTag, updateTag, deleteTag } = useManage();
+  const {
+    tags, addTag, updateTag, deleteTag,
+    calendarMarkings, updateCalendarMarking
+  } = useManage();
 
   const [showAdd, setShowAdd]       = useState(false);
   const [editTarget, setEditTarget] = useState<ManagedTag | null>(null);
   const [newLabel, setNewLabel]     = useState('');
   const [newColor, setNewColor]     = useState(PALETTE_COLORS[5]);
+
+  // Track which tag is currently having its calendar appearance settings customized
+  const [expandedTagId, setExpandedTagId] = useState<string | null>(null);
+  const [emojiInput, setEmojiInput]       = useState('');
 
   const openAdd  = () => { setNewLabel(''); setNewColor(PALETTE_COLORS[5]); setShowAdd(true); };
   const openEdit = (t: ManagedTag) => { setEditTarget(t); setNewLabel(t.label); setNewColor(t.color); };
@@ -239,6 +570,7 @@ const TagManager = () => {
       { text: 'Delete', style: 'destructive', onPress: () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         deleteTag(t.id);
+        if (expandedTagId === t.id) setExpandedTagId(null);
       }},
     ]);
   };
@@ -247,30 +579,135 @@ const TagManager = () => {
     <>
       <SectionHdr label="TAGS" action="Add" onAction={openAdd} />
       <Card>
-        {tags.map((t, i) => (
-          <View key={t.id} style={[ms.row, i < tags.length - 1 && ms.rowBorder, { borderBottomColor: theme.colors.border }]}>
-            <View style={[ms.tagChip, { backgroundColor: `${t.color}22`, borderColor: t.color }]}>
-              <View style={[ms.tagDot, { backgroundColor: t.color }]} />
-              <Text style={[ms.tagChipTxt, { color: t.color, fontFamily: 'Inter_600SemiBold' }]}>{t.label}</Text>
+        {tags.map((t, i) => {
+          const setting: CalendarMarkingSetting = calendarMarkings.find(m => m.tagId === t.id) ?? { tagId: t.id, style: 'dot', visible: true };
+          const isExpanded = expandedTagId === t.id;
+
+          return (
+            <View key={t.id} style={i < tags.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }}>
+              <View style={[ms.row, { paddingBottom: isExpanded ? 4 : 12 }]}>
+                {/* Tag label chip with integrated marking style preview */}
+                <View style={[ms.tagChip, { backgroundColor: `${t.color}22`, borderColor: t.color, alignItems: 'center' }]}>
+                  {setting.visible && setting.style === 'custom' && setting.customEmoji ? (
+                    <Text style={{ fontSize: 13, marginRight: 4, marginTop: -1 }}>{setting.customEmoji}</Text>
+                  ) : setting.visible && setting.style === 'period' ? (
+                    <View style={{ width: 10, height: 2, borderRadius: 1, backgroundColor: t.color, marginRight: 4 }} />
+                  ) : (
+                    <View style={[ms.tagDot, { backgroundColor: setting.visible ? t.color : `${t.color}50` }]} />
+                  )}
+                  <Text style={[ms.tagChipTxt, { color: t.color, fontFamily: 'Inter_600SemiBold' }]}>{t.label}</Text>
+                </View>
+
+                <View style={{ flex: 1 }} />
+
+                {/* Calendar visibility toggle (visible in calendar) */}
+                <Switch
+                  value={setting.visible}
+                  onValueChange={(v) => updateCalendarMarking(t.id, { visible: v })}
+                  trackColor={{ false: theme.colors.border, true: `${t.color}80` }}
+                  thumbColor={setting.visible ? t.color : '#9CA3AF'}
+                  style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+                />
+
+                {/* Toggle appearance markings styling */}
+                <TouchableOpacity
+                  onPress={() => {
+                    setExpandedTagId(isExpanded ? null : t.id);
+                    setEmojiInput(setting.customEmoji ?? '');
+                  }}
+                  style={ms.iconBtn}
+                >
+                  <MaterialIcons
+                    name={isExpanded ? 'keyboard-arrow-up' : 'calendar-today'}
+                    size={17}
+                    color={isExpanded ? t.color : theme.colors.textSecondary}
+                  />
+                </TouchableOpacity>
+
+                {/* Edit & Delete Tag */}
+                <TouchableOpacity onPress={() => openEdit(t)} style={ms.iconBtn}>
+                  <MaterialIcons name="edit" size={17} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+                {!t.isDefault && (
+                  <TouchableOpacity onPress={() => confirmDelete(t)} style={ms.iconBtn}>
+                    <MaterialIcons name="delete-outline" size={17} color="#EF4444" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Collapsible Calendar marking settings */}
+              {isExpanded && (
+                <View style={[cmStyles.stylePickerRow, { backgroundColor: theme.colors.secondary }]}>
+                  {MARKING_STYLES.map(style => (
+                    <TouchableOpacity
+                      key={style}
+                      style={[
+                        cmStyles.stylePill,
+                        {
+                          borderColor: setting.style === style ? t.color : theme.colors.border,
+                          backgroundColor: setting.style === style ? `${t.color}15` : 'transparent',
+                        },
+                      ]}
+                      onPress={() => updateCalendarMarking(t.id, { style })}
+                    >
+                      <MaterialIcons
+                        name={MARKING_STYLE_ICONS[style]}
+                        size={13}
+                        color={setting.style === style ? t.color : theme.colors.textSecondary}
+                      />
+                      <Text style={[
+                        cmStyles.stylePillTxt,
+                        { color: setting.style === style ? t.color : theme.colors.textSecondary, fontFamily: setting.style === style ? 'Inter_600SemiBold' : 'Inter_400Regular' }
+                      ]}>
+                        {style === 'custom' && setting.customEmoji ? `Custom (${setting.customEmoji})` : MARKING_STYLE_LABELS[style]}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+
+                  {/* Custom emoji for calendar marking */}
+                  {setting.style === 'custom' && (
+                    <View style={[cmStyles.emojiRow, { borderColor: theme.colors.border }]}>
+                      <TextInput
+                        style={[cmStyles.emojiInput, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}
+                        placeholder="Emoji"
+                        placeholderTextColor={theme.colors.textSecondary}
+                        value={emojiInput}
+                        onChangeText={(txt) => {
+                          // Filter input to only allow valid emoji surrogate pairs/unicodes
+                          const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+                          const matches = txt.match(emojiRegex);
+                          setEmojiInput(matches ? matches.join('').slice(0, 2) : ''); // max 2 emojis
+                        }}
+                        maxLength={4}
+                      />
+                      <TouchableOpacity
+                        style={[cmStyles.emojiSave, { backgroundColor: t.color }]}
+                        onPress={() => {
+                          const trimmed = emojiInput.trim();
+                          if (!trimmed) {
+                            Alert.alert('Emoji Required', 'Please enter a valid emoji before saving.');
+                            return;
+                          }
+                          updateCalendarMarking(t.id, { customEmoji: trimmed });
+                          setExpandedTagId(null);
+                        }}
+                      >
+                        <Text style={{ color: '#FFF', fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity onPress={() => openEdit(t)} style={ms.iconBtn}>
-              <MaterialIcons name="edit" size={17} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => confirmDelete(t)} style={ms.iconBtn}>
-              <MaterialIcons name="delete-outline" size={17} color="#EF4444" />
-            </TouchableOpacity>
-          </View>
-        ))}
+          );
+        })}
       </Card>
 
       {/* Add Sheet */}
       <Sheet visible={showAdd} onClose={() => setShowAdd(false)} title="New Tag">
         <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Name</Text>
-        <TextInput
-          style={[ms.sheetInput, { color: theme.colors.text, borderColor: theme.colors.border, fontFamily: 'Inter_500Medium' }]}
+        <SheetInput
           placeholder="e.g. Finance"
-          placeholderTextColor={theme.colors.textSecondary}
           value={newLabel}
           onChangeText={setNewLabel}
           autoFocus
@@ -285,10 +722,8 @@ const TagManager = () => {
       {/* Edit Sheet */}
       <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Edit Tag">
         <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Name</Text>
-        <TextInput
-          style={[ms.sheetInput, { color: theme.colors.text, borderColor: theme.colors.border, fontFamily: 'Inter_500Medium' }]}
+        <SheetInput
           placeholder="Tag name"
-          placeholderTextColor={theme.colors.textSecondary}
           value={newLabel}
           onChangeText={setNewLabel}
           autoFocus
@@ -310,13 +745,29 @@ const ReminderPresetsManager = () => {
   const { theme } = useTheme();
   const { reminderPresets, addReminderPreset, deleteReminderPreset } = useManage();
   const [showAdd, setShowAdd]   = useState(false);
-  const [newPreset, setNewPreset] = useState('');
+  const [valueInput, setValueInput] = useState('15');
+  const [unitInput, setUnitInput]   = useState<'minutes' | 'hours' | 'days'>('minutes');
 
   const commitAdd = () => {
-    if (!newPreset.trim()) return;
+    const val = parseInt(valueInput.trim(), 10);
+    if (isNaN(val) || val <= 0) {
+      Alert.alert('Invalid Offset', 'Please enter a valid positive number for the time offset.');
+      return;
+    }
+    
+    let label = '';
+    if (unitInput === 'minutes') {
+      label = `${val} min before`;
+    } else if (unitInput === 'hours') {
+      label = `${val} hr${val > 1 ? 's' : ''} before`;
+    } else if (unitInput === 'days') {
+      label = `${val} day${val > 1 ? 's' : ''} before`;
+    }
+
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    addReminderPreset(newPreset.trim());
-    setNewPreset('');
+    addReminderPreset(label);
+    setValueInput('15');
+    setUnitInput('minutes');
     setShowAdd(false);
   };
 
@@ -346,152 +797,109 @@ const ReminderPresetsManager = () => {
       </Card>
 
       <Sheet visible={showAdd} onClose={() => setShowAdd(false)} title="New Reminder Preset">
-        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-          Preset label (e.g. "2 days before")
+        {/* Offset Value Stepper */}
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
+          Offset Time Amount
         </Text>
-        <TextInput
-          style={[ms.sheetInput, { color: theme.colors.text, borderColor: theme.colors.border, fontFamily: 'Inter_500Medium' }]}
-          placeholder="2 days before"
-          placeholderTextColor={theme.colors.textSecondary}
-          value={newPreset}
-          onChangeText={setNewPreset}
-          autoFocus
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 14, marginVertical: 10 }}>
+          {/* Minus Step Button */}
+          <TouchableOpacity
+            style={{
+              width: 42, height: 42, borderRadius: 21,
+              borderWidth: 1, borderColor: theme.colors.border,
+              backgroundColor: theme.colors.secondary,
+              alignItems: 'center', justifyContent: 'center'
+            }}
+            onPress={() => {
+              const current = parseInt(valueInput, 10) || 0;
+              const step = unitInput === 'minutes' ? 5 : 1;
+              const next = Math.max(1, current - step);
+              setValueInput(String(next));
+            }}
+          >
+            <MaterialIcons name="remove" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
+
+          {/* Value TextInput with numeric filtering */}
+          <TextInput
+            style={{
+              borderWidth: 1.5,
+              borderColor: theme.colors.primary,
+              borderRadius: 12,
+              backgroundColor: theme.colors.secondary,
+              color: theme.colors.text,
+              width: 90,
+              height: 42,
+              fontSize: 18,
+              textAlign: 'center',
+              fontFamily: 'Inter_700Bold'
+            }}
+            keyboardType="numeric"
+            value={valueInput}
+            onChangeText={(txt) => setValueInput(txt.replace(/[^0-9]/g, ''))}
+            maxLength={3}
+            autoFocus
+          />
+
+          {/* Plus Step Button */}
+          <TouchableOpacity
+            style={{
+              width: 42, height: 42, borderRadius: 21,
+              borderWidth: 1, borderColor: theme.colors.border,
+              backgroundColor: theme.colors.secondary,
+              alignItems: 'center', justifyContent: 'center'
+            }}
+            onPress={() => {
+              const current = parseInt(valueInput, 10) || 0;
+              const step = unitInput === 'minutes' ? 5 : 1;
+              const next = Math.min(999, current + step);
+              setValueInput(String(next));
+            }}
+          >
+            <MaterialIcons name="add" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Time Unit Selector Tabs */}
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold', marginTop: 16 }]}>
+          Time Unit
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 4, marginBottom: 12 }}>
+          {(['minutes', 'hours', 'days'] as const).map((u) => {
+            const isActive = unitInput === u;
+            return (
+              <TouchableOpacity
+                key={u}
+                style={[
+                  cmStyles.stylePill,
+                  {
+                    borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: isActive ? `${theme.colors.primary}15` : 'transparent',
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingVertical: 9
+                  }
+                ]}
+                onPress={() => setUnitInput(u)}
+              >
+                <Text style={{
+                  color: isActive ? theme.colors.primary : theme.colors.textSecondary,
+                  fontFamily: isActive ? 'Inter_600SemiBold' : 'Inter_400Regular',
+                  fontSize: 12,
+                  textTransform: 'capitalize'
+                }}>
+                  {u}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
         <TouchableOpacity style={[ms.doneBtn, { backgroundColor: theme.colors.primary }]} onPress={commitAdd}>
           <Text style={[ms.doneTxt, { color: '#FFF', fontFamily: 'Inter_600SemiBold' }]}>Add Preset</Text>
         </TouchableOpacity>
       </Sheet>
-    </>
-  );
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
-// CALENDAR MARKINGS MANAGER
-// ──────────────────────────────────────────────────────────────────────────────
-const MARKING_STYLES: MarkingStyle[] = ['dot', 'period', 'custom'];
-const MARKING_STYLE_LABELS: Record<MarkingStyle, string> = {
-  dot: 'Dot',
-  period: 'Period',
-  custom: 'Custom',
-};
-const MARKING_STYLE_ICONS: Record<MarkingStyle, keyof typeof MaterialIcons.glyphMap> = {
-  dot: 'circle',
-  period: 'horizontal-rule',
-  custom: 'emoji-emotions',
-};
-
-const CalendarMarkingsManager = () => {
-  const { theme } = useTheme();
-  const { tags, calendarMarkings, updateCalendarMarking } = useManage();
-  const [editingTagId, setEditingTagId] = useState<string | null>(null);
-  const [emojiInput, setEmojiInput] = useState('');
-
-  return (
-    <>
-      <SectionHdr label="CALENDAR MARKINGS" />
-
-      <View style={ms.gap} />
-
-      {/* Per-tag marking settings */}
-      <SectionHdr label="TAG APPEARANCES" />
-      <Card>
-        {tags.map((tag, i) => {
-          const setting: CalendarMarkingSetting = calendarMarkings.find(m => m.tagId === tag.id) ?? { tagId: tag.id, style: 'dot', visible: true };
-          const isEditing = editingTagId === tag.id;
-
-          return (
-            <View key={tag.id}>
-              <View style={[ms.row, i < tags.length - 1 && ms.rowBorder, { borderBottomColor: theme.colors.border }]}>
-                {/* Tag chip */}
-                <View style={[ms.tagChip, { backgroundColor: `${tag.color}22`, borderColor: tag.color }]}>
-                  <View style={[ms.tagDot, { backgroundColor: tag.color }]} />
-                  <Text style={[ms.tagChipTxt, { color: tag.color, fontFamily: 'Inter_600SemiBold' }]}>{tag.label}</Text>
-                </View>
-
-                <View style={{ flex: 1 }} />
-
-                {/* Visibility toggle */}
-                <Switch
-                  value={setting.visible}
-                  onValueChange={(v) => updateCalendarMarking(tag.id, { visible: v })}
-                  trackColor={{ false: theme.colors.border, true: `${tag.color}80` }}
-                  thumbColor={setting.visible ? tag.color : '#9CA3AF'}
-                  style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                />
-
-                {/* Expand/collapse for style picker */}
-                <TouchableOpacity
-                  onPress={() => {
-                    setEditingTagId(isEditing ? null : tag.id);
-                    setEmojiInput(setting.customEmoji ?? '');
-                  }}
-                  style={ms.iconBtn}
-                >
-                  <MaterialIcons
-                    name={isEditing ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
-                    size={20}
-                    color={theme.colors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {/* Expanded style picker */}
-              {isEditing && (
-                <View style={[cmStyles.stylePickerRow, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.secondary }]}>
-                  {MARKING_STYLES.map(style => (
-                    <TouchableOpacity
-                      key={style}
-                      style={[
-                        cmStyles.stylePill,
-                        {
-                          borderColor: setting.style === style ? tag.color : theme.colors.border,
-                          backgroundColor: setting.style === style ? `${tag.color}15` : 'transparent',
-                        },
-                      ]}
-                      onPress={() => updateCalendarMarking(tag.id, { style })}
-                    >
-                      <MaterialIcons
-                        name={MARKING_STYLE_ICONS[style]}
-                        size={14}
-                        color={setting.style === style ? tag.color : theme.colors.textSecondary}
-                      />
-                      <Text style={[
-                        cmStyles.stylePillTxt,
-                        { color: setting.style === style ? tag.color : theme.colors.textSecondary, fontFamily: setting.style === style ? 'Inter_600SemiBold' : 'Inter_400Regular' }
-                      ]}>
-                        {MARKING_STYLE_LABELS[style]}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-
-                  {/* Custom emoji input */}
-                  {setting.style === 'custom' && (
-                    <View style={[cmStyles.emojiRow, { borderColor: theme.colors.border }]}>
-                      <TextInput
-                        style={[cmStyles.emojiInput, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}
-                        placeholder="Enter emoji"
-                        placeholderTextColor={theme.colors.textSecondary}
-                        value={emojiInput}
-                        onChangeText={setEmojiInput}
-                        maxLength={2}
-                      />
-                      <TouchableOpacity
-                        style={[cmStyles.emojiSave, { backgroundColor: tag.color }]}
-                        onPress={() => {
-                          updateCalendarMarking(tag.id, { customEmoji: emojiInput });
-                          setEditingTagId(null);
-                        }}
-                      >
-                        <Text style={{ color: '#FFF', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>Save</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-          );
-        })}
-      </Card>
     </>
   );
 };
@@ -502,65 +910,32 @@ const cmStyles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'transparent',
   },
   stylePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 20,
     borderWidth: 1,
   },
-  stylePillTxt: { fontSize: 12 },
+  stylePillTxt: { fontSize: 11 },
   emojiRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 8,
-    marginTop: 4,
     overflow: 'hidden',
     width: '100%',
+    height: 38,
   },
-  emojiInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 20 },
-  emojiSave: { paddingHorizontal: 16, paddingVertical: 10 },
+  emojiInput: { flex: 1, paddingHorizontal: 12, fontSize: 16, height: '100%' },
+  emojiSave: { paddingHorizontal: 16, height: '100%', justifyContent: 'center', alignItems: 'center' },
 });
-
-// ──────────────────────────────────────────────────────────────────────────────
-// TASK DEFAULTS SECTION
-// ──────────────────────────────────────────────────────────────────────────────
-const TaskDefaultsSection = () => {
-  const { theme } = useTheme();
-  const { priorities, defaultPriority, setDefaultPriority } = useManage();
-  const active = priorities.find(p => p.id === defaultPriority);
-
-  return (
-    <>
-      <SectionHdr label="TASK DEFAULTS" />
-      <Card>
-        <View style={[ms.row, { borderBottomColor: theme.colors.border }]}>
-          <View style={[ms.iconWrap, { backgroundColor: theme.colors.secondary }]}>
-            <MaterialIcons name="outlined-flag" size={16} color={theme.colors.text} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[ms.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>Default Priority</Text>
-            <Text style={[ms.rowSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              {active ? active.label : 'None — set one from Priorities above'}
-            </Text>
-          </View>
-          {active && (
-            <View style={[ms.colorDot, { backgroundColor: active.color, marginRight: 0 }]} />
-          )}
-        </View>
-      </Card>
-      <Text style={[ms.hint, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-        Tap "Set default" next to a priority above to activate it here.
-      </Text>
-    </>
-  );
-};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
@@ -572,30 +947,12 @@ export const ManageScreen = () => {
     <SafeAreaView style={[ms.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
       <TopNavbar />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
-
-        {/* Hero header */}
-        <View style={[ms.hero, { borderBottomColor: theme.colors.border }]}>
-          <View style={[ms.heroIcon, { backgroundColor: theme.colors.primary }]}>
-            <MaterialIcons name="tune" size={22} color="#FFF" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[ms.heroTitle, { color: theme.colors.text, fontFamily: 'Inter_700Bold' }]}>Manage</Text>
-            <Text style={[ms.heroSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              Personalise priorities, tags &amp; reminders
-            </Text>
-          </View>
-        </View>
-
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
           <PriorityManager />
           <View style={ms.gap} />
           <TagManager />
           <View style={ms.gap} />
           <ReminderPresetsManager />
-          <View style={ms.gap} />
-          <TaskDefaultsSection />
-          <View style={ms.gap} />
-          <CalendarMarkingsManager />
         </View>
       </ScrollView>
       <BottomNavbar />
@@ -605,18 +962,26 @@ export const ManageScreen = () => {
 
 // ─── Shared sheet styles ──────────────────────────────────────────────────────
 const sh = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  panel:   { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingBottom: 40, paddingTop: 12, maxHeight: '85%' },
-  handle:  { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  title:   { fontSize: 18, letterSpacing: -0.3, marginBottom: 4 },
+  overlay: { flex: 1, justifyContent: 'flex-start' },
+  panel:   { borderBottomLeftRadius: 24, borderBottomRightRadius: 24, paddingHorizontal: 20, paddingBottom: 16, maxHeight: '42%', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 8, elevation: 4 },
+  handle:  { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: 4 },
+  title:   { fontSize: 19, fontFamily: 'Inter_700Bold', letterSpacing: -0.4, marginBottom: 8 },
   divider: { height: StyleSheet.hairlineWidth, marginBottom: 16 },
 });
 
 // ─── Color picker styles ──────────────────────────────────────────────────────
 const cp = StyleSheet.create({
-  grid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 12 },
-  swatch:      { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  swatchActive: { borderWidth: 3, borderColor: 'rgba(255,255,255,0.6)' },
+  swatch:      { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  swatchActive: {
+    borderWidth: 2.5,
+    borderColor: '#FFF',
+    transform: [{ scale: 1.15 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
 });
 
 // ─── Screen styles ────────────────────────────────────────────────────────────
@@ -663,12 +1028,19 @@ const ms = StyleSheet.create({
   iconWrap:   { width: 30, height: 30, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
 
   // Sheet inputs
-  sheetLabel2: { fontSize: 13, marginBottom: 8 },
+  sheetLabel2: { fontSize: 13, marginBottom: 8, fontFamily: 'Inter_600SemiBold' },
   sheetInput: {
-    borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11,
+    borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
     fontSize: 15, marginBottom: 4,
   },
-  doneBtn:   { paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 20 },
+  doneBtn:   {
+    paddingVertical: 15, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   doneTxt:   { fontSize: 15 },
 
   // Hint

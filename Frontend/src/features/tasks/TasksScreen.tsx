@@ -15,6 +15,7 @@ import { useFabBottom } from '../../core/hooks/useFabBottom';
 import { FABMenu } from '../../core/components/FABMenu';
 import { TaskComposer } from '../../core/components/TaskComposer';
 import { TaskDetailModal } from './TaskDetailModal';
+import { useManage } from '../../core/ManageContext';
 
 type FilterTab = 'All' | 'Active' | 'Completed';
 
@@ -79,8 +80,10 @@ const emptyStyles = StyleSheet.create({
 // ── Main Screen ─────────────────────────────────────────────────────────────
 export const TasksScreen = () => {
   const { theme } = useTheme();
+  const { priorities } = useManage();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [activeSort, setActiveSort]     = useState('Due Date');
+  const [sortDir, setSortDir]           = useState<'asc' | 'desc'>('asc');
   const [search, setSearch]             = useState('');
   const { taskGroups, setTaskGroups, handleComposerSave } = useDashboard();
   const [showComposer, setShowComposer] = useState(false);
@@ -136,10 +139,32 @@ export const TasksScreen = () => {
     );
   }, []);
 
+  const sortTasks = useCallback((tasks: Task[]) => {
+    return [...tasks].sort((a, b) => {
+      let comparison = 0;
+      if (activeSort === 'Alphabetical') {
+        comparison = a.title.localeCompare(b.title);
+      } else if (activeSort === 'Due Date') {
+        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        comparison = dateA - dateB;
+      } else if (activeSort === 'Priority') {
+        const idxA = a.priority ? priorities.findIndex(p => p.id === a.priority) : priorities.length;
+        const idxB = b.priority ? priorities.findIndex(p => p.id === b.priority) : priorities.length;
+        const rankA = idxA === -1 ? priorities.length : idxA;
+        const rankB = idxB === -1 ? priorities.length : idxB;
+        comparison = rankA - rankB;
+      } else if (activeSort === 'Created') {
+        comparison = (a.id < b.id) ? -1 : 1;
+      }
+      return sortDir === 'asc' ? comparison : -comparison;
+    });
+  }, [activeSort, sortDir, priorities]);
+
   const filteredGroups = taskGroups
     .map((group) => ({
       ...group,
-      tasks: group.tasks.filter((t: Task) => {
+      tasks: sortTasks(group.tasks.filter((t: Task) => {
         const matchesFilter =
           activeFilter === 'All' ||
           (activeFilter === 'Active' && !t.completed) ||
@@ -148,7 +173,7 @@ export const TasksScreen = () => {
           search.trim() === '' ||
           t.title.toLowerCase().includes(search.toLowerCase());
         return matchesFilter && matchesSearch;
-      }),
+      })),
     }))
     .filter((group) => group.tasks.length > 0);
 
@@ -206,6 +231,8 @@ export const TasksScreen = () => {
           onFilterChange={setActiveFilter}
           activeSort={activeSort}
           onSortChange={setActiveSort}
+          sortDir={sortDir}
+          onSortDirChange={setSortDir}
         />
 
         {/* Groups or Empty State */}

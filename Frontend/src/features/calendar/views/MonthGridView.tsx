@@ -137,7 +137,13 @@ export const MonthGridView: React.FC<Props> = ({
                   {/* Task chips */}
                   <View style={styles.chipsContainer}>
                     {visibleChips.map((item, i) => {
-                      const emoji = item.type === 'birthday' ? '🎂 ' : item.type === 'holiday' ? '🎌 ' : '';
+                      const emoji = item.type === 'birthday' 
+                        ? '🎂 ' 
+                        : item.type === 'holiday' 
+                        ? '🎌 ' 
+                        : (item.type === 'task' && item.customEmoji) 
+                        ? `${item.customEmoji} ` 
+                        : '';
                       return (
                         <TouchableOpacity
                           key={item.id}
