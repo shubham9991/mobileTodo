@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  *   icon        : 24px
  *   gap         : 3px
  *   label text  : ~14px  (fontSize 11 + line height)
- *   paddingBottom: Math.max(insets.bottom, 8)  ← dynamic
+ *   paddingBottom: insets.bottom + 12  ← dynamic
  */
 export const useFabBottom = () => {
   const insets = useSafeAreaInsets();
@@ -18,6 +18,6 @@ export const useFabBottom = () => {
     24 +          // icon size
     3  +          // gap between icon and label
     14 +          // label height (fontSize 11)
-    Math.max(insets.bottom, 8); // dynamic bottom padding
+    (insets.bottom + 12); // dynamic bottom padding
   return navbarHeight + 16;   // 16px breathing room above the navbar
 };

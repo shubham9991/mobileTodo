@@ -57,7 +57,12 @@
             ]
           }
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-asset",
+      "expo-font",
+      "expo-localization",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

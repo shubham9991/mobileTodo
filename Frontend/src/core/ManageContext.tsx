@@ -31,6 +31,30 @@ export interface Birthday {
   date: string; // "MM-DD" format, e.g. "12-25"
 }
 
+// ─── Dock Types ───────────────────────────────────────────────────────────────
+export type DockMode = 'compact' | 'expanded-2row' | 'fullscreen';
+export type DockBackdropStyle = 'solid' | 'translucent';
+
+export interface DockItem {
+  id: string;
+  label: string;
+  icon: string;
+  route: string;
+  match: string;
+}
+
+export const ALL_AVAILABLE_DOCK_ITEMS: DockItem[] = [
+  { id: 'home',     label: 'Home',     icon: 'home',           route: '/(tabs)/',         match: '/'         },
+  { id: 'tasks',    label: 'Tasks',    icon: 'checklist',      route: '/(tabs)/tasks',    match: '/tasks'    },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar-month', route: '/(tabs)/calendar', match: '/calendar' },
+  { id: 'manage',   label: 'Manage',   icon: 'tune',           route: '/(tabs)/manage',   match: '/manage'   },
+  { id: 'notes',    label: 'Notes',    icon: 'sticky-note-2',  route: '/(tabs)/notes',    match: '/notes'    },
+  { id: 'events',   label: 'Events',   icon: 'event',          route: '/(tabs)/events',   match: '/events'   },
+  { id: 'settings', label: 'Settings', icon: 'settings',       route: '/(tabs)/settings', match: '/settings' },
+];
+
+export const DEFAULT_DOCK_ITEMS: DockItem[] = ALL_AVAILABLE_DOCK_ITEMS.slice(0, 4);
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 export const DEFAULT_PRIORITIES: ManagedPriority[] = [
   {
@@ -136,6 +160,19 @@ interface ManageContextType {
   // Calendar interaction
   longPressDateStart: boolean;
   setLongPressDateStart: (v: boolean) => void;
+  // Dock customization
+  dockMode: DockMode;
+  dockItems: DockItem[];
+  dockBackdropStyle: DockBackdropStyle;
+  dockBackdropOpacity: number;
+  isDockExpanded: boolean;
+  setIsDockExpanded: (expanded: boolean) => void;
+  setDockMode: (mode: DockMode) => void;
+  reorderDockItems: (from: number, to: number) => void;
+  addDockItem: (item: DockItem) => void;
+  removeDockItem: (id: string) => void;
+  setDockBackdropStyle: (style: DockBackdropStyle) => void;
+  setDockBackdropOpacity: (opacity: number) => void;
 }
 
 const ManageContext = createContext<ManageContextType>({
@@ -165,6 +202,18 @@ const ManageContext = createContext<ManageContextType>({
   setAlarmTone: () => {},
   longPressDateStart: false,
   setLongPressDateStart: () => {},
+  dockMode: 'compact',
+  dockItems: DEFAULT_DOCK_ITEMS,
+  dockBackdropStyle: 'translucent',
+  dockBackdropOpacity: 0.6,
+  isDockExpanded: false,
+  setIsDockExpanded: () => {},
+  setDockMode: () => {},
+  reorderDockItems: () => {},
+  addDockItem: () => {},
+  removeDockItem: () => {},
+  setDockBackdropStyle: () => {},
+  setDockBackdropOpacity: () => {},
 });
 
 export const ManageProvider = ({ children }: { children: ReactNode }) => {
@@ -178,6 +227,25 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [birthdays, setBirthdays] = useState<Birthday[]>([]);
   const [longPressDateStart, setLongPressDateStart] = useState(false);
   const [alarmTone, setAlarmTone] = useState<string>('default');
+  const [dockMode, setDockMode] = useState<DockMode>('compact');
+  const [dockItems, setDockItems] = useState<DockItem[]>(DEFAULT_DOCK_ITEMS);
+  const [dockBackdropStyle, setDockBackdropStyle] = useState<DockBackdropStyle>('translucent');
+  const [dockBackdropOpacity, setDockBackdropOpacity] = useState(0.6);
+  const [isDockExpanded, setIsDockExpanded] = useState(false);
+
+  const reorderDockItems = (from: number, to: number) =>
+    setDockItems(prev => {
+      const arr = [...prev];
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      return arr;
+    });
+
+  const addDockItem = (item: DockItem) =>
+    setDockItems(prev => prev.some(d => d.id === item.id) ? prev : [...prev, item]);
+
+  const removeDockItem = (id: string) =>
+    setDockItems(prev => prev.length > 1 ? prev.filter(d => d.id !== id) : prev);
 
   const addBirthday = (b: Omit<Birthday, "id">) => {
     const id = `bday_${Date.now()}`;
@@ -303,6 +371,11 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
         setAlarmTone,
         longPressDateStart,
         setLongPressDateStart,
+        dockMode, setDockMode,
+        dockItems, reorderDockItems, addDockItem, removeDockItem,
+        dockBackdropStyle, setDockBackdropStyle,
+        dockBackdropOpacity, setDockBackdropOpacity,
+        isDockExpanded, setIsDockExpanded,
       }}
     >
       {children}

@@ -36,14 +36,14 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useFonts } from 'expo-font';
-import { View, Text, ActivityIndicator, Platform, Animated, Easing, Vibration, StyleSheet, TouchableOpacity, PanResponder } from 'react-native';
+import { View, Text, ActivityIndicator, Platform, Animated, Easing, Vibration, StyleSheet, TouchableOpacity, PanResponder, Dimensions } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as NavigationBar from 'expo-navigation-bar';
 import { loadAllDownloadedFonts } from '../src/features/notes/fontManager';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import notifee, { EventType, TriggerType } from '@notifee/react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
 // ─── Incoming Reminder Overlay (Premium Alarm Style) ──────────────────────────────────────────────────────────────────────────────────────
 const SNOOZE_OPTIONS = [
@@ -63,7 +63,7 @@ const IncomingReminderOverlay = ({
   const { theme } = useTheme();
   const { updateTask } = useDashboard();
   const { alarmTone } = useManage();
-  const [alarmSound, setAlarmSound] = useState<Audio.Sound | null>(null);
+  const [alarmPlayer, setAlarmPlayer] = useState<AudioPlayer | null>(null);
   const [snoozeMinutes, setSnoozeMinutes] = useState(15);
   const overlayFade = useRef(new Animated.Value(0)).current;
 
@@ -73,7 +73,7 @@ const IncomingReminderOverlay = ({
     Vibration.vibrate([0, 800, 500, 800], true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
-    let activeSound: Audio.Sound | null = null;
+    let activePlayer: AudioPlayer | null = null;
     const playAlarmSound = async () => {
       if (alarmTone === 'silent') return;
       try {
@@ -90,17 +90,12 @@ const IncomingReminderOverlay = ({
           soundAsset = { uri: alarmTone };
         }
 
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-        });
+        const player = createAudioPlayer(soundAsset);
+        player.loop = true;
+        player.play();
 
-        const { sound } = await Audio.Sound.createAsync(
-          soundAsset,
-          { shouldPlay: true, isLooping: true, volume: 1.0 }
-        );
-        activeSound = sound;
-        setAlarmSound(sound);
+        activePlayer = player;
+        setAlarmPlayer(player);
       } catch (err) {
         console.warn('Failed to load/play alarm sound:', err);
       }
@@ -110,9 +105,9 @@ const IncomingReminderOverlay = ({
 
     return () => {
       Vibration.cancel();
-      if (activeSound) {
-        activeSound.stopAsync().catch(() => {});
-        activeSound.unloadAsync().catch(() => {});
+      if (activePlayer) {
+        activePlayer.pause();
+        activePlayer.release();
       }
     };
   }, [alarmTone]);
@@ -415,7 +410,20 @@ const oStyles = StyleSheet.create({
 // Inner shell that has access to ThemeContext
 function AppShell() {
   const { isDark } = useTheme();
+  const { isDockExpanded, setIsDockExpanded } = useManage();
   const [activeReminder, setActiveReminder] = useState<{ id: string; title: string } | null>(null);
+
+  const screenH = Dimensions.get('window').height;
+
+  const handleGlobalTouch = (e: any) => {
+    if (isDockExpanded) {
+      const touchY = e.nativeEvent.pageY;
+      // Close the dock if the user interacts with the screen above the dock area
+      if (touchY < screenH - 210) {
+        setIsDockExpanded(false);
+      }
+    }
+  };
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -459,7 +467,7 @@ function AppShell() {
   }, []);
 
   return (
-    <>
+    <View style={{ flex: 1 }} onTouchStart={handleGlobalTouch}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -491,7 +499,7 @@ function AppShell() {
           onClose={() => setActiveReminder(null)}
         />
       )}
-    </>
+    </View>
   );
 }
 

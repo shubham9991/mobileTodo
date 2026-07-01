@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, Switch,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -221,23 +221,23 @@ const WidgetsModal = ({ visible, onClose }: { visible: boolean; onClose: () => v
 const AlarmToneModal = ({ visible, onClose }: { visible: boolean; onClose: () => void }) => {
   const { theme } = useTheme();
   const { alarmTone, setAlarmTone } = useManage();
-  const [previewSound, setPreviewSound] = useState<Audio.Sound | null>(null);
+  const [previewPlayer, setPreviewPlayer] = useState<AudioPlayer | null>(null);
 
   // Clean up sound on unmount/re-selection
   useEffect(() => {
     return () => {
-      if (previewSound) {
-        previewSound.unloadAsync().catch(() => {});
+      if (previewPlayer) {
+        previewPlayer.release();
       }
     };
-  }, [previewSound]);
+  }, [previewPlayer]);
 
   const playPreview = async (toneId: string) => {
     try {
-      if (previewSound) {
-        await previewSound.stopAsync().catch(() => {});
-        await previewSound.unloadAsync().catch(() => {});
-        setPreviewSound(null);
+      if (previewPlayer) {
+        previewPlayer.pause();
+        previewPlayer.release();
+        setPreviewPlayer(null);
       }
 
       if (toneId === 'silent') return;
@@ -256,20 +256,13 @@ const AlarmToneModal = ({ visible, onClose }: { visible: boolean; onClose: () =>
         soundAsset = { uri: toneId };
       }
 
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-      });
+      const player = createAudioPlayer(soundAsset);
+      player.play();
+      setPreviewPlayer(player);
 
-      const { sound } = await Audio.Sound.createAsync(
-        soundAsset,
-        { shouldPlay: true, volume: 1.0 }
-      );
-      setPreviewSound(sound);
-
-      setTimeout(async () => {
+      setTimeout(() => {
         try {
-          await sound.stopAsync();
+          player.pause();
         } catch (e) {}
       }, 4000);
 
