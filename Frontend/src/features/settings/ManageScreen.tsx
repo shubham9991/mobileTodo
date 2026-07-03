@@ -1,18 +1,31 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  TextInput, Pressable, Alert, LayoutAnimation, Switch, Animated, Easing,
+  TextInput, Pressable, Alert, LayoutAnimation, Switch, Animated, Easing, Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import AnimatedReanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  runOnJS,
+  withSpring,
+  SharedValue,
+} from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
 import { TopNavbar } from '../../layout/TopNavbar';
 import { BottomNavbar } from '../../layout/BottomNavbar';
 import {
   useManage, ManagedPriority, ManagedTag, PALETTE_COLORS,
-  MarkingStyle, CalendarMarkingSetting, DockMode, DockBackdropStyle,
-  ALL_AVAILABLE_DOCK_ITEMS,
+  MarkingStyle, CalendarMarkingSetting, DockMode,
+  ALL_AVAILABLE_DOCK_ITEMS, DockItem,
 } from '../../core/ManageContext';
+
+// Haptic feedback wrappers
+const hapticLight = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+const hapticMed   = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
 // ─── Shared Top Sheet Modal ──────────────────────────────────────────────────
 const Sheet = ({
@@ -938,340 +951,6 @@ const cmStyles = StyleSheet.create({
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// DOCK SETTINGS MANAGER
-// ──────────────────────────────────────────────────────────────────────────────
-
-const DOCK_MODES: { mode: DockMode; label: string; sub: string }[] = [
-  { mode: 'compact',       label: 'Standard',  sub: '4 tabs, always visible'  },
-  { mode: 'expanded-2row', label: '2-Row',      sub: 'Swipe up for 2nd row'    },
-  { mode: 'fullscreen',    label: 'Fullscreen', sub: 'Swipe up for app drawer' },
-];
-
-const OPACITY_PRESETS = [0.2, 0.4, 0.6, 0.8, 1.0];
-
-// Minimal phone wireframe showing each dock mode
-const PhoneMockup = ({
-  mode, bgColor, accentColor,
-}: { mode: DockMode; bgColor: string; accentColor: string }) => (
-  <View style={[dm.phone, { borderColor: accentColor }]}>
-    <View style={[dm.phoneScreen, { backgroundColor: bgColor }]}>
-      {mode === 'fullscreen' && (
-        <View style={dm.fsGrid}>
-          {[0,1,2,3,4,5].map(i => (
-            <View key={i} style={[dm.fsDot, { backgroundColor: accentColor }]} />
-          ))}
-        </View>
-      )}
-      {mode === 'expanded-2row' && (
-        <View style={dm.twoRowMock}>
-          <View style={[dm.mockRow, { backgroundColor: `${accentColor}50` }]} />
-          <View style={[dm.mockRow, { backgroundColor: accentColor }]} />
-        </View>
-      )}
-      {mode === 'compact' && (
-        <View style={dm.compactMock}>
-          <View style={[dm.mockRow, { backgroundColor: accentColor }]} />
-        </View>
-      )}
-    </View>
-  </View>
-);
-
-const DockSettingsManager = () => {
-  const { theme } = useTheme();
-  const {
-    dockMode, setDockMode,
-    dockItems, reorderDockItems, addDockItem, removeDockItem,
-    dockBackdropStyle, setDockBackdropStyle,
-    dockBackdropOpacity, setDockBackdropOpacity,
-  } = useManage();
-
-  const isCompact = dockMode === 'compact';
-
-  // Items not yet in the dock (available to add)
-  const availableToAdd = ALL_AVAILABLE_DOCK_ITEMS.filter(
-    a => !dockItems.some(d => d.id === a.id)
-  );
-
-  return (
-    <>
-      <SectionHdr label="DOCK" />
-
-      {/* ─ Mode selector cards ──────────────────────────────────── */}
-      <View style={dm.modeRow}>
-        {DOCK_MODES.map(({ mode, label, sub }) => {
-          const active = dockMode === mode;
-          return (
-            <TouchableOpacity
-              key={mode}
-              style={[
-                dm.modeCard,
-                {
-                  backgroundColor: active
-                    ? `${theme.colors.primary}12`
-                    : theme.colors.cardPrimary,
-                  borderColor: active ? theme.colors.primary : theme.colors.border,
-                },
-              ]}
-              onPress={() => setDockMode(mode)}
-              activeOpacity={0.8}
-            >
-              <PhoneMockup
-                mode={mode}
-                bgColor={theme.colors.secondary}
-                accentColor={active ? theme.colors.primary : theme.colors.textSecondary}
-              />
-              <Text
-                style={[
-                  dm.modeLabel,
-                  {
-                    color: active ? theme.colors.primary : theme.colors.text,
-                    fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium',
-                  },
-                ]}
-              >
-                {label}
-              </Text>
-              <Text style={[dm.modeSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                {sub}
-              </Text>
-              {active && (
-                <MaterialIcons name="check-circle" size={14} color={theme.colors.primary} style={{ marginTop: 2 }} />
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* ─ Dock items ───────────────────────────────────────────── */}
-      <SectionHdr label="DOCK ITEMS" />
-      <Card>
-        {/* Current dock items with reorder + remove */}
-        {dockItems.map((item, i) => (
-          <View
-            key={item.id}
-            style={[
-              ms.row,
-              i < dockItems.length - 1 && ms.rowBorder,
-              { borderBottomColor: theme.colors.border },
-            ]}
-          >
-            {/* Reorder arrows */}
-            <View style={ms.arrowCol}>
-              <TouchableOpacity
-                onPress={() => reorderDockItems(i, i - 1)}
-                disabled={i === 0}
-                style={{ opacity: i === 0 ? 0.25 : 1 }}
-              >
-                <MaterialIcons name="keyboard-arrow-up" size={18} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => reorderDockItems(i, i + 1)}
-                disabled={i === dockItems.length - 1}
-                style={{ opacity: i === dockItems.length - 1 ? 0.25 : 1 }}
-              >
-                <MaterialIcons name="keyboard-arrow-down" size={18} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Icon */}
-            <MaterialIcons
-              name={item.icon as any}
-              size={20}
-              color={theme.colors.primary}
-              style={{ marginRight: 4 }}
-            />
-
-            {/* Label + row badge */}
-            <Text style={[ms.rowLabel, { flex: 1, color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
-              {item.label}
-            </Text>
-            <View style={[dm.rowBadge, {
-              backgroundColor: i < 4 ? `${theme.colors.primary}18` : `${theme.colors.textSecondary}18`,
-            }]}>
-              <Text style={[dm.rowBadgeTxt, {
-                color: i < 4 ? theme.colors.primary : theme.colors.textSecondary,
-                fontFamily: 'Inter_600SemiBold',
-              }]}>
-                {i < 4 ? 'Row 1' : 'Row 2'}
-              </Text>
-            </View>
-
-            {/* Remove (keep minimum 1) */}
-            {dockItems.length > 1 && (
-              <TouchableOpacity onPress={() => removeDockItem(item.id)} style={ms.iconBtn}>
-                <MaterialIcons name="remove-circle-outline" size={17} color="#EF4444" />
-              </TouchableOpacity>
-            )}
-          </View>
-        ))}
-
-        {/* Available items to add */}
-        {availableToAdd.map((item, i) => (
-          <View
-            key={item.id}
-            style={[
-              ms.row,
-              {
-                borderTopWidth: i === 0 ? StyleSheet.hairlineWidth : 0,
-                borderTopColor: theme.colors.border,
-              },
-            ]}
-          >
-            <MaterialIcons
-              name={item.icon as any}
-              size={20}
-              color={theme.colors.textSecondary}
-              style={{ marginLeft: 32, marginRight: 4 }}
-            />
-            <Text style={[ms.rowLabel, { flex: 1, color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-              {item.label}
-            </Text>
-            <TouchableOpacity onPress={() => addDockItem(item)} style={ms.iconBtn}>
-              <MaterialIcons name="add-circle-outline" size={17} color={theme.colors.primary} />
-            </TouchableOpacity>
-          </View>
-        ))}
-      </Card>
-
-      {/* ─ Backdrop settings (non-compact only) ────────────────── */}
-      {!isCompact && (
-        <>
-          <SectionHdr label="DOCK BACKDROP" />
-          <Card>
-            {/* Style toggle */}
-            <View style={[ms.row, ms.rowBorder, { borderBottomColor: theme.colors.border }]}>
-              <MaterialIcons name="layers" size={18} color={theme.colors.textSecondary} />
-              <Text style={[ms.rowLabel, { flex: 1, color: theme.colors.text, fontFamily: 'Inter_500Medium', marginLeft: 8 }]}>
-                Style
-              </Text>
-              <View style={dm.bdStyleRow}>
-                {(['solid', 'translucent'] as DockBackdropStyle[]).map(s => {
-                  const active = dockBackdropStyle === s;
-                  return (
-                    <TouchableOpacity
-                      key={s}
-                      style={[
-                        dm.bdStylePill,
-                        {
-                          backgroundColor: active ? `${theme.colors.primary}18` : 'transparent',
-                          borderColor: active ? theme.colors.primary : theme.colors.border,
-                        },
-                      ]}
-                      onPress={() => setDockBackdropStyle(s)}
-                    >
-                      <Text style={[dm.bdStyleTxt, {
-                        color: active ? theme.colors.primary : theme.colors.textSecondary,
-                        fontFamily: active ? 'Inter_600SemiBold' : 'Inter_400Regular',
-                      }]}>
-                        {s === 'solid' ? 'Solid' : 'Translucent'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Opacity presets — only for translucent mode */}
-            {dockBackdropStyle === 'translucent' && (
-              <View style={[ms.row, { alignItems: 'center', flexWrap: 'wrap' }]}>
-                <MaterialIcons name="opacity" size={18} color={theme.colors.textSecondary} />
-                <Text style={[ms.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium', marginLeft: 8, marginRight: 12 }]}>
-                  Opacity
-                </Text>
-                <View style={dm.opacityRow}>
-                  {OPACITY_PRESETS.map(op => {
-                    const active = Math.abs(dockBackdropOpacity - op) < 0.05;
-                    return (
-                      <TouchableOpacity
-                        key={op}
-                        style={[
-                          dm.opacityPill,
-                          {
-                            backgroundColor: active ? theme.colors.primary : theme.colors.secondary,
-                            borderColor: active ? theme.colors.primary : theme.colors.border,
-                          },
-                        ]}
-                        onPress={() => setDockBackdropOpacity(op)}
-                      >
-                        <Text style={[dm.opacityTxt, {
-                          color: active ? '#FFF' : theme.colors.textSecondary,
-                          fontFamily: active ? 'Inter_700Bold' : 'Inter_400Regular',
-                        }]}>
-                          {Math.round(op * 100)}%
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-          </Card>
-        </>
-      )}
-    </>
-  );
-};
-
-const dm = StyleSheet.create({
-  // Mode selector
-  modeRow:  { flexDirection: 'row', gap: 10, marginBottom: 4 },
-  modeCard: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    gap: 6,
-  },
-  modeLabel: { fontSize: 12, textAlign: 'center' },
-  modeSub:   { fontSize: 10, textAlign: 'center', lineHeight: 13 },
-
-  // Phone wireframe mockup
-  phone: {
-    width: 42,
-    height: 66,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    overflow: 'hidden',
-  },
-  phoneScreen: {
-    flex: 1,
-    padding: 3,
-    justifyContent: 'flex-end',
-  },
-  // Compact mock: single row at bottom
-  compactMock: { alignItems: 'stretch' },
-  // 2-row mock
-  twoRowMock:  { gap: 2 },
-  mockRow:     { height: 8, borderRadius: 3 },
-  // Fullscreen grid mock
-  fsGrid: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    justifyContent: 'center',
-    alignContent: 'center',
-    marginBottom: 4,
-  },
-  fsDot: { width: 8, height: 8, borderRadius: 2 },
-
-  // Row badge
-  rowBadge:    { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, marginRight: 4 },
-  rowBadgeTxt: { fontSize: 10 },
-
-  // Backdrop settings
-  bdStyleRow:  { flexDirection: 'row', gap: 6 },
-  bdStylePill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
-  bdStyleTxt:  { fontSize: 12 },
-  opacityRow:  { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  opacityPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, minWidth: 46, alignItems: 'center' },
-  opacityTxt:  { fontSize: 11 },
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
 // ──────────────────────────────────────────────────────────────────────────────
 export const ManageScreen = () => {
@@ -1280,10 +959,11 @@ export const ManageScreen = () => {
   return (
     <SafeAreaView style={[ms.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
       <TopNavbar />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 110 }}
+      >
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
-          <DockSettingsManager />
-          <View style={ms.gap} />
           <PriorityManager />
           <View style={ms.gap} />
           <TagManager />

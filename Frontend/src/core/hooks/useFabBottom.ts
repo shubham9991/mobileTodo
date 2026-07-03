@@ -1,18 +1,18 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useManage } from '../ManageContext';
 
 /**
  * Returns the dynamic bottom position for the FAB so it always floats
  * above the BottomNavbar regardless of the user's Android nav mode.
- *
- * BottomNavbar actual height breakdown:
- *   paddingTop  : 10px
- *   icon        : 24px
- *   gap         : 3px
- *   label text  : ~14px  (fontSize 11 + line height)
- *   paddingBottom: insets.bottom + 12  ← dynamic
  */
 export const useFabBottom = () => {
   const insets = useSafeAreaInsets();
+  const { hideDock } = useManage();
+
+  if (hideDock) {
+    return insets.bottom + 16;
+  }
+
   const navbarHeight =
     10 +          // paddingTop
     24 +          // icon size

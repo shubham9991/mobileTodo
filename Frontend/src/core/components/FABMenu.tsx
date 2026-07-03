@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../themes/ThemeContext';
 import { TaskComposer } from './TaskComposer';
 import { useDashboard } from '../DashboardContext';
+import { useManage } from '../ManageContext';
 
 // ─── Note navigation helper ────────────────────────────────────────────────────
 // Replaces AddNoteSheet — navigates to the full Lexical NoteScreen
@@ -45,7 +46,14 @@ const Option = ({
 interface FABMenuProps { bottom: number; }
 
 export const FABMenu = ({ bottom }: FABMenuProps) => {
+  return null; // Rendered globally inside BottomNavbar to ensure dynamic positioning and prevent duplicates
+};
+const _UnusedFABMenu = ({ bottom }: FABMenuProps) => {
   const { theme }       = useTheme();
+  const { hideDock }    = useManage();
+  
+  if (hideDock) return null;
+
   const { handleComposerSave } = useDashboard();
   const router = useRouter();
   const [open, setOpen] = useState(false);

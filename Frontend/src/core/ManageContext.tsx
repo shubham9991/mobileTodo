@@ -33,7 +33,6 @@ export interface Birthday {
 
 // ─── Dock Types ───────────────────────────────────────────────────────────────
 export type DockMode = 'compact' | 'expanded-2row' | 'fullscreen';
-export type DockBackdropStyle = 'solid' | 'translucent';
 
 export interface DockItem {
   id: string;
@@ -163,16 +162,15 @@ interface ManageContextType {
   // Dock customization
   dockMode: DockMode;
   dockItems: DockItem[];
-  dockBackdropStyle: DockBackdropStyle;
-  dockBackdropOpacity: number;
   isDockExpanded: boolean;
   setIsDockExpanded: (expanded: boolean) => void;
   setDockMode: (mode: DockMode) => void;
   reorderDockItems: (from: number, to: number) => void;
   addDockItem: (item: DockItem) => void;
+  addDockItemAtIndex: (item: DockItem, index: number) => void;
   removeDockItem: (id: string) => void;
-  setDockBackdropStyle: (style: DockBackdropStyle) => void;
-  setDockBackdropOpacity: (opacity: number) => void;
+  hideDock: boolean;
+  setHideDock: (hide: boolean) => void;
 }
 
 const ManageContext = createContext<ManageContextType>({
@@ -204,16 +202,15 @@ const ManageContext = createContext<ManageContextType>({
   setLongPressDateStart: () => {},
   dockMode: 'compact',
   dockItems: DEFAULT_DOCK_ITEMS,
-  dockBackdropStyle: 'translucent',
-  dockBackdropOpacity: 0.6,
   isDockExpanded: false,
   setIsDockExpanded: () => {},
   setDockMode: () => {},
   reorderDockItems: () => {},
   addDockItem: () => {},
+  addDockItemAtIndex: () => {},
   removeDockItem: () => {},
-  setDockBackdropStyle: () => {},
-  setDockBackdropOpacity: () => {},
+  hideDock: false,
+  setHideDock: () => {},
 });
 
 export const ManageProvider = ({ children }: { children: ReactNode }) => {
@@ -229,9 +226,12 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [alarmTone, setAlarmTone] = useState<string>('default');
   const [dockMode, setDockMode] = useState<DockMode>('compact');
   const [dockItems, setDockItems] = useState<DockItem[]>(DEFAULT_DOCK_ITEMS);
-  const [dockBackdropStyle, setDockBackdropStyle] = useState<DockBackdropStyle>('translucent');
-  const [dockBackdropOpacity, setDockBackdropOpacity] = useState(0.6);
   const [isDockExpanded, setIsDockExpanded] = useState(false);
+  const [hideDock, setHideDock] = useState(false);
+
+  const selectDockMode = (mode: DockMode) => {
+    setDockMode(mode);
+  };
 
   const reorderDockItems = (from: number, to: number) =>
     setDockItems(prev => {
@@ -242,7 +242,19 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
     });
 
   const addDockItem = (item: DockItem) =>
-    setDockItems(prev => prev.some(d => d.id === item.id) ? prev : [...prev, item]);
+    setDockItems(prev => {
+      if (prev.some(d => d.id === item.id)) return prev;
+      return [...prev, item];
+    });
+
+  const addDockItemAtIndex = (item: DockItem, index: number) =>
+    setDockItems(prev => {
+      const filtered = prev.filter(d => d.id !== item.id);
+      const arr = [...filtered];
+      const targetIdx = Math.max(0, Math.min(prev.length, index));
+      arr.splice(targetIdx, 0, item);
+      return arr;
+    });
 
   const removeDockItem = (id: string) =>
     setDockItems(prev => prev.length > 1 ? prev.filter(d => d.id !== id) : prev);
@@ -371,11 +383,10 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
         setAlarmTone,
         longPressDateStart,
         setLongPressDateStart,
-        dockMode, setDockMode,
-        dockItems, reorderDockItems, addDockItem, removeDockItem,
-        dockBackdropStyle, setDockBackdropStyle,
-        dockBackdropOpacity, setDockBackdropOpacity,
+         dockMode, setDockMode: selectDockMode,
+        dockItems, reorderDockItems, addDockItem, addDockItemAtIndex, removeDockItem,
         isDockExpanded, setIsDockExpanded,
+        hideDock, setHideDock,
       }}
     >
       {children}
