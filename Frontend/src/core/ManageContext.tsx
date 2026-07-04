@@ -33,6 +33,7 @@ export interface Birthday {
 
 // ─── Dock Types ───────────────────────────────────────────────────────────────
 export type DockMode = 'compact' | 'expanded-2row' | 'fullscreen';
+export type FabPosition = 'right' | 'left' | 'freeflow';
 
 export interface DockItem {
   id: string;
@@ -171,6 +172,10 @@ interface ManageContextType {
   removeDockItem: (id: string) => void;
   hideDock: boolean;
   setHideDock: (hide: boolean) => void;
+  fabPosition: FabPosition;
+  setFabPosition: (pos: FabPosition) => void;
+  fabFreeflowPos: { x: number; y: number };
+  setFabFreeflowPos: (pos: { x: number; y: number }) => void;
 }
 
 const ManageContext = createContext<ManageContextType>({
@@ -211,6 +216,10 @@ const ManageContext = createContext<ManageContextType>({
   removeDockItem: () => {},
   hideDock: false,
   setHideDock: () => {},
+  fabPosition: 'right',
+  setFabPosition: () => {},
+  fabFreeflowPos: { x: 0, y: 0 },
+  setFabFreeflowPos: () => {},
 });
 
 export const ManageProvider = ({ children }: { children: ReactNode }) => {
@@ -228,6 +237,8 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
   const [dockItems, setDockItems] = useState<DockItem[]>(DEFAULT_DOCK_ITEMS);
   const [isDockExpanded, setIsDockExpanded] = useState(false);
   const [hideDock, setHideDock] = useState(false);
+  const [fabPosition, setFabPosition] = useState<FabPosition>('right');
+  const [fabFreeflowPos, setFabFreeflowPos] = useState({ x: 0, y: 0 });
 
   const selectDockMode = (mode: DockMode) => {
     setDockMode(mode);
@@ -387,6 +398,8 @@ export const ManageProvider = ({ children }: { children: ReactNode }) => {
         dockItems, reorderDockItems, addDockItem, addDockItemAtIndex, removeDockItem,
         isDockExpanded, setIsDockExpanded,
         hideDock, setHideDock,
+        fabPosition, setFabPosition,
+        fabFreeflowPos, setFabFreeflowPos,
       }}
     >
       {children}

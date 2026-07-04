@@ -36,7 +36,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useFonts } from 'expo-font';
-import { View, Text, ActivityIndicator, Platform, Animated, Easing, Vibration, StyleSheet, TouchableOpacity, PanResponder, Dimensions } from 'react-native';
+import { View, Text, ActivityIndicator, Platform, Animated, Easing, Vibration, StyleSheet, TouchableOpacity, PanResponder } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as NavigationBar from 'expo-navigation-bar';
 import { loadAllDownloadedFonts } from '../src/features/notes/fontManager';
@@ -410,20 +410,10 @@ const oStyles = StyleSheet.create({
 // Inner shell that has access to ThemeContext
 function AppShell() {
   const { isDark } = useTheme();
-  const { isDockExpanded, setIsDockExpanded } = useManage();
+  // useManage no longer needed in AppShell after removing the global touch handler
   const [activeReminder, setActiveReminder] = useState<{ id: string; title: string } | null>(null);
 
-  const screenH = Dimensions.get('window').height;
 
-  const handleGlobalTouch = (e: any) => {
-    if (isDockExpanded) {
-      const touchY = e.nativeEvent.pageY;
-      // Close the dock if the user interacts with the screen above the dock area
-      if (touchY < screenH - 210) {
-        setIsDockExpanded(false);
-      }
-    }
-  };
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -467,7 +457,7 @@ function AppShell() {
   }, []);
 
   return (
-    <View style={{ flex: 1 }} onTouchStart={handleGlobalTouch}>
+    <View style={{ flex: 1 }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

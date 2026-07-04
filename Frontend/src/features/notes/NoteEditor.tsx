@@ -28,6 +28,8 @@ interface NoteEditorProps {
   onReady?: () => void;
   /** Explanatory toast triggers when actions are fired */
   onActionTriggered?: (type: string, payload?: string) => void;
+  /** Called with sendCommand so the parent can invoke editor commands (e.g. undo/redo from header) */
+  onCommandReady?: (sendCommand: (type: string, payload?: string) => void) => void;
 }
 
 // The bundled Lexical editor lives in the Android assets folder.
@@ -37,7 +39,7 @@ const EDITOR_SOURCE: { uri: string } =
     ? { uri: 'file:///android_asset/editor.html' }
     : { uri: 'editor.html' }; // iOS: add editor.html to Xcode Copy Bundle Resources
 
-export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggered }: NoteEditorProps) {
+export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggered, onCommandReady }: NoteEditorProps) {
   const { theme, isDark } = useTheme();
   const [slashMenuVisible, setSlashMenuVisible] = useState(false);
   const [codeLanguageClickTrigger, setCodeLanguageClickTrigger] = useState(0);
@@ -89,6 +91,8 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
       sendCommand('LOAD_STATE', initialStateJson);
     }
     sendCommand('FOCUS');
+    // Expose sendCommand to parent
+    onCommandReady?.(sendCommand);
   }, [isReady, isDark, theme.colors.primary, initialStateJson, sendCommand]);
 
   // Re-sync theme if user toggles dark mode while editor is open

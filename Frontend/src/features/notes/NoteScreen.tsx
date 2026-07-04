@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, StatusBar, Platform, Animated, Keyboard,
+  TextInput, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,8 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../themes/ThemeContext';
 import { NoteEditor } from './NoteEditor';
 import {
-  getNote, saveNote, createBlankNote, buildPreview,
-  formatRelativeTime, type Note,
+  getNote, saveNote, createBlankNote, buildPreview, type Note,
 } from '../../core/db/notesStore';
 import type { SavePayload } from './useEditorBridge';
 
@@ -31,13 +30,14 @@ export function NoteScreen() {
 
   const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState(paramTitle ?? '');
-
+  const [editingTitle, setEditingTitle] = useState(false);
+  const titleInputRef = useRef<TextInput>(null);
+  const sendCommandRef = useRef<((type: string, payload?: string) => void) | null>(null);
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [wordCount, setWordCount] = useState(0);
   const [initialStateJson, setInitialStateJson] = useState<string | undefined>(undefined);
   const saveStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestPayload = useRef<SavePayload | null>(null);
   const c = theme.colors;
 
   // Load existing note on mount
@@ -62,7 +62,6 @@ export function NoteScreen() {
   // Handle auto-save payload from Lexical bridge
   const handleSave = useCallback(async (payload: SavePayload) => {
     if (!noteId) return;
-    latestPayload.current = payload;
     setSaveStatus('saving');
     setWordCount(payload.wordCount ?? 0);
 
@@ -102,33 +101,59 @@ export function NoteScreen() {
     router.back();
   }, [router]);
 
-  const saveStatusLabel = { idle: '', saving: 'Saving…', saved: '✓ Saved' }[saveStatus];
-  const saveStatusColor = saveStatus === 'saved' ? c.primary : c.textSecondary;
+  const handleTitleSubmitEditing = useCallback(async () => {
+    setEditingTitle(false);
+    const trimmed = title.trim() || 'Untitled';
+    setTitle(trimmed);
+    if (!note || !noteId) return;
+    const updatedNote: Note = { ...note, title: trimmed, updatedAt: new Date().toISOString() };
+    setNote(updatedNote);
+    await saveNote(updatedNote);
+  }, [title, note, noteId]);
+
+  const handleUndo = useCallback(() => sendCommandRef.current?.('UNDO'), []);
+  const handleRedo = useCallback(() => sendCommandRef.current?.('REDO'), []);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: c.background }]} edges={['top']}>
-      {/* ── Header — MS Word style ──────────────────────────────────────── */}
-      <View style={[styles.header, { borderBottomColor: c.border, backgroundColor: c.background }]}>
+      {/* ── Header — Sketch-style navbar ────────────────────────────────── */}
+      <View style={[styles.header, { borderBottomColor: c.border, backgroundColor: c.cardPrimary ?? c.background }]}>
         {/* Back */}
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+        <TouchableOpacity style={styles.headerBtn} onPress={handleBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <MaterialIcons name="arrow-back" size={22} color={c.text} />
         </TouchableOpacity>
 
-        {/* Title — full editable, centered */}
-        <TextInput
-          style={[styles.titleInput, { color: c.text, fontFamily: 'Inter_600SemiBold' }]}
-          value={title}
-          onChangeText={handleTitleChange}
-          placeholder="Untitled"
-          placeholderTextColor={c.textSecondary}
-          returnKeyType="done"
-          blurOnSubmit
-          maxLength={200}
-        />
+        {/* Title — tap to edit (sketch style) */}
+        {editingTitle ? (
+          <TextInput
+            ref={titleInputRef}
+            style={[styles.titleInput, { color: c.text, borderBottomColor: c.primary, fontFamily: 'Inter_600SemiBold' }]}
+            value={title}
+            onChangeText={handleTitleChange}
+            onBlur={handleTitleSubmitEditing}
+            onSubmitEditing={handleTitleSubmitEditing}
+            placeholder="Untitled"
+            placeholderTextColor={c.textSecondary}
+            returnKeyType="done"
+            autoFocus
+            selectTextOnFocus
+            maxLength={200}
+          />
+        ) : (
+          <TouchableOpacity onPress={() => setEditingTitle(true)} style={styles.titleBtn}>
+            <Text
+              style={[styles.titleText, { color: c.text, fontFamily: 'Inter_600SemiBold' }]}
+              numberOfLines={1}
+            >
+              {title || 'Untitled'}
+            </Text>
+            <MaterialIcons name="edit" size={13} color={c.textSecondary} style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+        )}
 
-        {/* Right actions */}
+        {/* Right actions: save indicator + undo + redo */}
         <View style={styles.headerActions}>
-          {/* Save indicator */}
+          {/* Save / word count indicator */}
           {saveStatus !== 'idle' ? (
             <Text style={[styles.saveStatusBadge, { color: saveStatus === 'saved' ? c.primary : c.textSecondary, fontFamily: 'Inter_500Medium' }]}>
               {saveStatus === 'saving' ? '…' : '✓'}
@@ -136,6 +161,12 @@ export function NoteScreen() {
           ) : wordCount > 0 ? (
             <Text style={[styles.wordCountBadge, { color: c.textSecondary }]}>{wordCount}w</Text>
           ) : null}
+          <TouchableOpacity style={styles.headerBtn} onPress={handleUndo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialIcons name="undo" size={20} color={c.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={handleRedo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialIcons name="redo" size={20} color={c.textSecondary} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -143,9 +174,8 @@ export function NoteScreen() {
       <NoteEditor
         initialStateJson={initialStateJson}
         onSave={handleSave}
+        onCommandReady={(fn) => { sendCommandRef.current = fn; }}
       />
-
-
     </SafeAreaView>
   );
 }
@@ -155,31 +185,52 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 6,
-    height: 50,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+    paddingTop: 4,
+    borderBottomWidth: 1,
+    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    gap: 4,
+    minHeight: 50,
   },
-  backBtn: {
-    padding: 8,
+  headerBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 8,
+  },
+  titleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  titleText: {
+    fontSize: 16,
+    letterSpacing: -0.3,
+    flexShrink: 1,
   },
   titleInput: {
     flex: 1,
     fontSize: 16,
     letterSpacing: -0.3,
-    padding: 0,
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1.5,
     includeFontPadding: false,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   saveStatusBadge: {
     fontSize: 13,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
   wordCountBadge: {
     fontSize: 11,
@@ -190,5 +241,4 @@ const styles = StyleSheet.create({
   metaText: { fontSize: 11 },
   saveStatus: { fontSize: 11 },
   pinBtn: { padding: 6 },
-
 });

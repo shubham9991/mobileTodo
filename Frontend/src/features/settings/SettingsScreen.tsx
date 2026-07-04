@@ -1373,6 +1373,7 @@ const DockSettingsManager = ({
           label="Customize Active Tiles"
           value={`${dockItems.length} active`}
           onPress={() => setShowDock(true)}
+          isLast
         />
       </SettingsCard>
     </>
@@ -1383,7 +1384,7 @@ const DockSettingsManager = ({
 export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
   const { theme } = useTheme();
   const { sectionVisibility, layoutMode } = useDashboard();
-  const { alarmTone, dockItems } = useManage();
+  const { alarmTone, dockItems, fabPosition, setFabPosition } = useManage();
   const [notif, setNotif] = useState(true);
   const [remind, setRemind] = useState(true);
   const [sync, setSync] = useState(false);
@@ -1439,6 +1440,64 @@ export const SettingsScreen = ({ onClose }: { onClose?: () => void }) => {
           <ToggleRow icon="alarm" label="Default Reminders" subtitle="30 min before due time" value={remind} onChange={setRemind} />
           <ToggleRow icon="cloud-sync" label="Sync & Backup" subtitle="Auto-sync every 6 hours" value={sync} onChange={setSync} />
           <SettingRow icon="music-note" label="Alarm Tune" value={activeTone} onPress={() => setShowTones(true)} />
+          {/* FAB Position Segmented Row */}
+          <View style={[s.inlineRow, { borderBottomColor: theme.colors.border }]}>
+            <View style={[s.iconWrap, { backgroundColor: theme.colors.secondary }]}>
+              <MaterialIcons name="touch-app" size={16} color={theme.colors.text} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>FAB Alignment</Text>
+              <Text style={[s.rowSub, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                Position of the quick action button
+              </Text>
+            </View>
+            {/* Segmented Control */}
+            <View style={{
+              flexDirection: 'row',
+              backgroundColor: theme.colors.secondary,
+              borderRadius: 8,
+              padding: 3,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+            }}>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 5,
+                  borderRadius: 6,
+                  backgroundColor: fabPosition === 'left' ? theme.colors.primary : 'transparent',
+                }}
+                onPress={() => setFabPosition('left')}
+                activeOpacity={0.8}
+              >
+                <Text style={{
+                  fontSize: 12,
+                  color: fabPosition === 'left' ? '#FFFFFF' : theme.colors.textSecondary,
+                  fontFamily: fabPosition === 'left' ? 'Inter_600SemiBold' : 'Inter_500Medium',
+                }}>
+                  Left
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 5,
+                  borderRadius: 6,
+                  backgroundColor: fabPosition === 'right' ? theme.colors.primary : 'transparent',
+                }}
+                onPress={() => setFabPosition('right')}
+                activeOpacity={0.8}
+              >
+                <Text style={{
+                  fontSize: 12,
+                  color: fabPosition === 'right' ? '#FFFFFF' : theme.colors.textSecondary,
+                  fontFamily: fabPosition === 'right' ? 'Inter_600SemiBold' : 'Inter_500Medium',
+                }}>
+                  Right
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
           <SettingRow icon="lock" label="Privacy & Data" onPress={() => { }} />
           <SettingRow icon="help-outline" label="Help & Support" onPress={() => { }} isLast />
         </SettingsCard>

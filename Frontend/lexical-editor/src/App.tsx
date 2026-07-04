@@ -48,6 +48,8 @@ import {
   $createParagraphNode,
   $isParagraphNode,
   $setSelection,
+  $getNodeByKey,
+  $getNearestNodeFromDOMNode,
   TextFormatType,
   ElementFormatType,
   $isTextNode,
@@ -456,7 +458,16 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) $setBlocksType(sel, () => $createHeadingNode(payload as 'h1' | 'h2' | 'h3'));
+              if ($isRangeSelection(sel)) {
+                const anchorNode = sel.anchor.getNode();
+                const element = anchorNode.getTopLevelElementOrThrow();
+                // Toggle: if already the same heading level, revert to paragraph
+                if ($isHeadingNode(element) && element.getTag() === payload) {
+                  $setBlocksType(sel, () => $createParagraphNode());
+                } else {
+                  $setBlocksType(sel, () => $createHeadingNode(payload as 'h1' | 'h2' | 'h3'));
+                }
+              }
             });
             break;
 
@@ -1125,6 +1136,170 @@ function PaginationPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// DRAG DROP LIST PLUGIN
+// ═══════════════════════════════════════════════════════════════════════════════
+function DragDropListPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    let activeDraggedLi: HTMLElement | null = null;
+    let draggedNodeKey: string | null = null;
+    let dropTargetLi: HTMLElement | null = null;
+    let isBefore = true;
+    let isDraggingActive = false;
+
+    const handleGlobalTouchMove = (e: TouchEvent) => {
+      if (isDraggingActive) {
+        e.preventDefault();
+      }
+    };
+
+    const clearIndicators = (el: HTMLElement | null) => {
+      if (el) {
+        el.style.borderTop = '';
+        el.style.borderBottom = '';
+      }
+    };
+
+    return editor.registerRootListener((rootElement, prevRootElement) => {
+      if (!rootElement) return;
+
+      const handleTouchStart = (e: TouchEvent) => {
+        const target = e.target as HTMLElement;
+        const li = target.closest('li');
+        if (li && li.classList.contains('editor-listItemUnchecked')) {
+          const rect = li.getBoundingClientRect();
+          const touch = e.touches[0];
+          const clickX = touch.clientX - rect.left;
+          // Drag handle is on the far left (0 to 16px)
+          if (clickX >= 0 && clickX <= 16) {
+            e.preventDefault(); // Disable WebView scroll!
+          }
+        }
+      };
+
+      const handlePointerDown = (e: PointerEvent) => {
+        const target = e.target as HTMLElement;
+        const li = target.closest('li');
+        if (li && li.classList.contains('editor-listItemUnchecked')) {
+          const rect = li.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          // Drag handle is on the far left (0 to 16px)
+          if (clickX >= 0 && clickX <= 16) {
+            e.preventDefault();
+            activeDraggedLi = li;
+            li.style.opacity = '0.5';
+            li.style.touchAction = 'none';
+            isDraggingActive = true;
+
+            editor.getEditorState().read(() => {
+              const node = $getNearestNodeFromDOMNode(li);
+              if (node) draggedNodeKey = node.getKey();
+            });
+
+            window.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
+            window.addEventListener('pointermove', handlePointerMove);
+            window.addEventListener('pointerup', handlePointerUp);
+            window.addEventListener('pointercancel', handlePointerCancel);
+          }
+        }
+      };
+
+      const handlePointerMove = (e: PointerEvent) => {
+        if (!activeDraggedLi) return;
+
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        const hoverEl = document.elementFromPoint(clientX, clientY) as HTMLElement;
+        const targetLi = hoverEl?.closest('li');
+
+        if (targetLi && targetLi !== activeDraggedLi && targetLi.classList.contains('editor-listItemUnchecked')) {
+          const targetRect = targetLi.getBoundingClientRect();
+          const relativeY = clientY - targetRect.top;
+          const middleY = targetRect.height / 2;
+          const nextIsBefore = relativeY < middleY;
+
+          if (dropTargetLi !== targetLi || isBefore !== nextIsBefore) {
+            clearIndicators(dropTargetLi);
+            dropTargetLi = targetLi;
+            isBefore = nextIsBefore;
+
+            if (isBefore) {
+              targetLi.style.borderTop = '2.5px solid var(--accent)';
+              targetLi.style.borderBottom = '';
+            } else {
+              targetLi.style.borderBottom = '2.5px solid var(--accent)';
+              targetLi.style.borderTop = '';
+            }
+          }
+        } else {
+          if (dropTargetLi) {
+            clearIndicators(dropTargetLi);
+            dropTargetLi = null;
+          }
+        }
+      };
+
+      const handlePointerUp = (e: PointerEvent) => {
+        cleanupDrag();
+      };
+
+      const handlePointerCancel = (e: PointerEvent) => {
+        cleanupDrag();
+      };
+
+      const cleanupDrag = () => {
+        if (activeDraggedLi) {
+          activeDraggedLi.style.opacity = '';
+          activeDraggedLi.style.touchAction = '';
+        }
+        if (dropTargetLi) {
+          clearIndicators(dropTargetLi);
+        }
+
+        if (draggedNodeKey && dropTargetLi) {
+          editor.update(() => {
+            const srcNode = $getNodeByKey(draggedNodeKey!);
+            const destNode = $getNearestNodeFromDOMNode(dropTargetLi!);
+            if (srcNode && destNode && srcNode !== destNode) {
+              if (isBefore) {
+                destNode.insertBefore(srcNode);
+              } else {
+                destNode.insertAfter(srcNode);
+              }
+            }
+          });
+        }
+
+        activeDraggedLi = null;
+        draggedNodeKey = null;
+        dropTargetLi = null;
+        isDraggingActive = false;
+
+        window.removeEventListener('touchmove', handleGlobalTouchMove);
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerCancel);
+      };
+
+      rootElement.addEventListener('touchstart', handleTouchStart, { passive: false });
+      rootElement.addEventListener('pointerdown', handlePointerDown);
+
+      return () => {
+        rootElement.removeEventListener('touchstart', handleTouchStart);
+        rootElement.removeEventListener('pointerdown', handlePointerDown);
+        window.removeEventListener('touchmove', handleGlobalTouchMove);
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerCancel);
+      };
+    });
+  }, [editor]);
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 const initialConfig = {
@@ -1179,6 +1354,7 @@ export default function App() {
           <SlashCommandPlugin />
           <CodeLanguageClickPlugin />
           <PaginationPlugin />
+          <DragDropListPlugin />
         </div>
       </div>
     </LexicalComposer>

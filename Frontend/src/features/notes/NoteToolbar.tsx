@@ -382,10 +382,6 @@ export function NoteToolbar({
           {/* Delete operations */}
           <MiniBtn icon="delete-sweep" onPress={() => cmd('TABLE_DELETE_ROW')} color="#EF4444" />
           <MiniBtn icon="view-column" onPress={() => cmd('TABLE_DELETE_COL')} color="#EF4444" />
-          <MiniSep color={border} />
-          {/* Undo / redo */}
-          <MiniBtn icon="undo" onPress={() => cmd('UNDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
-          <MiniBtn icon="redo" onPress={() => cmd('REDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
         </ScrollView>
         <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
       </View>
@@ -398,20 +394,33 @@ export function NoteToolbar({
       <View style={[S.miniBar, { backgroundColor: surface, borderTopColor: border, paddingBottom: miniPb }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={S.miniScroll}>
           {/* B */}
-          <MiniFormatBtn active={selectionState.bold} onPress={() => cmd('FORMAT_TEXT', 'bold')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn active={selectionState.bold} onPress={() => cmd('FORMAT_TEXT', `bold:${selectionState.bold ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniB, { color: selectionState.bold ? blue : textPri }]}>B</Text>
           </MiniFormatBtn>
           {/* I */}
-          <MiniFormatBtn active={selectionState.italic} onPress={() => cmd('FORMAT_TEXT', 'italic')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn active={selectionState.italic} onPress={() => cmd('FORMAT_TEXT', `italic:${selectionState.italic ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniI, { color: selectionState.italic ? blue : textPri }]}>I</Text>
           </MiniFormatBtn>
           {/* U */}
-          <MiniFormatBtn active={selectionState.underline} onPress={() => cmd('FORMAT_TEXT', 'underline')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn active={selectionState.underline} onPress={() => cmd('FORMAT_TEXT', `underline:${selectionState.underline ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniU, { color: selectionState.underline ? blue : textPri }]}>U</Text>
           </MiniFormatBtn>
           {/* S */}
-          <MiniFormatBtn active={selectionState.strikethrough} onPress={() => cmd('FORMAT_TEXT', 'strikethrough')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn active={selectionState.strikethrough} onPress={() => cmd('FORMAT_TEXT', `strikethrough:${selectionState.strikethrough ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniS, { color: selectionState.strikethrough ? blue : textPri }]}>S</Text>
+          </MiniFormatBtn>
+          <MiniSep color={border} />
+          {/* H1 */}
+          <MiniFormatBtn active={selectionState.blockType === 'h1'} onPress={() => cmd('SET_HEADING', 'h1')} blue={blue} surface={surfaceSub}>
+            <Text style={[S.miniH, { color: selectionState.blockType === 'h1' ? blue : textPri, fontSize: 15 }]}>H1</Text>
+          </MiniFormatBtn>
+          {/* H2 */}
+          <MiniFormatBtn active={selectionState.blockType === 'h2'} onPress={() => cmd('SET_HEADING', 'h2')} blue={blue} surface={surfaceSub}>
+            <Text style={[S.miniH, { color: selectionState.blockType === 'h2' ? blue : textPri, fontSize: 14 }]}>H2</Text>
+          </MiniFormatBtn>
+          {/* H3 */}
+          <MiniFormatBtn active={selectionState.blockType === 'h3'} onPress={() => cmd('SET_HEADING', 'h3')} blue={blue} surface={surfaceSub}>
+            <Text style={[S.miniH, { color: selectionState.blockType === 'h3' ? blue : textPri, fontSize: 13 }]}>H3</Text>
           </MiniFormatBtn>
           <MiniSep color={border} />
           {/* Bullet */}
@@ -426,9 +435,6 @@ export function NoteToolbar({
           <MiniFormatBtn active={selectionState.blockType === 'check'} onPress={() => cmd('INSERT_CHECK')} blue={blue} surface={surfaceSub}>
             <MaterialIcons name="checklist" size={20} color={selectionState.blockType === 'check' ? blue : textPri} />
           </MiniFormatBtn>
-          <MiniSep color={border} />
-          <MiniBtn icon="undo" onPress={() => cmd('UNDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
-          <MiniBtn icon="redo" onPress={() => cmd('REDO')} color={isEditorReady ? textPri : textSec} disabled={!isEditorReady} />
         </ScrollView>
         <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
       </View>
@@ -534,7 +540,7 @@ export function NoteToolbar({
             <View key={fmt} style={S.gridCell}>
               <TouchableOpacity
                 style={[S.fmtBtn, active && { backgroundColor: blue + '15', borderColor: blue + '50', borderWidth: 1 }]}
-                onPress={() => cmd('FORMAT_TEXT', fmt)}
+                onPress={() => cmd('FORMAT_TEXT', `${fmt}:${active ? '0' : '1'}`)}
               >
                 {child}
               </TouchableOpacity>
@@ -552,7 +558,7 @@ export function NoteToolbar({
             <View key={item.fmt} style={S.gridCell}>
               <TouchableOpacity
                 style={[S.fmtBtn, item.active && { backgroundColor: blue + '15', borderColor: blue + '50', borderWidth: 1 }]}
-                onPress={() => cmd('FORMAT_TEXT', item.fmt)}
+                onPress={() => cmd('FORMAT_TEXT', `${item.fmt}:${item.active ? '0' : '1'}`)}
               >
                 <Text style={[S.fSup, { color: item.active ? blue : textPri }]}>{item.label}</Text>
               </TouchableOpacity>
@@ -610,7 +616,7 @@ export function NoteToolbar({
             selectionState.code && { backgroundColor: isDark ? '#0F6CBD1F' : '#0F6CBD0A' },
             { borderRightColor: borderHair, borderRightWidth: StyleSheet.hairlineWidth }
           ]}
-          onPress={() => cmd('FORMAT_TEXT', 'code')}
+          onPress={() => cmd('FORMAT_TEXT', `code:${selectionState.code ? '0' : '1'}`)}
           activeOpacity={0.6}
         >
           <MaterialIcons name="code" size={20} color={selectionState.code ? blue : textSec} />
@@ -1229,6 +1235,7 @@ const S = StyleSheet.create({
   miniI: { fontSize: 16, fontFamily: 'Inter_500Medium', fontStyle: 'italic' },
   miniU: { fontSize: 16, fontFamily: 'Inter_500Medium', textDecorationLine: 'underline' },
   miniS: { fontSize: 15, fontFamily: 'Inter_500Medium', textDecorationLine: 'line-through' },
+  miniH: { fontFamily: 'Inter_700Bold' },
 
   // Lang pill (code mini bar)
   langPill: {

@@ -8,6 +8,8 @@ import {
   Pressable,
   TextInput,
   ScrollView,
+  Keyboard,
+  BackHandler,
   Animated as RNAnimated,
 } from 'react-native';
 import Animated, {
@@ -17,6 +19,7 @@ import Animated, {
   withTiming,
   runOnJS,
   interpolate,
+  interpolateColor,
   Extrapolation,
   SharedValue,
 } from 'react-native-reanimated';
@@ -26,9 +29,11 @@ import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../themes/ThemeContext';
-import { useManage, DockItem } from '../../core/ManageContext';
+import { useManage, DockItem, FabPosition } from '../../core/ManageContext';
 import { TaskComposer } from '../../core/components/TaskComposer';
 import { useDashboard } from '../../core/DashboardContext';
+
+const AnimatedIcon = Animated.createAnimatedComponent(MaterialIcons);
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -80,34 +85,70 @@ const TabButton = React.memo((
 });
 
 // ─── NavOption for FAB Speed Dial ─────────────────────────────────────────────
-const NavOption = React.memo(({
-  item,
-  openProgress,
-  onPress,
-  theme,
-}: {
-  item: any;
-  openProgress: SharedValue<number>;
-  onPress: () => void;
-  theme: any;
-}) => {
+const NavOption = React.memo((
+  { item, openProgress, onPress, theme, fabPosition, index }: {
+    item: any;
+    openProgress: SharedValue<number>;
+    onPress: () => void;
+    theme: any;
+    fabPosition: FabPosition;
+    index: number;
+  }
+) => {
+  const { isDark } = useTheme();
+
   const animStyle = useAnimatedStyle(() => {
-    const translateY = interpolate(openProgress.value, [0, 1], [40, 0]);
-    const opacity = interpolate(openProgress.value, [0, 0.5, 1], [0, 0, 1]);
+    const start = index * 0.16;
+    const end = Math.min(1.0, start + 0.45);
+    const p = interpolate(openProgress.value, [start, end], [0, 1], Extrapolation.CLAMP);
+
+    const translateY = interpolate(p, [0, 1], [30, 0]);
+    const opacity = interpolate(p, [0, 0.4, 1], [0, 0, 1]);
+    const scale = interpolate(p, [0, 1], [0.8, 1]);
+
     return {
-      transform: [{ translateY }],
+      transform: [{ translateY }, { scale }],
       opacity,
     };
   });
 
-  return (
-    <Animated.View style={[styles.optionRow, animStyle]}>
+  const labelBgColor = isDark ? 'rgba(39, 39, 42, 0.82)' : 'rgba(255, 255, 255, 0.85)';
+  const labelBorderColor = isDark ? 'rgba(63, 63, 70, 0.5)' : 'rgba(228, 228, 230, 0.65)';
+
+  const content = (fabPosition === 'left' || fabPosition === 'freeflow') ? (
+    <>
+      <TouchableOpacity
+        style={[
+          styles.optionBtn,
+          { backgroundColor: item.color || theme.colors.primary },
+        ]}
+        onPress={onPress}
+      >
+        <MaterialIcons name={item.icon as any} size={20} color="#FFFFFF" />
+      </TouchableOpacity>
       <TouchableOpacity
         style={[
           styles.optionLabelWrap,
           {
-            backgroundColor: theme.colors.cardPrimary,
-            borderColor: theme.colors.border,
+            backgroundColor: labelBgColor,
+            borderColor: labelBorderColor,
+          },
+        ]}
+        onPress={onPress}
+      >
+        <Text style={[styles.optionLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+          {item.label}
+        </Text>
+      </TouchableOpacity>
+    </>
+  ) : (
+    <>
+      <TouchableOpacity
+        style={[
+          styles.optionLabelWrap,
+          {
+            backgroundColor: labelBgColor,
+            borderColor: labelBorderColor,
           },
         ]}
         onPress={onPress}
@@ -125,6 +166,12 @@ const NavOption = React.memo(({
       >
         <MaterialIcons name={item.icon as any} size={20} color="#FFFFFF" />
       </TouchableOpacity>
+    </>
+  );
+
+  return (
+    <Animated.View style={[styles.optionRow, animStyle]}>
+      {content}
     </Animated.View>
   );
 });
@@ -135,6 +182,7 @@ export const BottomNavbar = () => {
   const {
     dockMode, dockItems,
     isDockExpanded, setIsDockExpanded, hideDock,
+    fabPosition,
   } = useManage();
   const { handleComposerSave } = useDashboard();
   const router    = useRouter();
@@ -148,30 +196,45 @@ export const BottomNavbar = () => {
 
   const row1 = dockItems.slice(0, 4);
   const row2 = dockItems.slice(4, 8);
+  const fsSearchInputRef   = useRef<TextInput>(null);
 
   // ── Shared values ─────────────────────────────────────────────────────────
   const progress  = useSharedValue(0);   // 2-row: 0=closed 1=open
   const startProg = useSharedValue(0);
-  const fsY       = useSharedValue(SCREEN_H); // fullscreen: SCREEN_H=closed 0=open
-  const fsStartY  = useSharedValue(0);
+  const fsY              = useSharedValue(SCREEN_H); // fullscreen: SCREEN_H=closed 0=open
+  const fsStartY         = useSharedValue(0);
+  // SharedValues for keyboard/search state — visible to gesture worklets synchronously via JSI.
+  // React state (useState) updates are async and can't be read by onEnd during the same touch event.
+  const isSearchFocusedSV  = useSharedValue(false);
+  const isKeyboardVisibleSV = useSharedValue(false);
 
-  // Shared value: controls whether FS overlay is mounted
+  // Controls whether FS overlay is mounted
   const [fsOpen, setFsOpen] = useState(false);
 
-  // ── Fullscreen dock: search & sort (local to panel, never mutates dockItems) ─
+  // ── Fullscreen dock: search (local to panel, never mutates dockItems) ─
   const [fsSearchQuery, setFsSearchQuery]   = useState('');
-  const [fsSortMode,    setFsSortMode]      = useState<'default' | 'az' | 'za'>('default');
-  const [showFsSortMenu, setShowFsSortMenu] = useState(false);
+
+  // Keyboard visibility — second line of defence against spurious dock-close on keyboard open.
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      isKeyboardVisibleSV.value = true;
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      isKeyboardVisibleSV.value = false;
+    });
+    return () => { showSub.remove(); hideSub.remove(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   const fsDisplayItems = useMemo(() => {
-    // Exclude the first 4 pinned items (row1) from the scrollable grid to prevent duplicate rendering
-    let items = dockItems.slice(4);
-    if (fsSortMode === 'az') items.sort((a, b) => a.label.localeCompare(b.label));
-    if (fsSortMode === 'za') items.sort((a, b) => b.label.localeCompare(a.label));
     const q = fsSearchQuery.trim().toLowerCase();
+    // When searching: scan ALL dock items (including row1) so nothing is hidden.
+    // When not searching: only show items beyond row1 to avoid duplicates.
+    let items = q ? [...dockItems] : dockItems.slice(4);
     if (q) items = items.filter(i => i.label.toLowerCase().includes(q));
     return items;
-  }, [dockItems, fsSortMode, fsSearchQuery]);
+  }, [dockItems, fsSearchQuery]);
 
   // ─── FAB Navigation Menu (When hideDock is true) ──────────────────────────────
   const [navFABOpen, setNavFABOpen] = useState(false);
@@ -183,34 +246,121 @@ export const BottomNavbar = () => {
 
   const openTempDock = useCallback(() => {
     setTempDockMounted(true);
-    tempDockY.value = withSpring(0, SNAP_SPRING);
-  }, [tempDockY]);
+    if (isFullscreen) {
+      // For fullscreen mode: skip the compact slide-up, jump straight to the full panel
+      setFsOpen(true);
+      fsY.value = withSpring(0, SNAP_SPRING);
+    } else if (is2Row) {
+      // For 2-row mode: slide up the compact bar then immediately expand Row 2
+      tempDockY.value = withSpring(0, SNAP_SPRING);
+      setIsDockExpanded(true);
+    } else {
+      // Compact mode: just slide up the bar
+      tempDockY.value = withSpring(0, SNAP_SPRING);
+    }
+  }, [tempDockY, isFullscreen, is2Row, fsY, setIsDockExpanded]);
 
   const closeTempDock = useCallback(() => {
     hapticLight();
-    tempDockY.value = withSpring(150, CLOSE_SPRING, (done) => {
-      if (done) {
-        runOnJS(setTempDockMounted)(false);
-      }
-    });
-  }, [tempDockY]);
+    if (isFullscreen && fsOpen) {
+      // Close the fullscreen panel first, then unmount
+      fsY.value = withSpring(SCREEN_H, CLOSE_SPRING, (done) => {
+        if (done) {
+          runOnJS(setFsOpen)(false);
+          runOnJS(setTempDockMounted)(false);
+        }
+      });
+    } else {
+      // 2-row or compact: collapse and slide down
+      setIsDockExpanded(false);
+      progress.value = withSpring(0, CLOSE_SPRING);
+      tempDockY.value = withSpring(150, CLOSE_SPRING, (done) => {
+        if (done) {
+          runOnJS(setTempDockMounted)(false);
+        }
+      });
+    }
+  }, [tempDockY, isFullscreen, fsOpen, fsY, progress, setIsDockExpanded]);
+
+  const fabScale = useSharedValue(1);
 
   const toggleFAB = useCallback(() => {
+    hapticLight();
     if (navFABOpen) {
-      rotation.value = withTiming(0, { duration: 200 });
-      backdropOp.value = withTiming(0, { duration: 200 });
-      openProgress.value = withTiming(0, { duration: 180 });
+      rotation.value = withTiming(0, { duration: 320 });
+      backdropOp.value = withTiming(0, { duration: 320 });
+      openProgress.value = withTiming(0, { duration: 300 });
     } else {
-      rotation.value = withTiming(45, { duration: 200 });
-      backdropOp.value = withTiming(1, { duration: 200 });
-      openProgress.value = withSpring(1, { damping: 15, stiffness: 200 });
+      rotation.value = withTiming(45, { duration: 320 });
+      backdropOp.value = withTiming(1, { duration: 320 });
+      openProgress.value = withSpring(1, { damping: 17, stiffness: 85 });
     }
     setNavFABOpen(prev => !prev);
   }, [navFABOpen, rotation, backdropOp, openProgress]);
 
-  const animFABRotateStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
-  }));
+  const handleFABPress = useCallback(() => {
+    if (hideDock && tempDockMounted) {
+      if (navFABOpen) toggleFAB();
+      closeTempDock();
+    } else {
+      toggleFAB();
+    }
+  }, [hideDock, tempDockMounted, navFABOpen, toggleFAB, closeTempDock]);
+
+  const fabTapGesture = useMemo(() =>
+    Gesture.Tap()
+      .onBegin(() => {
+        fabScale.value = withSpring(0.88, { damping: 10, stiffness: 350 });
+      })
+      .onFinalize(() => {
+        fabScale.value = withSpring(1, { damping: 12, stiffness: 200 });
+      })
+      .onEnd(() => {
+        runOnJS(handleFABPress)();
+      }),
+    [fabScale, handleFABPress]
+  );
+
+  const animFABButtonStyle = useAnimatedStyle(() => {
+    const backgroundColor = interpolateColor(
+      rotation.value,
+      [0, 45],
+      [theme.colors.primary, isDark ? '#27272A' : '#E4E4E7']
+    );
+
+    const shadowColor = interpolateColor(
+      rotation.value,
+      [0, 45],
+      [theme.colors.primary, isDark ? '#000000' : '#8E8E93']
+    );
+
+    const shadowOpacity = interpolate(
+      rotation.value,
+      [0, 45],
+      [0.35, 0.15],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      backgroundColor,
+      shadowColor,
+      shadowOpacity,
+      transform: [{ scale: fabScale.value }],
+    };
+  });
+
+  const animFABIconStyle = useAnimatedStyle(() => {
+    const color = interpolateColor(
+      rotation.value,
+      [0, 45],
+      ['#FFFFFF', isDark ? '#FFFFFF' : '#1C1C1E']
+    );
+
+    return {
+      color,
+      transform: [{ rotate: `${rotation.value}deg` }],
+    };
+  });
 
   const animBackdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOp.value,
@@ -243,18 +393,37 @@ export const BottomNavbar = () => {
     tempDockY.value = 150;
   }, [dockMode, pathname, setIsDockExpanded, progress, fsY, tempDockY]);
 
-  // Reset fullscreen search/sort when panel closes
+  // Reset fullscreen search when panel closes — so reopening always shows a clean state
   useEffect(() => {
     if (!fsOpen) {
       setFsSearchQuery('');
-      setShowFsSortMenu(false);
+      isSearchFocusedSV.value = false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fsOpen]);
 
   const closeDock = useCallback(() => {
     hapticLight();
-    setIsDockExpanded(false);
-  }, [setIsDockExpanded]);
+    if (hideDock) {
+      // In hidden-dock mode the temp overlay must also be dismissed
+      closeTempDock();
+    } else {
+      setIsDockExpanded(false);
+    }
+  }, [hideDock, closeTempDock, setIsDockExpanded]);
+
+  // Android hardware back button — close the dock instead of exiting the app
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (fsOpen) {
+        closeDock();
+        return true; // consume event, prevent app exit
+      }
+      return false; // let normal navigation handle it
+    });
+    return () => sub.remove();
+  }, [isFullscreen, fsOpen, hideDock, closeDock]);
 
   const onTabPress = useCallback((item: DockItem) => {
     hapticLight();
@@ -411,35 +580,55 @@ export const BottomNavbar = () => {
         });
       }
     });
+  // Reusable gesture builder to create independent gesture instances (RNGH v2 requirement).
+  // Each GestureDetector must receive its own distinct Pan gesture object.
+  const makeFsPanGesture = useCallback(() => {
+    return Gesture.Pan()
+      .activeOffsetY([-8, 8])
+      .onBegin(() => {
+        runOnJS(setFsOpen)(true);
+        runOnJS(setIsDockExpanded)(true);
+        fsStartY.value = fsY.value;
+      })
+      .onUpdate((e) => {
+        // Suppress movement while keyboard/search is active
+        if (!isSearchFocusedSV.value && !isKeyboardVisibleSV.value) {
+          fsY.value = Math.max(0, Math.min(SCREEN_H, fsStartY.value + e.translationY));
+        }
+      })
+      .onEnd((e) => {
+        // CRITICAL: if keyboard is showing or search is focused, never close the dock.
+        if (isSearchFocusedSV.value || isKeyboardVisibleSV.value) {
+          fsY.value = withSpring(0, SNAP_SPRING);
+          return;
+        }
+        const flingUp   = e.velocityY < -200;
+        const flingDown = e.velocityY >  200;
+        const dragPct   = fsY.value / SCREEN_H;
+        // Close if dragged >15% of screen (~130px) or quick downward fling
+        if (flingUp || (!flingDown && dragPct < 0.15)) {
+          fsY.value = withSpring(0, SNAP_SPRING);
+          runOnJS(hapticMed)();
+        } else {
+          runOnJS(hapticLight)();
+          fsY.value = withSpring(SCREEN_H, CLOSE_SPRING, (done) => {
+            if (done) {
+              runOnJS(setFsOpen)(false);
+              runOnJS(setIsDockExpanded)(false);
+            }
+          });
+        }
+      });
+  }, [fsY, fsStartY, isSearchFocusedSV, isKeyboardVisibleSV, setFsOpen, setIsDockExpanded]);
 
-  // Unified gesture: handles both swipe-up (open) and swipe-down (close) on the growing panel
-  const fsExpandGesture = Gesture.Pan()
-    .activeOffsetY([-8, 8])
-    .onBegin(() => {
-      runOnJS(setFsOpen)(true);
-      runOnJS(setIsDockExpanded)(true);
-      fsStartY.value = fsY.value;
-    })
-    .onUpdate((e) => {
-      fsY.value = Math.max(0, Math.min(SCREEN_H, fsStartY.value + e.translationY));
-    })
-    .onEnd((e) => {
-      const flingUp   = e.velocityY < -400;
-      const flingDown = e.velocityY >  400;
-      const dragPct   = fsY.value / SCREEN_H;
-      if (flingUp || (!flingDown && dragPct < 0.5)) {
-        fsY.value = withSpring(0, SNAP_SPRING);
-        runOnJS(hapticMed)();
-      } else {
-        runOnJS(hapticLight)();
-        fsY.value = withSpring(SCREEN_H, CLOSE_SPRING, (done) => {
-          if (done) {
-            runOnJS(setFsOpen)(false);
-            runOnJS(setIsDockExpanded)(false);
-          }
-        });
-      }
-    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fsGrabberGesture = useMemo(makeFsPanGesture, [makeFsPanGesture]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fsHeaderGesture  = useMemo(makeFsPanGesture, [makeFsPanGesture]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fsRow1Gesture    = useMemo(makeFsPanGesture, [makeFsPanGesture]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fsEmptyGesture   = useMemo(makeFsPanGesture, [makeFsPanGesture]);
 
   // ── Animated styles ───────────────────────────────────────────────────────
   const animRow2 = useAnimatedStyle(() => ({
@@ -459,15 +648,17 @@ export const BottomNavbar = () => {
     transform: [{ translateY: tempDockY.value }],
   }));
 
-  // fsPanel grows upward from dock-bar height to full screen — pinned at bottom
+  // ROOT CAUSE FIX: use `top` animation instead of `height`.
+  // With height-based animation, when the Android keyboard opens (adjustResize), the window
+  // shrinks but the panel height stays SCREEN_H — the panel shifts above the screen. The
+  // active Pan gesture sees this layout shift as a large downward translation and closes the dock.
+  // With top-based animation + bottom:0, the panel SHRINKS to fit the visible window instead
+  // of shifting, so no fake gesture event is generated. The search bar stays visible above the keyboard.
   const DOCK_BAR_H = GRABBER_H + ROW_H + bottomPad;
   const animFsPanel = useAnimatedStyle(() => {
-    const height = interpolate(fsY.value, [SCREEN_H, 0], [DOCK_BAR_H, SCREEN_H], Extrapolation.CLAMP);
+    const top = interpolate(fsY.value, [SCREEN_H, 0], [SCREEN_H - DOCK_BAR_H, 0], Extrapolation.CLAMP);
     const paddingTop = interpolate(fsY.value, [SCREEN_H, 0], [0, insets.top], Extrapolation.CLAMP);
-    return {
-      height,
-      paddingTop,
-    };
+    return { top, paddingTop };
   });
 
   // Header reveals by expanding downward only when drawer is nearly fully open
@@ -480,6 +671,14 @@ export const BottomNavbar = () => {
       overflow: 'hidden' as const,
     };
   });
+
+  const animRow1Style = useAnimatedStyle(() => {
+    const paddingBottom = interpolate(fsY.value, [SCREEN_H, 0], [bottomPad, 8], Extrapolation.CLAMP);
+    return {
+      paddingBottom,
+    };
+  });
+
 
   const animFabStackStyle = useAnimatedStyle(() => {
     const baseShift = interpolate(tempDockY.value, [150, 0], [0, -76], Extrapolation.CLAMP);
@@ -531,7 +730,7 @@ export const BottomNavbar = () => {
         <Animated.View style={animRow2}>
           {row2.length > 0 ? (
             <View style={[styles.row, { paddingVertical: 8 }]}>
-              {row2.map(item => (
+              {row2.map((item: DockItem) => (
                 <TabButton key={item.id} item={item} isActive={isActiveItem(item)}
                   onPress={() => onTabPress(item)} theme={theme} />
               ))}
@@ -608,11 +807,12 @@ export const BottomNavbar = () => {
             style={[StyleSheet.absoluteFill, { zIndex: 85 }]}
             onPress={closeTempDock}
           />
-          <GestureDetector gesture={
-            is2Row ? twoRowGesture : isFullscreen ? fsOpenGesture : tempDockGesture
-          }>
-            {dockContent}
-          </GestureDetector>
+          {/* In fullscreen mode the panel renders itself via animFsPanel below — no compact bar needed */}
+          {!isFullscreen && (
+            <GestureDetector gesture={is2Row ? twoRowGesture : tempDockGesture}>
+              {dockContent}
+            </GestureDetector>
+          )}
         </>
       )}
 
@@ -642,192 +842,164 @@ export const BottomNavbar = () => {
       <Animated.View
         style={[
           styles.fabStack,
-          {
-            bottom: hideDock ? insets.bottom + 16 : insets.bottom + 16 + 76,
-            zIndex: 200,
-          },
+          fabPosition === 'left' ? { left: 20, right: 'auto', alignItems: 'flex-start' } : { right: 20, left: 'auto', alignItems: 'flex-end' },
+          { bottom: hideDock ? insets.bottom + 16 : insets.bottom + 16 + 76 },
+          { zIndex: 200 },
           animFabStackStyle,
         ]}
         pointerEvents="box-none"
       >
         {/* Speed-dial options — only rendered when the FAB menu is open */}
-        {navFABOpen && quickActions.map((item) => (
-          <NavOption key={item.id} item={item} openProgress={openProgress} onPress={item.onPress} theme={theme} />
+        {navFABOpen && quickActions.map((item, idx) => (
+          <NavOption
+            key={item.id}
+            item={item}
+            openProgress={openProgress}
+            onPress={item.onPress}
+            theme={theme}
+            fabPosition={fabPosition}
+            index={idx}
+          />
         ))}
-        <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-          onPress={() => {
-            if (hideDock && tempDockMounted) {
-              // Dock is open — close it, reset FAB rotation
-              if (navFABOpen) toggleFAB();
-              closeTempDock();
-            } else {
-              toggleFAB();
-            }
-          }}
-          activeOpacity={0.85}
-        >
-          <Animated.View style={animFABRotateStyle}>
-            <MaterialIcons name="add" size={26} color="#FFFFFF" />
+        <GestureDetector gesture={fabTapGesture}>
+          <Animated.View style={[styles.fab, animFABButtonStyle]}>
+            <AnimatedIcon name="add" size={26} style={animFABIconStyle} />
           </Animated.View>
-        </TouchableOpacity>
+        </GestureDetector>
       </Animated.View>
 
-      {/* \u2500\u2500 Fullscreen growing dock panel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      {/* ── Fullscreen growing dock panel ──────────────────────────────────────
            Pinned at the bottom, grows upward from dock-bar height to full screen.
            The compact Row1 always sits at the bottom (= the original dock).
            Extra tiles + search header reveal above as the panel expands.
-       \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */}
-      {isFullscreen && !hideDock && (
+       ───────────────────────────────────────────────────────────────────────── */}
+      {isFullscreen && (!hideDock || fsOpen) && (
         <>
-          {/* Tap-above-panel backdrop — only visible when panel is expanded */}
-          {fsOpen && (
-            <Pressable
-              style={[StyleSheet.absoluteFill, { zIndex: 97 }]}
-              onPress={() => { setShowFsSortMenu(false); closeDock(); }}
-            />
-          )}
-
-          <GestureDetector gesture={fsExpandGesture}>
-            <Animated.View style={[
-              {
-                position: 'absolute' as const,
-                bottom: 0,
-                left: 0,
-                right: 0,
-                backgroundColor: theme.colors.background,
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: theme.colors.border,
-                overflow: 'hidden' as const,
-                zIndex: 99,
-              },
-              animFsPanel,
-            ]}>
-              {/* Grabber \u2014 always at the top of the expanding panel */}
+          <Animated.View style={[
+            {
+              position: 'absolute' as const,
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: theme.colors.background,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderTopColor: theme.colors.border,
+              overflow: 'hidden' as const,
+              zIndex: 99,
+            },
+            animFsPanel,  // provides animated `top` and `paddingTop`
+          ]}>
+            {/* Grabber — draggable handle to open/close the panel */}
+            <GestureDetector gesture={fsGrabberGesture}>
               <View style={styles.grabberArea}>
                 <View style={[styles.grabberPill, { backgroundColor: theme.colors.border }]} />
               </View>
+            </GestureDetector>
 
-              {/* Search + Sort header \u2014 reveals only when drawer is nearly fully open */}
+            {/* Search header — reveals only when drawer is nearly fully open (draggable) */}
+            <GestureDetector gesture={fsHeaderGesture}>
               <Animated.View style={animFsHeader}>
                 <View style={styles.fsHeader}>
                   <View style={[styles.fsSearchBar, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]}>
-                    <MaterialIcons name="search" size={18} color={theme.colors.textSecondary} style={styles.fsSearchIcon} />
+                    <MaterialIcons name="search" size={20} color={theme.colors.textSecondary} style={styles.fsSearchIcon} />
                     <TextInput
                       style={[styles.fsSearchInput, { color: theme.colors.text, fontFamily: 'Inter_400Regular' }]}
                       placeholder="Search apps..."
                       placeholderTextColor={theme.colors.textSecondary}
                       value={fsSearchQuery}
                       onChangeText={setFsSearchQuery}
+                      onFocus={() => {
+                        // Set SharedValue synchronously (visible to gesture worklets immediately via JSI)
+                        isSearchFocusedSV.value = true;
+                      }}
+                      onBlur={() => {
+                        isSearchFocusedSV.value = false;
+                      }}
                       autoCorrect={false}
                       autoCapitalize="none"
                       returnKeyType="search"
                     />
                     {fsSearchQuery.length > 0 && (
                       <TouchableOpacity onPress={() => setFsSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <MaterialIcons name="close" size={16} color={theme.colors.textSecondary} />
+                        <MaterialIcons name="close" size={18} color={theme.colors.textSecondary} />
                       </TouchableOpacity>
-                    )}
-                  </View>
-
-                  <View style={styles.fsSortContainer}>
-                    <TouchableOpacity
-                      style={[styles.fsSortBtn, {
-                        backgroundColor: fsSortMode !== 'default' ? `${theme.colors.primary}18` : theme.colors.cardPrimary,
-                        borderColor: fsSortMode !== 'default' ? theme.colors.primary : theme.colors.border,
-                      }]}
-                      onPress={() => setShowFsSortMenu(v => !v)}
-                      activeOpacity={0.7}
-                    >
-                      <MaterialIcons
-                        name="sort"
-                        size={18}
-                        color={fsSortMode !== 'default' ? theme.colors.primary : theme.colors.textSecondary}
-                      />
-                    </TouchableOpacity>
-
-                    {showFsSortMenu && (
-                      <View style={[styles.fsSortMenu, {
-                        backgroundColor: theme.colors.cardPrimary,
-                        borderColor: theme.colors.border,
-                        shadowColor: isDark ? '#000' : '#AAA',
-                      }]}>
-                        {([
-                          { key: 'default', label: 'Default Order', icon: 'reorder' },
-                          { key: 'az',      label: 'A \u2192 Z',         icon: 'sort-by-alpha' },
-                          { key: 'za',      label: 'Z \u2192 A',         icon: 'sort-by-alpha' },
-                        ] as const).map(opt => (
-                          <TouchableOpacity
-                            key={opt.key}
-                            style={[styles.fsSortOption, {
-                              backgroundColor: fsSortMode === opt.key ? `${theme.colors.primary}14` : 'transparent',
-                            }]}
-                            onPress={() => { setFsSortMode(opt.key); setShowFsSortMenu(false); }}
-                          >
-                            <MaterialIcons
-                              name={opt.icon as any}
-                              size={15}
-                              color={fsSortMode === opt.key ? theme.colors.primary : theme.colors.textSecondary}
-                            />
-                            <Text style={[styles.fsSortOptTxt, {
-                              color: fsSortMode === opt.key ? theme.colors.primary : theme.colors.text,
-                              fontFamily: fsSortMode === opt.key ? 'Inter_600SemiBold' : 'Inter_400Regular',
-                            }]}>
-                              {opt.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
                     )}
                   </View>
                 </View>
               </Animated.View>
+            </GestureDetector>
 
-              {/* Extra tile rows \u2014 fill all available space between header and Row1 */}
-              <ScrollView
-                style={styles.fsScroll}
-                contentContainerStyle={styles.fsScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {fsDisplayItems.length === 0 ? (
-                  <View style={styles.fsEmpty}>
-                    <MaterialIcons name="search-off" size={36} color={theme.colors.border} />
-                    <Text style={[styles.fsEmptyTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
-                      No apps found
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.grid}>
-                    {fsDisplayItems.map(item => (
-                      <TabButton
-                        key={item.id}
-                        item={item}
-                        isActive={isActiveItem(item)}
-                        onPress={() => { setShowFsSortMenu(false); onTabPress(item); }}
-                        theme={theme}
-                        drawerMode
-                      />
-                    ))}
-                  </View>
-                )}
-              </ScrollView>
+            {/* Row1 — the original compact dock bar, moves to the top and slides up (draggable) — hidden while searching */}
+            {fsSearchQuery.trim() === '' && (
+              <GestureDetector gesture={fsRow1Gesture}>
+                <Animated.View style={[styles.row, animRow1Style, { backgroundColor: theme.colors.background }]}>
+                  {row1.map(item => (
+                    <TabButton
+                      key={item.id}
+                      item={item}
+                      isActive={isActiveItem(item)}
+                      onPress={() => onTabPress(item)}
+                      theme={theme}
+                      compact
+                    />
+                  ))}
+                </Animated.View>
+              </GestureDetector>
+            )}
 
-              {/* Row1 \u2014 the original compact dock bar, always pinned at the bottom */}
-              <View style={[styles.row, { paddingBottom: bottomPad, backgroundColor: theme.colors.background }]}>
-                {row1.map(item => (
-                  <TabButton
-                    key={item.id}
-                    item={item}
-                    isActive={isActiveItem(item)}
-                    onPress={() => { setShowFsSortMenu(false); onTabPress(item); }}
-                    theme={theme}
-                    compact
-                  />
-                ))}
-              </View>
-            </Animated.View>
-          </GestureDetector>
+            {/* Extra tile rows — fill all available space below Row1 */}
+            <ScrollView
+              style={styles.fsScroll}
+              contentContainerStyle={[styles.fsScrollContent, { paddingBottom: bottomPad + 16 }]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {fsDisplayItems.length === 0 ? (
+                <GestureDetector gesture={fsEmptyGesture}>
+                  <View style={{ flex: 1 }}>
+                    {fsSearchQuery.trim() === '' ? (
+                      <View style={styles.fsEmpty}>
+                        <View style={[styles.fsEmptyIconBg, { backgroundColor: `${theme.colors.textSecondary}10` }]}>
+                          <MaterialIcons name="apps" size={32} color={theme.colors.textSecondary} />
+                        </View>
+                        <Text style={[styles.fsEmptyTxt, { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }]}>
+                          No extra tiles
+                        </Text>
+                        <Text style={[styles.fsEmptySubTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                          Go to Settings ➔ Dock ➔ Customize Active Tiles to add shortcuts here
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.fsEmpty}>
+                        <View style={[styles.fsEmptyIconBg, { backgroundColor: `${theme.colors.textSecondary}10` }]}>
+                          <MaterialIcons name="search-off" size={32} color={theme.colors.textSecondary} />
+                        </View>
+                        <Text style={[styles.fsEmptyTxt, { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }]}>
+                          No results found
+                        </Text>
+                        <Text style={[styles.fsEmptySubTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                          Try checking spelling or search for another app
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </GestureDetector>
+              ) : (
+                <View style={styles.grid}>
+                  {fsDisplayItems.map(item => (
+                    <TabButton
+                      key={item.id}
+                      item={item}
+                      isActive={isActiveItem(item)}
+                      onPress={() => onTabPress(item)}
+                      theme={theme}
+                      drawerMode
+                    />
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          </Animated.View>
         </>
       )}
 
@@ -895,70 +1067,29 @@ const styles = StyleSheet.create({
   fsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 16,
   },
   fsSearchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    height: 48,
-    borderRadius: 24,
+    height: 50,
+    borderRadius: 25,
     borderWidth: 1,
-    paddingHorizontal: 16,
-    gap: 8,
-    elevation: 1.5,
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
+    paddingHorizontal: 18,
+    gap: 10,
+    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
   },
   fsSearchIcon: { marginRight: 2 },
   fsSearchInput: {
     flex: 1,
     fontSize: 15,
     paddingVertical: 0,
-  },
-  // ── Sort ────────────────────────────────────────────────────────────────────
-  fsSortContainer: {
-    position: 'relative',
-  },
-  fsSortBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 1.5,
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-  },
-  fsSortMenu: {
-    position: 'absolute',
-    top: 52,
-    right: 0,
-    width: 172,
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    zIndex: 200,
-  },
-  fsSortOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-  },
-  fsSortOptTxt: {
-    fontSize: 13,
   },
   // ── Grid scroll ─────────────────────────────────────────────────────────────
   fsScroll: {
@@ -967,16 +1098,32 @@ const styles = StyleSheet.create({
   fsScrollContent: {
     paddingHorizontal: 0,
     paddingTop: 8,
+    flexGrow: 1,
   },
   fsEmpty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60,
-    gap: 12,
+    paddingHorizontal: 32,
+    paddingBottom: 80,
+  },
+  fsEmptyIconBg: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   fsEmptyTxt: {
-    fontSize: 14,
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  fsEmptySubTxt: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   // ── Pinned Quick Access Footer ───────────────────────────────────────────────
   fsDivider: {
