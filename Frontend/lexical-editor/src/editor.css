@@ -326,31 +326,56 @@ html, body, #root {
 .editor-nested-listitem { list-style-type: none; }
 
 /* ── Checklist ────────────────────────────────────────────────── */
+/*
+ * Layout design to work with Lexical's CheckListPlugin click detection:
+ *
+ *   Lexical detects checkbox clicks when:
+ *     pageX > li.rect.left  AND  pageX < li.rect.left + 20
+ *
+ *   So the visual checkbox MUST start at li.rect.left + 0px (i.e. left:0).
+ *
+ *   We put the drag handle in the UL's left padding area (negative left on ::before).
+ *
+ *   UL padding-left: 26px  — houses the drag handle (14px) + gap (12px)
+ *   LI padding-left: 28px  — houses the checkbox (20px) + gap (8px) before text
+ *   Drag handle ::before: left: -22px  (14px wide, inside UL padding)
+ *   Checkbox  ::after:    left:   0px  (20px wide — Lexical detects 0-20px clicks ✓)
+ *   Checked   ::before:   left:   0px  (same zone, Lexical fires toggleChecked())
+ */
 .editor-listItemChecked,
 .editor-listItemUnchecked {
   position: relative;
-  padding-left: 44px;
+  padding-left: 28px;       /* checkbox(20px) + gap(8px) */
   margin: 6px 0;
   list-style-type: none;
   outline: none;
   line-height: 1.45;
-  min-height: 22px;
+  min-height: 1.45em;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
-/* Checklist UL container indentation override */
+/* Checklist UL: padding-left creates the drag-handle zone */
 .editor-list-ul:has(.editor-listItemUnchecked),
 .editor-list-ul:has(.editor-listItemChecked) {
-  padding-left: 6px !important;
+  padding-left: 26px !important;
 }
 
-/* Drag handle: pure CSS 2×3 dots pattern (no font-metric vertical offsets) */
+/*
+ * DRAG HANDLE — 2×3 dot grid, inside the UL's left-padding space
+ *
+ * left: -22px puts the 14px-wide handle at [-22px, -8px] relative to
+ * the LI left edge, which sits inside the UL's 26px padding.
+ * height: 1.45em + background-position with calc(50% ...) centres
+ * the 18px dot grid regardless of Android font metrics.
+ */
 .editor-listItemUnchecked::before {
   content: '';
   position: absolute;
-  left: 2px;
-  top: 3px;
-  width: 10px;
-  height: 18px;
+  left: -22px;
+  top: 0;
+  width: 14px;
+  height: 1.45em;
   background-image:
     radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
     radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
@@ -360,64 +385,69 @@ html, body, #root {
     radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px);
   background-size: 6px 6px;
   background-repeat: no-repeat;
+  /* Centre the 18px-tall (3×6px) dot grid vertically in the 1.45em container.
+     Row centres at: 50%−9px, 50%−3px, 50%+3px (each row is 6px apart).
+     X: 1px for left column, 7px for right column. */
   background-position:
-    0px 0px,
-    6px 0px,
-    0px 6px,
-    6px 6px,
-    0px 12px,
-    6px 12px;
+    1px calc(50% - 9px),  7px calc(50% - 9px),
+    1px calc(50% - 3px),  7px calc(50% - 3px),
+    1px calc(50% + 3px),  7px calc(50% + 3px);
   opacity: 0.45;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  /* CRITICAL: must be set in CSS before any touch begins so the browser
+     doesn't route the initial pointer event to the scroll handler. */
+  touch-action: none;
 }
 
-/* Unchecked Checkbox Box */
+/*
+ * UNCHECKED CHECKBOX — left:0 so Lexical's click zone (0-20px) hits it
+ *
+ * height: 1.45em + background-position: center 50% centres the 20×20 SVG
+ * within the first line-height without any font-metric dependency.
+ */
 .editor-listItemUnchecked::after {
   content: '';
   position: absolute;
-  left: 18px;
-  top: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  border: 1.5px solid var(--accent);
-  box-sizing: border-box;
-  background: transparent;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 1.45em;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='1' y='1' width='18' height='18' rx='3.5' ry='3.5' fill='none' stroke='%236366F1' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+  background-position: center 50%;
 }
 
-/* Checked Checkbox Box (filled) */
+/*
+ * CHECKED CHECKBOX — filled accent square with embedded white tick
+ *
+ * For checked items ::before = filled checkbox (no drag handle needed/shown).
+ * left:0 keeps it in the same position as the unchecked ::after.
+ */
 .editor-listItemChecked::before {
   content: '';
   position: absolute;
-  left: 18px;
-  top: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  border: 1.5px solid var(--accent);
-  background: var(--accent);
-  box-sizing: border-box;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 1.45em;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='0' y='0' width='20' height='20' rx='4' ry='4' fill='%236366F1'/%3E%3Cpolyline points='4.5%2C10 8%2C13.5 15.5%2C6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 20px 20px;
+  background-repeat: no-repeat;
+  background-position: center 50%;
 }
 
-/* Checked Checkmark Tick */
+/* Tick is embedded in ::before SVG — nothing needed for ::after */
 .editor-listItemChecked::after {
-  content: '';
-  position: absolute;
-  left: 23px;
-  top: 6px;
-  width: 5px;
-  height: 9px;
-  border: 2px solid #fff;
-  border-top: none;
-  border-left: none;
-  transform: rotate(45deg);
-  box-sizing: border-box;
+  display: none;
 }
 
 /* Strikethrough + dim for checked text */
 .editor-listItemChecked > span { text-decoration: line-through; opacity: 0.5; }
+
+
 
 
 

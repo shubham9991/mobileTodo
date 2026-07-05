@@ -1171,9 +1171,22 @@ function DragDropListPlugin() {
           const rect = li.getBoundingClientRect();
           const touch = e.touches[0];
           const clickX = touch.clientX - rect.left;
-          // Drag handle is on the far left (0 to 16px)
-          if (clickX >= 0 && clickX <= 16) {
-            e.preventDefault(); // Disable WebView scroll!
+          // Drag handle is at left:-22px to -8px (in UL's left-padding, before the li)
+          if (clickX >= -22 && clickX <= -8) {
+            e.preventDefault(); // Prevent scroll AND long-press text selection
+          }
+        }
+      };
+
+      const handleContextMenu = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        const li = target.closest('li');
+        if (li && li.classList.contains('editor-listItemUnchecked')) {
+          const rect = li.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          // Drag handle at -22px to -8px from li left edge
+          if (clickX >= -22 && clickX <= -8) {
+            e.preventDefault();
           }
         }
       };
@@ -1184,13 +1197,18 @@ function DragDropListPlugin() {
         if (li && li.classList.contains('editor-listItemUnchecked')) {
           const rect = li.getBoundingClientRect();
           const clickX = e.clientX - rect.left;
-          // Drag handle is on the far left (0 to 16px)
-          if (clickX >= 0 && clickX <= 16) {
+          // Drag handle is at left:-22px to -8px (inside UL's 26px left-padding)
+          // These are negative because the handle is before the li's left edge
+          if (clickX >= -22 && clickX <= -8) {
             e.preventDefault();
             activeDraggedLi = li;
             li.style.opacity = '0.5';
-            li.style.touchAction = 'none';
             isDraggingActive = true;
+
+            // CRITICAL: capture the pointer on the root element so that
+            // pointermove / pointerup events keep firing even when the finger
+            // moves outside the original <li> or the WebView clips events.
+            try { rootElement.setPointerCapture(e.pointerId); } catch (_) {}
 
             editor.getEditorState().read(() => {
               const node = $getNearestNodeFromDOMNode(li);
@@ -1251,7 +1269,6 @@ function DragDropListPlugin() {
       const cleanupDrag = () => {
         if (activeDraggedLi) {
           activeDraggedLi.style.opacity = '';
-          activeDraggedLi.style.touchAction = '';
         }
         if (dropTargetLi) {
           clearIndicators(dropTargetLi);
@@ -1284,10 +1301,12 @@ function DragDropListPlugin() {
 
       rootElement.addEventListener('touchstart', handleTouchStart, { passive: false });
       rootElement.addEventListener('pointerdown', handlePointerDown);
+      rootElement.addEventListener('contextmenu', handleContextMenu);
 
       return () => {
         rootElement.removeEventListener('touchstart', handleTouchStart);
         rootElement.removeEventListener('pointerdown', handlePointerDown);
+        rootElement.removeEventListener('contextmenu', handleContextMenu);
         window.removeEventListener('touchmove', handleGlobalTouchMove);
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('pointerup', handlePointerUp);
