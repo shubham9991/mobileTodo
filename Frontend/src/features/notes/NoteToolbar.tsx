@@ -187,6 +187,7 @@ export function NoteToolbar({
   const [showEquationModal, setShowEquationModal] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
   const [showTweetModal, setShowTweetModal] = useState(false);
+  const [showDeleteTableModal, setShowDeleteTableModal] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [equation, setEquation] = useState('');
@@ -308,7 +309,13 @@ export function NoteToolbar({
   };
 
   const currentFontSizeNum = parseInt(selectionState.fontSize ?? '16px', 10) || 16;
-  const changeFontSize = (delta: number) => cmd('SET_FONT_SIZE', `${Math.max(8, Math.min(96, currentFontSizeNum + delta))}px`);
+  // Font size stepper must NOT call the regular cmd() which blurs the WebView and triggers
+  // keyboardDidShow → setIsExpanded(false). Call sendCommand directly instead.
+  const changeFontSize = (delta: number) => {
+    const next = Math.max(8, Math.min(96, currentFontSizeNum + delta));
+    sendCommand('SET_FONT_SIZE', `${next}px`);
+    onActionTriggered?.('SET_FONT_SIZE', `${next}px`);
+  };
 
   // ─── Color tokens — Word-faithful ────────────────────────────────────────
   // Light: pure white surfaces, #F5F5F5 secondary, #E8E8E8 borders
@@ -359,7 +366,7 @@ export function NoteToolbar({
     );
   };
 
-  // ─── Table Mini Bar ─────────────────────────────────────────
+  // ─── Table Mini Bar ─────────────────────────────────────────────────────────────
   // Shown when cursor is inside a table cell
   const renderTableMiniBar = () => (
     <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
@@ -379,9 +386,12 @@ export function NoteToolbar({
           <MiniBtn icon="keyboard-arrow-left" onPress={() => cmd('TABLE_ADD_COL_LEFT')} color={textPri} />
           <MiniBtn icon="keyboard-arrow-right" onPress={() => cmd('TABLE_ADD_COL_RIGHT')} color={textPri} />
           <MiniSep color={border} />
-          {/* Delete operations */}
+          {/* Delete row/col */}
           <MiniBtn icon="delete-sweep" onPress={() => cmd('TABLE_DELETE_ROW')} color="#EF4444" />
           <MiniBtn icon="view-column" onPress={() => cmd('TABLE_DELETE_COL')} color="#EF4444" />
+          <MiniSep color={border} />
+          {/* Delete entire table */}
+          <MiniBtn icon="delete-forever" onPress={() => setShowDeleteTableModal(true)} color="#EF4444" />
         </ScrollView>
         <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
       </View>
@@ -503,7 +513,6 @@ export function NoteToolbar({
   // ─── HOME TAB ─────────────────────────────────────────────────────────────
   const renderHomeTab = () => (
     <View>
-      {/* Row 1: Font + Size — tap font name opens sub-panel directly (no dropdown) */}
       <View style={[S.fontRow, { borderBottomColor: border }]}>
         <TouchableOpacity
           style={[S.fontPicker, { borderColor: border }]}
@@ -528,7 +537,6 @@ export function NoteToolbar({
         </View>
       </View>
 
-      {/* Row 2: Format buttons — B I U S | x² x₂ ⌥ */}
       <View style={[S.fmtRow, { borderBottomColor: border }]}>
         <View style={{ flex: 4, flexDirection: 'row' }}>
           {[
@@ -567,7 +575,6 @@ export function NoteToolbar({
         </View>
       </View>
 
-      {/* Row 3: Alignment */}
       <View style={[S.alignRow, { borderBottomColor: border }]}>
         <View style={{ flex: 4, flexDirection: 'row' }}>
           {[
@@ -603,12 +610,10 @@ export function NoteToolbar({
         </View>
       </View>
 
-      {/* Word-style list rows */}
       <Row icon="notes" label="Styles" rightText={getBlockLabel(selectionState.blockType)} onPress={() => setSubPanel('paraStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={['paragraph','h1','h2','h3','quote'].includes(selectionState.blockType)} />
       <Row icon="format-list-bulleted" label="Bullet List" onPress={() => setSubPanel('bulletStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'bullet'} />
       <Row icon="format-list-numbered" label="Numbered List" onPress={() => setSubPanel('numberedStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'number'} />
       <Row icon="checklist" label="Checklist" showChevron={false} onPress={() => cmd('INSERT_CHECK')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'check'} />
-      {/* Inline Code + Code Block — single row 2 column */}
       <View style={[S.codeRow, { borderBottomColor: borderHair }]}>
         <TouchableOpacity
           style={[
@@ -641,29 +646,64 @@ export function NoteToolbar({
     </View>
   );
 
-  // ─── INSERT TAB ───────────────────────────────────────────────────────────
+  // ─── INSERT TAB ─────────────────────────────────────────────
   const renderInsertTab = () => {
-    const items = [
-      { icon: 'table-chart', label: 'Table',       onPress: () => setShowTableModal(true) },
-      { icon: 'image',       label: 'Image',       onPress: () => cmd('INSERT_IMAGE_NATIVE') },
-      { icon: 'poll',        label: 'Poll',        onPress: () => cmd('INSERT_POLL') },
-      { icon: 'link',        label: 'Link',        onPress: () => setShowLinkModal(true) },
-      { icon: 'horizontal-rule',    label: 'H. Rule',   onPress: () => cmd('INSERT_HR') },
-      { icon: 'insert-page-break',  label: 'Page Break', onPress: () => cmd('INSERT_PAGE_BREAK') },
-      { icon: 'functions',   label: 'Equation',    onPress: () => setShowEquationModal(true) },
-      { icon: 'play-circle-outline', label: 'YouTube',  onPress: () => setShowYouTubeModal(true) },
-      { icon: 'alternate-email',     label: 'Tweet / X', onPress: () => setShowTweetModal(true) },
-      { icon: 'expand-more', label: 'Collapsible', onPress: () => cmd('INSERT_COLLAPSIBLE') },
-      { icon: 'today',       label: 'Date',        onPress: () => cmd('INSERT_DATE', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })) },
-      { icon: 'view-column', label: 'Columns',     onPress: () => cmd('INSERT_COLUMNS') },
+    const groups = [
+      {
+        title: 'Media',
+        items: [
+          { icon: 'image', label: 'Image', desc: 'Insert from library', color: '#10B981', onPress: () => cmd('INSERT_IMAGE_NATIVE') },
+          { icon: 'play-circle-outline', label: 'YouTube', desc: 'Embed a video', color: '#EF4444', onPress: () => setShowYouTubeModal(true) },
+          { icon: 'alternate-email', label: 'Tweet / X', desc: 'Embed a post', color: '#1D9BF0', onPress: () => setShowTweetModal(true) },
+        ],
+      },
+      {
+        title: 'Structure',
+        items: [
+          { icon: 'table-chart', label: 'Table', desc: 'Insert a table', color: '#6366F1', onPress: () => setShowTableModal(true) },
+          { icon: 'poll', label: 'Poll', desc: 'Add a poll block', color: '#F59E0B', onPress: () => cmd('INSERT_POLL') },
+          { icon: 'expand-more', label: 'Collapsible', desc: 'Collapsible section', color: '#8B5CF6', onPress: () => cmd('INSERT_COLLAPSIBLE') },
+        ],
+      },
+      {
+        title: 'Tools',
+        items: [
+          { icon: 'link', label: 'Link', desc: 'Insert a hyperlink', color: '#3B82F6', onPress: () => setShowLinkModal(true) },
+          { icon: 'functions', label: 'Equation', desc: 'LaTeX math block', color: '#EC4899', onPress: () => setShowEquationModal(true) },
+          { icon: 'today', label: 'Date', desc: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), color: '#06B6D4', onPress: () => cmd('INSERT_DATE', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })) },
+        ],
+      },
+      {
+        title: 'Dividers',
+        items: [
+          { icon: 'horizontal-rule', label: 'Horizontal Rule', desc: 'Thin divider line', color: '#6B7280', onPress: () => cmd('INSERT_HR') },
+          { icon: 'insert-page-break', label: 'Page Break', desc: 'Force a page break', color: '#6B7280', onPress: () => cmd('INSERT_PAGE_BREAK') },
+        ],
+      },
     ];
     return (
-      <View style={S.insertGrid}>
-        {items.map(item => (
-          <TouchableOpacity key={item.label} style={[S.insertItem, { borderColor: border }]} onPress={item.onPress}>
-            <MaterialIcons name={item.icon as any} size={24} color={textPri} />
-            <Text style={[S.insertLabel, { color: textSec }]} numberOfLines={2}>{item.label}</Text>
-          </TouchableOpacity>
+      <View style={{ paddingBottom: 8 }}>
+        {groups.map(group => (
+          <View key={group.title}>
+            <Text style={[S.insertGroupLabel, { color: textSec }]}>{group.title}</Text>
+            {group.items.map(item => (
+              <TouchableOpacity
+                key={item.label}
+                style={[S.insertListItem, { borderBottomColor: borderHair }]}
+                onPress={item.onPress}
+                activeOpacity={0.6}
+              >
+                <View style={[S.insertIconBadge, { backgroundColor: item.color + '18' }]}>
+                  <MaterialIcons name={item.icon as any} size={22} color={item.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[S.insertListLabel, { color: textPri }]}>{item.label}</Text>
+                  <Text style={[S.insertListDesc, { color: textSec }]}>{item.desc}</Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={18} color={textSec} />
+              </TouchableOpacity>
+            ))}
+          </View>
         ))}
       </View>
     );
@@ -672,7 +712,6 @@ export function NoteToolbar({
   // ─── LAYOUT TAB ───────────────────────────────────────────────────────────
   const renderLayoutTab = () => (
     <View>
-      {/* Alignment row */}
       <View style={[S.alignRow, { borderBottomColor: border }]}>
         <View style={{ flex: 4, flexDirection: 'row' }}>
           {[
@@ -776,7 +815,6 @@ export function NoteToolbar({
     );
   };
 
-  // ─── Para Styles — Word Mobile card grid: styled text only, no sub-label ──
   const renderParaStylePanel = () => (
     <View>
       <View style={S.styleGrid}>
@@ -810,7 +848,6 @@ export function NoteToolbar({
     </View>
   );
 
-  // ─── Bullet Style — 3-card visual grid showing multi-line preview ─────────
   const renderBulletStylePanel = () => (
     <View style={S.listTypeGrid}>
       {BULLET_STYLES.map(style => {
@@ -838,7 +875,6 @@ export function NoteToolbar({
     </View>
   );
 
-  // ─── Numbered Style — 5-card grid ────────────────────────────────────────
   const renderNumberedStylePanel = () => (
     <View>
       <View style={S.listTypeGrid}>
@@ -868,7 +904,6 @@ export function NoteToolbar({
     </View>
   );
 
-  // ─── Change Case — large visual tiles ────────────────────────────────────
   const renderTextTransformPanel = () => (
     <View style={{ padding: 12, gap: 10 }}>
       {[
@@ -1004,7 +1039,6 @@ export function NoteToolbar({
           <View style={[S.modalCard, { backgroundColor: surface, borderColor: border }]}>
             <Text style={[S.modalTitle, { color: textPri }]}>Insert Table</Text>
             <Text style={[S.modalSub, { color: textSec }]}>Set dimensions (max 100 × 100)</Text>
-            {/* Steppers only — no grid since max is 100 */}
             <View style={S.tStepperRow}>
               {[{ label: 'Rows', val: tableRows, set: setTableRows }, { label: 'Columns', val: tableCols, set: setTableCols }].map(({ label, val, set }) => (
                 <View key={label} style={S.tStepperGroup}>
@@ -1033,6 +1067,36 @@ export function NoteToolbar({
               </TouchableOpacity>
               <TouchableOpacity style={[S.modalOkBtn, { backgroundColor: blue }]} onPress={() => { cmd('INSERT_TABLE', `${tableRows},${tableCols}`); setShowTableModal(false); }}>
                 <Text style={S.modalOkText}>Insert</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+
+  // ─── Delete-table warning modal ──────────────────────────────────────────
+  const renderDeleteTableModal = () => (
+    <Modal visible={showDeleteTableModal} transparent animationType="fade" onRequestClose={() => setShowDeleteTableModal(false)}>
+      <Pressable style={S.modalOverlay} onPress={() => setShowDeleteTableModal(false)}>
+        <Pressable>
+          <View style={[S.modalCard, { backgroundColor: surface, borderColor: border }]}>
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <MaterialIcons name="warning" size={36} color="#EF4444" />
+            </View>
+            <Text style={[S.modalTitle, { color: textPri, textAlign: 'center' }]}>Delete Table?</Text>
+            <Text style={[S.modalSub, { color: textSec, marginTop: 6, marginBottom: 4 }]}>
+              This will permanently remove the entire table and all its contents. This cannot be undone.
+            </Text>
+            <View style={S.modalBtns}>
+              <TouchableOpacity style={[S.modalCancelBtn, { borderColor: border }]} onPress={() => setShowDeleteTableModal(false)}>
+                <Text style={[S.modalCancelText, { color: textSec }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.modalOkBtn, { backgroundColor: '#EF4444' }]}
+                onPress={() => { cmd('TABLE_DELETE_FULL'); setShowDeleteTableModal(false); }}
+              >
+                <Text style={S.modalOkText}>Delete</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1106,6 +1170,7 @@ export function NoteToolbar({
       {renderInputModal(showTweetModal, () => setShowTweetModal(false), 'Tweet / X Post', tweetUrl, setTweetUrl, 'https://x.com/…', () => { cmd('INSERT_TWEET', tweetUrl); setTweetUrl(''); setShowTweetModal(false); }, 'Embed')}
       {renderInputModal(showEquationModal, () => setShowEquationModal(false), 'LaTeX Equation', equation, setEquation, 'e.g. \\frac{1}{2}mv^2', () => { cmd('INSERT_EQUATION', JSON.stringify({ equation, inline: false })); setEquation(''); setShowEquationModal(false); }, 'Insert', true, 'default')}
       {showTableModal && renderTableModal()}
+      {showDeleteTableModal && renderDeleteTableModal()}
     </>
   );
 }
@@ -1113,7 +1178,10 @@ export function NoteToolbar({
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function extractYouTubeId(url: string): string | null {
-  const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  // Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID, youtube.com/embed/ID
+  const m = url.match(
+    /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
+  );
   return m ? m[1] : null;
 }
 
@@ -1386,7 +1454,25 @@ const S = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
   },
 
-  // ── Insert grid ──
+  // ── Insert list (new design) ──
+  insertGroupLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold',
+    textTransform: 'uppercase', letterSpacing: 0.6,
+    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6,
+  },
+  insertListItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 16, paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  insertIconBadge: {
+    width: 40, height: 40, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  insertListLabel: { fontSize: 15, fontFamily: 'Inter_500Medium' },
+  insertListDesc: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 1 },
+
+  // kept for any legacy code that still references these
   insertGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
     paddingHorizontal: 10, paddingVertical: 14, gap: 10,

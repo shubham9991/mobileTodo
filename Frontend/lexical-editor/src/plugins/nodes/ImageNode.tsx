@@ -1,6 +1,7 @@
 /**
  * Custom ImageNode — stores image as base64 URI so it lives entirely inside
  * the Lexical JSON AST with no external file dependency.
+ * Tap image to select → shows delete (✕) button in top-right corner.
  */
 import {
   DecoratorNode,
@@ -12,17 +13,55 @@ import {
   NodeKey,
   SerializedLexicalNode,
   Spread,
+  $getNodeByKey,
 } from 'lexical';
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useCallback, useEffect } from 'react';
 
 export type SerializedImageNode = Spread<
   { src: string; altText: string; width?: number; height?: number },
   SerializedLexicalNode
 >;
 
-function ImageComponent({ src, altText }: { src: string; altText: string }) {
+function ImageComponent({
+  nodeKey,
+  src,
+  altText,
+  editor,
+}: {
+  nodeKey: string;
+  src: string;
+  altText: string;
+  editor: LexicalEditor;
+}) {
+  const [selected, setSelected] = useState(false);
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    editor.update(() => {
+      const node = $getNodeByKey(nodeKey);
+      if (node) node.remove();
+    });
+  }, [editor, nodeKey]);
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelected(s => !s);
+  }, []);
+
+  // Click outside → deselect
+  useEffect(() => {
+    if (!selected) return;
+    const handler = () => setSelected(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [selected]);
+
   return (
-    <div className="editor-image-container">
+    <div
+      className={`editor-image-container${selected ? ' editor-image-selected' : ''}`}
+      onClick={handleClick}
+    >
       <img
         src={src}
         alt={altText}
@@ -30,6 +69,16 @@ function ImageComponent({ src, altText }: { src: string; altText: string }) {
         draggable={false}
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
+      {selected && (
+        <button
+          className="editor-image-delete-btn"
+          onMouseDown={handleDelete}
+          onTouchEnd={handleDelete as any}
+          title="Delete image"
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -95,10 +144,15 @@ export class ImageNode extends DecoratorNode<React.JSX.Element> {
     return { element: img };
   }
 
-  decorate(): React.JSX.Element {
+  decorate(editor: LexicalEditor): React.JSX.Element {
     return (
       <Suspense fallback={null}>
-        <ImageComponent src={this.__src} altText={this.__altText} />
+        <ImageComponent
+          nodeKey={this.__key}
+          src={this.__src}
+          altText={this.__altText}
+          editor={editor}
+        />
       </Suspense>
     );
   }

@@ -114,9 +114,30 @@ export function createBlankNote(id: string, title = ''): Note {
   };
 }
 
-/** Generates a simple preview string from plain text. */
-export function buildPreview(text: string, maxLen = 120): string {
-  return text.replace(/\n+/g, ' ').trim().slice(0, maxLen);
+/** Generates a simple preview string from plain text, supporting checklists and preserving formatting. */
+export function buildPreview(text: string, html?: string, maxLen = 500): string {
+  if (html && (html.includes('listItemChecked') || html.includes('listItemUnchecked'))) {
+    const liRegex = /<li[^>]*class="[^"]*listItem(Checked|Unchecked)[^"]*"[^>]*>(.*?)<\/li>/gi;
+    let match;
+    const lines: string[] = [];
+    
+    // Reset regex index
+    liRegex.lastIndex = 0;
+    while ((match = liRegex.exec(html)) !== null) {
+      const type = match[1]; // Checked or Unchecked
+      const content = match[2];
+      const cleanContent = content.replace(/<[^>]*>/g, '').trim();
+      const isChecked = type === 'Checked';
+      lines.push(`${isChecked ? '☑' : '☐'} ${cleanContent}`);
+    }
+    
+    if (lines.length > 0) {
+      return lines.slice(0, 15).join('\n');
+    }
+  }
+
+  // Preserve newlines and crop to maxLen
+  return text.trim().slice(0, maxLen);
 }
 
 /** Formats relative time for note cards (e.g., "2m ago", "3h ago", "Jun 2"). */

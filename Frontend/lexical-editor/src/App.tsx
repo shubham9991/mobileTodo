@@ -45,6 +45,7 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  $isNodeSelection,
   $createParagraphNode,
   $isParagraphNode,
   $setSelection,
@@ -54,6 +55,7 @@ import {
   ElementFormatType,
   $isTextNode,
   $isElementNode,
+  KEY_BACKSPACE_COMMAND,
 } from 'lexical';
 import {
   INSERT_UNORDERED_LIST_COMMAND,
@@ -91,7 +93,10 @@ import {
   $createCollapsibleContentNode,
 } from './plugins/nodes/CollapsibleNodes';
 import { $createPollNode } from './plugins/nodes/PollNode';
+import { $createPageBreakNode } from './plugins/nodes/PageBreakNode';
+import { $createTweetCardNode } from './plugins/nodes/TweetCardNode';
 import CodeActionMenuPlugin from './plugins/CodeActionMenuPlugin';
+
 
 // ── Code file extension map ───────────────────────────────────────────────────
 const CODE_EXTENSIONS: Record<string, string> = {
@@ -532,7 +537,15 @@ function ToolbarBridgePlugin() {
           case 'TABLE_DELETE_COL':
             editor.update(() => { $deleteTableColumn__EXPERIMENTAL(); });
             break;
-
+          case 'TABLE_DELETE_FULL':
+            editor.update(() => {
+              const sel = $getSelection();
+              if (!$isRangeSelection(sel)) return;
+              let node: any = sel.anchor.getNode();
+              while (node && !$isTableNode(node)) node = node.getParent();
+              if (node && $isTableNode(node)) node.remove();
+            });
+            break;
           case 'TOGGLE_LINK':
             editor.update(() => { restoreSelection(); editor.dispatchCommand(TOGGLE_LINK_COMMAND, payload ?? null); });
             break;
@@ -600,7 +613,8 @@ function ToolbarBridgePlugin() {
           case 'INSERT_PAGE_BREAK': {
             editor.update(() => {
               restoreSelection();
-              editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
+              const sel = $getSelection();
+              if (sel) sel.insertNodes([$createPageBreakNode()]);
             });
             break;
           }
@@ -621,19 +635,12 @@ function ToolbarBridgePlugin() {
             });
             break;
           }
-          case 'INSERT_COLUMNS': {
-            window.ReactNativeWebView?.postMessage(JSON.stringify({
-              type: 'FEATURE_NOTE',
-              payload: 'Columns layout coming soon',
-            }));
-            break;
-          }
           case 'INSERT_TWEET': {
             if (!payload) break;
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if ($isRangeSelection(sel)) sel.insertText(`🐦 ${payload}`);
+              if (sel) sel.insertNodes([$createTweetCardNode(payload)]);
             });
             break;
           }
@@ -1135,188 +1142,227 @@ function PaginationPlugin() {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// DRAG DROP LIST PLUGIN
-// ═══════════════════════════════════════════════════════════════════════════════
-function DragDropListPlugin() {
+// ── BackspaceNodeDeletionPlugin — deletes media blocks on backspace ──────────
+function BackspaceNodeDeletionPlugin(): null {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    let activeDraggedLi: HTMLElement | null = null;
-    let draggedNodeKey: string | null = null;
-    let dropTargetLi: HTMLElement | null = null;
-    let isBefore = true;
-    let isDraggingActive = false;
+    const DELETABLE = new Set(['image', 'youtube', 'tweet-card', 'page-break', 'equation', 'poll']);
 
-    const handleGlobalTouchMove = (e: TouchEvent) => {
-      if (isDraggingActive) {
-        e.preventDefault();
-      }
-    };
+    /**
+     * Find the Lexical key of a node we should delete on backspace.
+     * Checks THREE scenarios in order:
+     *  1. Lexical already put the node into a NodeSelection (first backspace moved focus to it)
+     *  2. DOM cursor is at offset 0 of a block — look at the preceding DOM sibling
+     *  3. Lexical RangeSelection is at offset 0 — look at preceding Lexical sibling
+     */
+    const findNodeToDelete = (): string | null => {
+      let key: string | null = null;
 
-    const clearIndicators = (el: HTMLElement | null) => {
-      if (el) {
-        el.style.borderTop = '';
-        el.style.borderBottom = '';
-      }
-    };
+      editor.getEditorState().read(() => {
+        const selection = $getSelection();
 
-    return editor.registerRootListener((rootElement, prevRootElement) => {
-      if (!rootElement) return;
-
-      const handleTouchStart = (e: TouchEvent) => {
-        const target = e.target as HTMLElement;
-        const li = target.closest('li');
-        if (li && li.classList.contains('editor-listItemUnchecked')) {
-          const rect = li.getBoundingClientRect();
-          const touch = e.touches[0];
-          const clickX = touch.clientX - rect.left;
-          // Drag handle is at left:-22px to -8px (in UL's left-padding, before the li)
-          if (clickX >= -22 && clickX <= -8) {
-            e.preventDefault(); // Prevent scroll AND long-press text selection
+        // ── Scenario 1: Lexical NodeSelection (node already "selected" by previous backspace) ──
+        if ($isNodeSelection(selection)) {
+          const nodes = selection.getNodes();
+          if (nodes.length === 1 && DELETABLE.has(nodes[0].getType())) {
+            key = nodes[0].getKey();
+            return;
           }
         }
-      };
 
-      const handleContextMenu = (e: MouseEvent) => {
-        const target = e.target as HTMLElement;
-        const li = target.closest('li');
-        if (li && li.classList.contains('editor-listItemUnchecked')) {
-          const rect = li.getBoundingClientRect();
-          const clickX = e.clientX - rect.left;
-          // Drag handle at -22px to -8px from li left edge
-          if (clickX >= -22 && clickX <= -8) {
-            e.preventDefault();
+        // ── Scenario 2: Use raw DOM selection (avoids Android reconciliation lag) ──
+        const domSel = window.getSelection();
+        const rootEl = editor.getRootElement();
+        if (domSel && domSel.isCollapsed && domSel.rangeCount > 0 && rootEl) {
+          const range = domSel.getRangeAt(0);
+          // Find the block-level element that is a direct child of the editor root
+          let blockEl: Element | null =
+            range.startContainer.nodeType === Node.TEXT_NODE
+              ? (range.startContainer as Text).parentElement
+              : (range.startContainer as Element);
+          while (blockEl && blockEl.parentElement !== rootEl) {
+            blockEl = blockEl.parentElement;
           }
-        }
-      };
+          if (blockEl) {
+            try {
+              // Create range to check if there is any visible text before the caret in this block
+              const preRange = document.createRange();
+              preRange.setStart(blockEl, 0);
+              preRange.setEnd(range.startContainer, range.startOffset);
+              const preText = preRange.toString();
+              const cleanPreText = preText.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
 
-      const handlePointerDown = (e: PointerEvent) => {
-        const target = e.target as HTMLElement;
-        const li = target.closest('li');
-        if (li && li.classList.contains('editor-listItemUnchecked')) {
-          const rect = li.getBoundingClientRect();
-          const clickX = e.clientX - rect.left;
-          // Drag handle is at left:-22px to -8px (inside UL's 26px left-padding)
-          // These are negative because the handle is before the li's left edge
-          if (clickX >= -22 && clickX <= -8) {
-            e.preventDefault();
-            activeDraggedLi = li;
-            li.style.opacity = '0.5';
-            isDraggingActive = true;
-
-            // CRITICAL: capture the pointer on the root element so that
-            // pointermove / pointerup events keep firing even when the finger
-            // moves outside the original <li> or the WebView clips events.
-            try { rootElement.setPointerCapture(e.pointerId); } catch (_) {}
-
-            editor.getEditorState().read(() => {
-              const node = $getNearestNodeFromDOMNode(li);
-              if (node) draggedNodeKey = node.getKey();
-            });
-
-            window.addEventListener('touchmove', handleGlobalTouchMove, { passive: false });
-            window.addEventListener('pointermove', handlePointerMove);
-            window.addEventListener('pointerup', handlePointerUp);
-            window.addEventListener('pointercancel', handlePointerCancel);
-          }
-        }
-      };
-
-      const handlePointerMove = (e: PointerEvent) => {
-        if (!activeDraggedLi) return;
-
-        const clientX = e.clientX;
-        const clientY = e.clientY;
-        const hoverEl = document.elementFromPoint(clientX, clientY) as HTMLElement;
-        const targetLi = hoverEl?.closest('li');
-
-        if (targetLi && targetLi !== activeDraggedLi && targetLi.classList.contains('editor-listItemUnchecked')) {
-          const targetRect = targetLi.getBoundingClientRect();
-          const relativeY = clientY - targetRect.top;
-          const middleY = targetRect.height / 2;
-          const nextIsBefore = relativeY < middleY;
-
-          if (dropTargetLi !== targetLi || isBefore !== nextIsBefore) {
-            clearIndicators(dropTargetLi);
-            dropTargetLi = targetLi;
-            isBefore = nextIsBefore;
-
-            if (isBefore) {
-              targetLi.style.borderTop = '2.5px solid var(--accent)';
-              targetLi.style.borderBottom = '';
-            } else {
-              targetLi.style.borderBottom = '2.5px solid var(--accent)';
-              targetLi.style.borderTop = '';
-            }
-          }
-        } else {
-          if (dropTargetLi) {
-            clearIndicators(dropTargetLi);
-            dropTargetLi = null;
-          }
-        }
-      };
-
-      const handlePointerUp = (e: PointerEvent) => {
-        cleanupDrag();
-      };
-
-      const handlePointerCancel = (e: PointerEvent) => {
-        cleanupDrag();
-      };
-
-      const cleanupDrag = () => {
-        if (activeDraggedLi) {
-          activeDraggedLi.style.opacity = '';
-        }
-        if (dropTargetLi) {
-          clearIndicators(dropTargetLi);
-        }
-
-        if (draggedNodeKey && dropTargetLi) {
-          editor.update(() => {
-            const srcNode = $getNodeByKey(draggedNodeKey!);
-            const destNode = $getNearestNodeFromDOMNode(dropTargetLi!);
-            if (srcNode && destNode && srcNode !== destNode) {
-              if (isBefore) {
-                destNode.insertBefore(srcNode);
-              } else {
-                destNode.insertAfter(srcNode);
+              if (cleanPreText === '') {
+                const prevEl = blockEl.previousElementSibling;
+                if (prevEl) {
+                  const node = $getNearestNodeFromDOMNode(prevEl);
+                  if (node && DELETABLE.has(node.getType())) {
+                    key = node.getKey();
+                    return;
+                  }
+                }
               }
-            }
-          });
+            } catch (_) { /* range error or node not found in DOM */ }
+          }
         }
 
-        activeDraggedLi = null;
-        draggedNodeKey = null;
-        dropTargetLi = null;
-        isDraggingActive = false;
+        // ── Scenario 3: Fallback — Lexical RangeSelection at offset 0 ──
+        if (!$isRangeSelection(selection) || !selection.isCollapsed()) return;
+        const anchor = selection.anchor;
+        const anchorNode = anchor.getNode();
 
-        window.removeEventListener('touchmove', handleGlobalTouchMove);
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        window.removeEventListener('pointercancel', handlePointerCancel);
-      };
+        let isAtStart = false;
+        if (anchor.type === 'text' && anchor.offset === 0) {
+          let prev = anchorNode.getPreviousSibling();
+          while (prev && prev.getTextContentSize() === 0) prev = prev.getPreviousSibling();
+          if (!prev) isAtStart = true;
+        } else if (anchor.type === 'element' && anchor.offset === 0) {
+          isAtStart = true;
+        }
+        if (!isAtStart) return;
 
-      rootElement.addEventListener('touchstart', handleTouchStart, { passive: false });
-      rootElement.addEventListener('pointerdown', handlePointerDown);
-      rootElement.addEventListener('contextmenu', handleContextMenu);
+        let topBlock: any = anchorNode;
+        while (topBlock && topBlock.getParent()?.getType() !== 'root') {
+          topBlock = topBlock.getParent();
+        }
+        if (!topBlock) return;
 
-      return () => {
-        rootElement.removeEventListener('touchstart', handleTouchStart);
-        rootElement.removeEventListener('pointerdown', handlePointerDown);
-        rootElement.removeEventListener('contextmenu', handleContextMenu);
-        window.removeEventListener('touchmove', handleGlobalTouchMove);
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        window.removeEventListener('pointercancel', handlePointerCancel);
-      };
+        const prev = topBlock.getPreviousSibling();
+        if (prev && DELETABLE.has(prev.getType())) key = prev.getKey();
+      });
+
+      return key;
+    };
+
+    const tryDelete = (e: Event): boolean => {
+      const key = findNodeToDelete();
+      if (!key) return false;
+      // Call preventDefault SYNCHRONOUSLY before scheduling editor.update
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      editor.update(() => {
+        const node = $getNodeByKey(key);
+        if (node) node.remove();
+      });
+      return true;
+    };
+
+    const onBeforeInput = (e: Event) => {
+      if ((e as InputEvent).inputType === 'deleteContentBackward') tryDelete(e);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.keyCode === 8) tryDelete(e);
+    };
+
+    return editor.registerRootListener((root, prevRoot) => {
+      if (prevRoot) {
+        prevRoot.removeEventListener('beforeinput', onBeforeInput, true);
+        prevRoot.removeEventListener('keydown', onKeyDown, true);
+      }
+      if (root) {
+        root.addEventListener('beforeinput', onBeforeInput, true);
+        root.addEventListener('keydown', onKeyDown, true);
+      }
     });
   }, [editor]);
 
   return null;
 }
+
+
+// ── AutoEmbedPlugin — converts pasted YouTube / Twitter URLs into embed cards ──
+const YT_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
+const TWITTER_REGEX = /(?:twitter\.com|x\.com)\/\S+\/status\/\d+/;
+
+function AutoEmbedPlugin(): null {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    // ── Method 1: intercept paste event (works on desktop & some Android) ──
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain')?.trim();
+      if (!text) return;
+
+      const ytMatch = text.match(YT_REGEX);
+      if (ytMatch) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const videoID = ytMatch[1];
+        editor.update(() => {
+          const sel = $getSelection();
+          if (sel) sel.insertNodes([$createYouTubeNode(videoID)]);
+        });
+        return;
+      }
+
+      if (TWITTER_REGEX.test(text)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        editor.update(() => {
+          const sel = $getSelection();
+          if (sel) sel.insertNodes([$createTweetCardNode(text)]);
+        });
+      }
+    };
+
+    const pasteCleanup = editor.registerRootListener((root, prevRoot) => {
+      if (prevRoot) prevRoot.removeEventListener('paste', onPaste, true);
+      if (root) root.addEventListener('paste', onPaste, true);
+    });
+
+    // ── Method 2: scan paragraphs after every update (catches Android clipboard paste) ──
+    // If a paragraph contains ONLY a URL with no other content, replace it with an embed
+    let converting = false; // prevent re-entrant loops
+    const updateCleanup = editor.registerUpdateListener(({ editorState, dirtyLeaves }) => {
+      if (converting || dirtyLeaves.size === 0) return;
+
+      editorState.read(() => {
+        const root = $getRoot();
+        const children = root.getChildren();
+        for (const child of children) {
+          if (child.getType() !== 'paragraph') continue;
+          const text = child.getTextContent().trim();
+          if (!text) continue;
+
+          const ytMatch = text.match(YT_REGEX);
+          if (ytMatch) {
+            const videoID = ytMatch[1];
+            converting = true;
+            editor.update(() => {
+              const fresh = $getNodeByKey(child.getKey());
+              if (fresh && fresh.getType() === 'paragraph' && fresh.getTextContent().trim() === text) {
+                const embed = $createYouTubeNode(videoID);
+                fresh.replace(embed);
+              }
+            }, { onUpdate: () => { converting = false; } });
+            return;
+          }
+
+          if (TWITTER_REGEX.test(text)) {
+            converting = true;
+            editor.update(() => {
+              const fresh = $getNodeByKey(child.getKey());
+              if (fresh && fresh.getType() === 'paragraph' && fresh.getTextContent().trim() === text) {
+                const embed = $createTweetCardNode(text);
+                fresh.replace(embed);
+              }
+            }, { onUpdate: () => { converting = false; } });
+            return;
+          }
+        }
+      });
+    });
+
+    return () => {
+      pasteCleanup();
+      updateCleanup();
+    };
+  }, [editor]);
+
+  return null;
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
@@ -1373,7 +1419,8 @@ export default function App() {
           <SlashCommandPlugin />
           <CodeLanguageClickPlugin />
           <PaginationPlugin />
-          <DragDropListPlugin />
+          <BackspaceNodeDeletionPlugin />
+          <AutoEmbedPlugin />
         </div>
       </div>
     </LexicalComposer>

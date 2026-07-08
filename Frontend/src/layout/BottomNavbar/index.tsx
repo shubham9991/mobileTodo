@@ -203,6 +203,7 @@ export const BottomNavbar = () => {
   const startProg = useSharedValue(0);
   const fsY              = useSharedValue(SCREEN_H); // fullscreen: SCREEN_H=closed 0=open
   const fsStartY         = useSharedValue(0);
+  const fsScrollY        = useSharedValue(0); // Tracks vertical scroll offset of fullscreen panel
   // SharedValues for keyboard/search state — visible to gesture worklets synchronously via JSI.
   // React state (useState) updates are async and can't be read by onEnd during the same touch event.
   const isSearchFocusedSV  = useSharedValue(false);
@@ -630,6 +631,45 @@ export const BottomNavbar = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const fsEmptyGesture   = useMemo(makeFsPanGesture, [makeFsPanGesture]);
 
+  const fsScrollGesture = useMemo(() => {
+    return Gesture.Pan()
+      .activeOffsetY([5, 10]) // Activate on downward drag
+      .onBegin(() => {
+        fsStartY.value = fsY.value;
+      })
+      .onUpdate((e) => {
+        // If we are at the top of the scroll view and dragging down, and keyboard is not open
+        if (fsScrollY.value <= 1 && e.translationY > 0 && !isSearchFocusedSV.value && !isKeyboardVisibleSV.value) {
+          fsY.value = Math.max(0, Math.min(SCREEN_H, fsStartY.value + e.translationY));
+        }
+      })
+      .onEnd((e) => {
+        if (isSearchFocusedSV.value || isKeyboardVisibleSV.value) {
+          fsY.value = withSpring(0, SNAP_SPRING);
+          return;
+        }
+
+        if (fsScrollY.value <= 1 && e.translationY > 0) {
+          const flingUp   = e.velocityY < -200;
+          const flingDown = e.velocityY >  200;
+          const dragPct   = fsY.value / SCREEN_H;
+
+          if (flingUp || (!flingDown && dragPct < 0.15)) {
+            fsY.value = withSpring(0, SNAP_SPRING);
+            runOnJS(hapticMed)();
+          } else {
+            runOnJS(hapticLight)();
+            fsY.value = withSpring(SCREEN_H, CLOSE_SPRING, (done) => {
+              if (done) {
+                runOnJS(setFsOpen)(false);
+                runOnJS(setIsDockExpanded)(false);
+              }
+            });
+          }
+        }
+      });
+  }, [fsY, fsStartY, fsScrollY, isSearchFocusedSV, isKeyboardVisibleSV, setFsOpen, setIsDockExpanded]);
+
   // ── Animated styles ───────────────────────────────────────────────────────
   const animRow2 = useAnimatedStyle(() => ({
     height:   interpolate(progress.value, [0, 1], [0, ROW_H], Extrapolation.CLAMP),
@@ -948,14 +988,18 @@ export const BottomNavbar = () => {
             )}
 
             {/* Extra tile rows — fill all available space below Row1 */}
-            <ScrollView
-              style={styles.fsScroll}
-              contentContainerStyle={[styles.fsScrollContent, { paddingBottom: bottomPad + 16 }]}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              {fsDisplayItems.length === 0 ? (
-                <GestureDetector gesture={fsEmptyGesture}>
+            <GestureDetector gesture={Gesture.Simultaneous(fsScrollGesture, Gesture.Native())}>
+              <ScrollView
+                style={styles.fsScroll}
+                contentContainerStyle={[styles.fsScrollContent, { paddingBottom: bottomPad + 16 }]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                onScroll={(e) => {
+                  fsScrollY.value = e.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+              >
+                {fsDisplayItems.length === 0 ? (
                   <View style={{ flex: 1 }}>
                     {fsSearchQuery.trim() === '' ? (
                       <View style={styles.fsEmpty}>
@@ -983,22 +1027,22 @@ export const BottomNavbar = () => {
                       </View>
                     )}
                   </View>
-                </GestureDetector>
-              ) : (
-                <View style={styles.grid}>
-                  {fsDisplayItems.map(item => (
-                    <TabButton
-                      key={item.id}
-                      item={item}
-                      isActive={isActiveItem(item)}
-                      onPress={() => onTabPress(item)}
-                      theme={theme}
-                      drawerMode
-                    />
-                  ))}
-                </View>
-              )}
-            </ScrollView>
+                ) : (
+                  <View style={styles.grid}>
+                    {fsDisplayItems.map(item => (
+                      <TabButton
+                        key={item.id}
+                        item={item}
+                        isActive={isActiveItem(item)}
+                        onPress={() => onTabPress(item)}
+                        theme={theme}
+                        drawerMode
+                      />
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            </GestureDetector>
           </Animated.View>
         </>
       )}

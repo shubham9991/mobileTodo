@@ -33,6 +33,7 @@ export interface Task {
   dueDate?: string;     // start date, e.g. "Mon, Apr 28"
   dueEndDate?: string;  // end date for multi-day tasks, e.g. "Fri, May 2" (optional)
   dueTime?: string;
+  nodeId?: string;       // ID of the project/company folder it belongs to
 }
 export const dummyData = {
   user: {
@@ -186,6 +187,7 @@ export const dummyData = {
           completed: false,
           dueDate: 'Today',
           dueTime: '10:30 AM',
+          nodeId: 'project_getting_started',
         },
         {
           id: 't2',
@@ -202,6 +204,7 @@ export const dummyData = {
           completed: false,
           dueDate: 'Today',
           dueTime: '2:00 PM',
+          nodeId: 'project_team_setup',
         },
         {
           id: 't3',
@@ -213,6 +216,7 @@ export const dummyData = {
           hasReminder: false,
           completed: true,
           dueDate: 'Today',
+          nodeId: 'project_msm',
         },
       ],
     },
@@ -231,6 +235,7 @@ export const dummyData = {
           completed: false,
           dueDate: 'Fri, Mar 28',
           dueTime: '5:00 PM',
+          nodeId: 'project_vhm',
         },
         {
           id: 't5',

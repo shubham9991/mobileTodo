@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../themes/ThemeContext';
 import { NoteEditor } from './NoteEditor';
 import {
-  getNote, saveNote, createBlankNote, buildPreview, type Note,
+  getNote, saveNote, deleteNote, createBlankNote, buildPreview, type Note,
 } from '../../core/db/notesStore';
 import type { SavePayload } from './useEditorBridge';
 
@@ -62,6 +62,23 @@ export function NoteScreen() {
   // Handle auto-save payload from Lexical bridge
   const handleSave = useCallback(async (payload: SavePayload) => {
     if (!noteId) return;
+
+    const hasPlainText = payload.text && payload.text.trim().length > 0;
+    const hasHtmlBlocks = payload.html && payload.html
+      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
+      .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .trim().length > 0;
+
+    const hasContent = hasPlainText || hasHtmlBlocks;
+    const hasTitleText = title && title.trim().length > 0 && title.toLowerCase() !== 'untitled';
+
+    if (!hasContent && !hasTitleText) {
+      await deleteNote(noteId);
+      setNote(null);
+      setSaveStatus('idle');
+      return;
+    }
+
     setSaveStatus('saving');
     setWordCount(payload.wordCount ?? 0);
 
@@ -71,7 +88,7 @@ export function NoteScreen() {
       title: title || 'Untitled',
       content: payload.json,
       contentHtml: payload.html,
-      preview: buildPreview(payload.text),
+      preview: buildPreview(payload.text, payload.html),
       createdAt: note?.createdAt ?? now,
       updatedAt: now,
       pinned: note?.pinned ?? false,
@@ -89,7 +106,24 @@ export function NoteScreen() {
   // Save title change immediately
   const handleTitleChange = useCallback(async (newTitle: string) => {
     setTitle(newTitle);
-    if (!note || !noteId) return;
+    if (!noteId) return;
+
+    const hasPlainText = note?.preview && note.preview.trim().length > 0;
+    const hasHtmlBlocks = note?.contentHtml && note.contentHtml
+      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
+      .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .trim().length > 0;
+
+    const hasContent = hasPlainText || hasHtmlBlocks;
+    const hasTitleText = newTitle && newTitle.trim().length > 0 && newTitle.toLowerCase() !== 'untitled';
+
+    if (!hasContent && !hasTitleText) {
+      await deleteNote(noteId);
+      setNote(null);
+      return;
+    }
+
+    if (!note) return;
     const updatedNote: Note = { ...note, title: newTitle, updatedAt: new Date().toISOString() };
     setNote(updatedNote);
     await saveNote(updatedNote);
@@ -103,10 +137,28 @@ export function NoteScreen() {
 
   const handleTitleSubmitEditing = useCallback(async () => {
     setEditingTitle(false);
-    const trimmed = title.trim() || 'Untitled';
-    setTitle(trimmed);
+    const trimmed = title.trim();
+
+    const hasPlainText = note?.preview && note.preview.trim().length > 0;
+    const hasHtmlBlocks = note?.contentHtml && note.contentHtml
+      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
+      .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .trim().length > 0;
+
+    const hasContent = hasPlainText || hasHtmlBlocks;
+    const hasTitleText = trimmed.length > 0 && trimmed.toLowerCase() !== 'untitled';
+
+    if (!hasContent && !hasTitleText) {
+      setTitle('');
+      if (noteId) await deleteNote(noteId);
+      setNote(null);
+      return;
+    }
+
+    const finalTitle = trimmed || 'Untitled';
+    setTitle(finalTitle);
     if (!note || !noteId) return;
-    const updatedNote: Note = { ...note, title: trimmed, updatedAt: new Date().toISOString() };
+    const updatedNote: Note = { ...note, title: finalTitle, updatedAt: new Date().toISOString() };
     setNote(updatedNote);
     await saveNote(updatedNote);
   }, [title, note, noteId]);

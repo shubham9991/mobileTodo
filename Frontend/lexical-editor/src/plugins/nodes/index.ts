@@ -21,6 +21,8 @@ import {
   CollapsibleContentNode,
 } from './CollapsibleNodes';
 import { PollNode } from './PollNode';
+import { PageBreakNode } from './PageBreakNode';
+import { TweetCardNode } from './TweetCardNode';
 
 export const allNodes: Array<Klass<LexicalNode>> = [
   // Built-in rich text
@@ -52,5 +54,8 @@ export const allNodes: Array<Klass<LexicalNode>> = [
   CollapsibleTitleNode,
   CollapsibleContentNode,
   PollNode,
+  PageBreakNode,
+  TweetCardNode,
 ];
+
 

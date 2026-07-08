@@ -63,7 +63,6 @@ const SLASH_ITEMS: SlashAction[] = [
   { section: 'Media', label: 'Embed YouTube',  icon: 'play-circle-filled', command: '__YOUTUBE__' },
   { section: 'Media', label: 'Embed X / Tweet', icon: 'chat',           command: '__TWEET__' },
   // Layout
-  { section: 'Layout', label: 'Columns Layout',  icon: 'view-column',   command: 'INSERT_COLUMNS' },
   { section: 'Layout', label: 'Align Left',      icon: 'format-align-left',    command: 'FORMAT_ELEMENT', payload: 'left' },
   { section: 'Layout', label: 'Align Center',    icon: 'format-align-center',  command: 'FORMAT_ELEMENT', payload: 'center' },
   { section: 'Layout', label: 'Align Right',     icon: 'format-align-right',   command: 'FORMAT_ELEMENT', payload: 'right' },

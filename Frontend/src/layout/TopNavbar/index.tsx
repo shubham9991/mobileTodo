@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
 import { useTheme } from '../../themes/ThemeContext';
+import { useDashboard } from '../../core/DashboardContext';
 import { MarketplaceScreen } from '../../features/marketplace/MarketplaceScreen';
 import { GlobalSearchModal } from '../../features/search/GlobalSearchModal';
 import { SettingsScreen } from '../../features/settings/SettingsScreen';
@@ -16,16 +17,27 @@ const PAGE_TITLES: Record<string, string> = {
   '/manage':   'Manage',
 };
 
-export const TopNavbar = ({ onClose, title: propTitle }: { onClose?: () => void, title?: string }) => {
+export const TopNavbar = ({ 
+  onClose, 
+  title: propTitle,
+  onPressMenu 
+}: { 
+  onClose?: () => void;
+  title?: string;
+  onPressMenu?: () => void;
+}) => {
   const { theme } = useTheme();
+  const { nodes, activeNodeId } = useDashboard();
   const pathname = usePathname();
   const [showMarketplace, setShowMarketplace] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Dynamic title — default to 'Modular' for unknown routes
-  const title = propTitle || PAGE_TITLES[pathname] || 'Modular';
-  const isHome = title === 'Modular';
+  const selectedNode = activeNodeId ? nodes[activeNodeId] : null;
+
+  // Dynamic title — default to active project node name on home, or 'Modular'
+  const title = propTitle || (pathname === '/' || pathname === '/index' ? (selectedNode?.name || 'Modular') : (PAGE_TITLES[pathname] || 'Modular'));
+  const isHome = pathname === '/' || pathname === '/index';
 
   return (
     <>
@@ -40,14 +52,14 @@ export const TopNavbar = ({ onClose, title: propTitle }: { onClose?: () => void,
               <MaterialIcons name="arrow-back" size={24} color={theme.colors.text} />
             </TouchableOpacity>
           ) : isHome && (
-            <View style={[styles.logoBox, { backgroundColor: theme.colors.text }]}>
-              <MaterialIcons name="dashboard" size={14} color={theme.colors.background} />
-            </View>
+            <TouchableOpacity onPress={onPressMenu} style={[styles.logoBox, { backgroundColor: theme.colors.text }]}>
+              <MaterialIcons name="apps" size={16} color={theme.colors.background} />
+            </TouchableOpacity>
           )}
           <Text style={[
             styles.appName,
             { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' },
-            !isHome && styles.pageTitle,
+            (!isHome || !!selectedNode) && styles.pageTitle,
           ]}>
             {title}
           </Text>

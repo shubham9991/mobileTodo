@@ -326,126 +326,69 @@ html, body, #root {
 .editor-nested-listitem { list-style-type: none; }
 
 /* ── Checklist ────────────────────────────────────────────────── */
-/*
- * Layout design to work with Lexical's CheckListPlugin click detection:
- *
- *   Lexical detects checkbox clicks when:
- *     pageX > li.rect.left  AND  pageX < li.rect.left + 20
- *
- *   So the visual checkbox MUST start at li.rect.left + 0px (i.e. left:0).
- *
- *   We put the drag handle in the UL's left padding area (negative left on ::before).
- *
- *   UL padding-left: 26px  — houses the drag handle (14px) + gap (12px)
- *   LI padding-left: 28px  — houses the checkbox (20px) + gap (8px) before text
- *   Drag handle ::before: left: -22px  (14px wide, inside UL padding)
- *   Checkbox  ::after:    left:   0px  (20px wide — Lexical detects 0-20px clicks ✓)
- *   Checked   ::before:   left:   0px  (same zone, Lexical fires toggleChecked())
- */
+/* Checklist items common base */
 .editor-listItemChecked,
 .editor-listItemUnchecked {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important; /* Perfect vertical centering alignment regardless of line-height updates */
   position: relative;
-  padding-left: 28px;       /* checkbox(20px) + gap(8px) */
+  padding-left: 0;          /* Checkbox is in-flow, so no left padding needed */
   margin: 6px 0;
   list-style-type: none;
   outline: none;
-  line-height: 1.45;
-  min-height: 1.45em;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
-/* Checklist UL: padding-left creates the drag-handle zone */
+/* Reset UL container indentation override to default list padding */
 .editor-list-ul:has(.editor-listItemUnchecked),
 .editor-list-ul:has(.editor-listItemChecked) {
-  padding-left: 26px !important;
+  padding-left: 24px !important;
 }
 
-/*
- * DRAG HANDLE — 2×3 dot grid, inside the UL's left-padding space
- *
- * left: -22px puts the 14px-wide handle at [-22px, -8px] relative to
- * the LI left edge, which sits inside the UL's 26px padding.
- * height: 1.45em + background-position with calc(50% ...) centres
- * the 18px dot grid regardless of Android font metrics.
- */
+/* UNCHECKED CHECKBOX — in-flow flex item on the left */
 .editor-listItemUnchecked::before {
   content: '';
-  position: absolute;
-  left: -22px;
-  top: 0;
-  width: 14px;
-  height: 1.45em;
-  background-image:
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px),
-    radial-gradient(circle, var(--text-secondary, #71717A) 1.5px, transparent 1.5px);
-  background-size: 6px 6px;
-  background-repeat: no-repeat;
-  /* Centre the 18px-tall (3×6px) dot grid vertically in the 1.45em container.
-     Row centres at: 50%−9px, 50%−3px, 50%+3px (each row is 6px apart).
-     X: 1px for left column, 7px for right column. */
-  background-position:
-    1px calc(50% - 9px),  7px calc(50% - 9px),
-    1px calc(50% - 3px),  7px calc(50% - 3px),
-    1px calc(50% + 3px),  7px calc(50% + 3px);
-  opacity: 0.45;
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
-  /* CRITICAL: must be set in CSS before any touch begins so the browser
-     doesn't route the initial pointer event to the scroll handler. */
-  touch-action: none;
-}
-
-/*
- * UNCHECKED CHECKBOX — left:0 so Lexical's click zone (0-20px) hits it
- *
- * height: 1.45em + background-position: center 50% centres the 20×20 SVG
- * within the first line-height without any font-metric dependency.
- */
-.editor-listItemUnchecked::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
+  display: inline-block;
   width: 20px;
-  height: 1.45em;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='1' y='1' width='18' height='18' rx='3.5' ry='3.5' fill='none' stroke='%236366F1' stroke-width='1.5'/%3E%3C/svg%3E");
-  background-size: 20px 20px;
-  background-repeat: no-repeat;
-  background-position: center 50%;
+  height: 20px;
+  margin-right: 8px; /* space between checkbox and text */
+  flex-shrink: 0;
+  border: 1.5px solid var(--accent);
+  border-radius: 4px;
+  box-sizing: border-box;
+  background-color: transparent;
 }
 
-/*
- * CHECKED CHECKBOX — filled accent square with embedded white tick
- *
- * For checked items ::before = filled checkbox (no drag handle needed/shown).
- * left:0 keeps it in the same position as the unchecked ::after.
- */
+/* CHECKED CHECKBOX — in-flow flex item on the left */
 .editor-listItemChecked::before {
   content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
+  display: inline-block;
   width: 20px;
-  height: 1.45em;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Crect x='0' y='0' width='20' height='20' rx='4' ry='4' fill='%236366F1'/%3E%3Cpolyline points='4.5%2C10 8%2C13.5 15.5%2C6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  height: 20px;
+  margin-right: 8px; /* space between checkbox and text */
+  flex-shrink: 0;
+  border: 1.5px solid var(--accent);
+  border-radius: 4px;
+  background-color: var(--accent);
+  /* Pure white checkmark tick SVG overlay */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolyline points='4.5%2C10 8%2C13.5 15.5%2C6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-size: 20px 20px;
   background-repeat: no-repeat;
-  background-position: center 50%;
+  background-position: center;
+  box-sizing: border-box;
 }
 
-/* Tick is embedded in ::before SVG — nothing needed for ::after */
+/* Hide ::after pseudo-elements */
+.editor-listItemUnchecked::after,
 .editor-listItemChecked::after {
-  display: none;
+  display: none !important;
 }
 
 /* Strikethrough + dim for checked text */
-.editor-listItemChecked > span { text-decoration: line-through; opacity: 0.5; }
+.editor-listItemChecked > span {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
 
 
 
@@ -562,15 +505,196 @@ html, body, #root {
   transition: opacity 0.2s;
 }
 .editor-image-container:hover .editor-image-resizer { opacity: 1; }
-.editor-image-selected .editor-image { outline: 2px solid var(--accent); }
+.editor-image-selected .editor-image {
+  outline: 2.5px solid var(--accent);
+  border-radius: 10px;
+}
+/* Delete button on selected image */
+.editor-image-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 10;
+}
 
-/* ── YouTube embed ───────────────────────────────────────────── */
-.editor-youtube {
+/* ── YouTube embed ─────────────────────────────────────── */
+.editor-youtube-wrap {
+  position: relative;
   width: 100%;
   aspect-ratio: 16/9;
-  border-radius: 10px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 12px 0;
+  cursor: pointer;
+  background: #000;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.editor-youtube-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.editor-youtube-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+  transition: background 0.2s;
+}
+.editor-youtube-wrap:hover .editor-youtube-play {
+  background: rgba(0,0,0,0.4);
+}
+.editor-youtube-label {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0.85;
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.editor-youtube-iframe {
+  width: 100%;
+  height: 100%;
   border: none;
-  margin: 8px 0;
+  display: block;
+}
+.editor-youtube-selected {
+  outline: 2.5px solid var(--accent);
+  border-radius: 12px;
+}
+.editor-youtube-delete-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 10;
+}
+
+/* ── Tweet / X card ─────────────────────────────────────────── */
+.editor-tweet-card-container {
+  position: relative;
+  width: 100%;
+  margin: 12px 0;
+}
+.editor-tweet-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  margin: 0;
+  cursor: pointer;
+  background: var(--surface);
+  transition: background 0.15s;
+  user-select: none;
+}
+.editor-tweet-card:hover { background: var(--surface-elevated); }
+.editor-tweet-card-selected .editor-tweet-card {
+  outline: 2.5px solid var(--accent);
+  border-color: transparent;
+}
+.editor-tweet-card-delete-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #EF4444;
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  z-index: 10;
+}
+.editor-tweet-card-icon {
+  color: #000;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .editor-tweet-card-icon { color: #fff; }
+.editor-tweet-card-body { flex: 1; overflow: hidden; }
+.editor-tweet-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.editor-tweet-card-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-tweet-card-open {
+  font-size: 18px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* ── Page Break (distinct from H. Rule) ────────────────────────── */
+.editor-page-break {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+  user-select: none;
+  pointer-events: none;
+}
+.editor-page-break::before,
+.editor-page-break::after {
+  content: '';
+  flex: 1;
+  border-top: 1.5px dashed var(--border);
+}
+.editor-page-break-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+@media print {
+  .editor-page-break { break-after: page; }
 }
 
 /* ── Sticky note ─────────────────────────────────────────────── */

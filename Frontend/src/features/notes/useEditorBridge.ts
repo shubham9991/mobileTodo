@@ -10,7 +10,7 @@
  *   and this hook parses and routes the incoming message.
  */
 import { useRef, useCallback, useState } from 'react';
-import { Keyboard } from 'react-native';
+import { Keyboard, Linking } from 'react-native';
 import WebView from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 
@@ -66,6 +66,7 @@ export type EditorEventHandler = {
   onSlashMenuOpen?: () => void;
   onSlashMenuClose?: () => void;
   onCodeLangClick?: () => void;
+  onOpenUrl?: (url: string) => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -155,6 +156,17 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
       case 'CODE_LANG_CLICK':
         handlers.onCodeLangClick?.();
         break;
+      case 'OPEN_URL': {
+        const url = payload as string;
+        if (url) {
+          if (handlers.onOpenUrl) {
+            handlers.onOpenUrl(url);
+          } else {
+            Linking.openURL(url).catch(() => {});
+          }
+        }
+        break;
+      }
     }
   }, [handlers]);
 

@@ -22,6 +22,7 @@ import {
   MarkingStyle, CalendarMarkingSetting, DockMode,
   ALL_AVAILABLE_DOCK_ITEMS, DockItem,
 } from '../../core/ManageContext';
+import { useDashboard, NodeType, ProjectNode } from '../../core/DashboardContext';
 
 // Haptic feedback wrappers
 const hapticLight = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -951,6 +952,295 @@ const cmStyles = StyleSheet.create({
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// HIERARCHY NESTING MANAGER
+// ──────────────────────────────────────────────────────────────────────────────
+const HierarchyManager = () => {
+  const { theme } = useTheme();
+  const { nodes, createProjectNode, updateProjectNode, deleteProjectNode } = useDashboard();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editTarget, setEditTarget] = useState<ProjectNode | null>(null);
+  const [name, setName] = useState('');
+  const [type, setType] = useState<NodeType>('PROJECT');
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [color, setColor] = useState(PALETTE_COLORS[0]);
+
+  const openAdd = () => {
+    setName('');
+    setType('PROJECT');
+    setParentId(null);
+    setColor(PALETTE_COLORS[0]);
+    setShowAdd(true);
+  };
+
+  const openEdit = (node: ProjectNode) => {
+    setEditTarget(node);
+    setName(node.name);
+    setType(node.type);
+    setParentId(node.parentId);
+    setColor(node.color || PALETTE_COLORS[0]);
+  };
+
+  const commitAdd = () => {
+    if (!name.trim()) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    createProjectNode({
+      name: name.trim(),
+      type,
+      parentId,
+      color,
+      icon: type === 'COMPANY' ? 'business' : type === 'PROJECT' ? 'folder' : 'groups',
+    });
+    setShowAdd(false);
+  };
+
+  const commitEdit = () => {
+    if (!editTarget || !name.trim()) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    
+    // Prevent cycles: cannot set parent to itself
+    if (parentId === editTarget.id) {
+      Alert.alert('Invalid Parent', 'A node cannot be its own parent.');
+      return;
+    }
+
+    updateProjectNode(editTarget.id, {
+      name: name.trim(),
+      type,
+      parentId,
+      color,
+      icon: type === 'COMPANY' ? 'business' : type === 'PROJECT' ? 'folder' : 'groups',
+    });
+    setEditTarget(null);
+  };
+
+  const confirmDelete = (node: ProjectNode) => {
+    Alert.alert('Delete Space', `Remove "${node.name}" and all of its nested contents?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        deleteProjectNode(node.id);
+      }},
+    ]);
+  };
+
+  // Helper to render tree node recursively
+  const renderTreeNode = (nodeId: string, depth: number = 0) => {
+    const node = nodes[nodeId];
+    if (!node) return null;
+
+    return (
+      <View key={node.id}>
+        <View style={[
+          ms.row, 
+          { 
+            paddingLeft: depth * 16 + 12, 
+            borderBottomColor: theme.colors.border,
+            borderBottomWidth: StyleSheet.hairlineWidth 
+          }
+        ]}>
+          <View style={[ms.colorDot, { backgroundColor: node.color || theme.colors.text }]} />
+          <View style={{ flex: 1 }}>
+            <Text style={[ms.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+              {node.name}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <Text style={[ms.rowSub, { color: theme.colors.textSecondary }]}>
+                {node.type}
+              </Text>
+              {node.parentId && (
+                <>
+                  <MaterialIcons name="chevron-right" size={12} color={theme.colors.textSecondary} />
+                  <Text style={[ms.rowSub, { color: theme.colors.textSecondary }]}>
+                    child of {nodes[node.parentId]?.name || 'unknown'}
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+
+          {/* Edit & Delete Node */}
+          <TouchableOpacity onPress={() => openEdit(node)} style={ms.iconBtn}>
+            <MaterialIcons name="edit" size={17} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity onPress={() => confirmDelete(node)} style={ms.iconBtn}>
+            <MaterialIcons name="delete-outline" size={17} color="#EF4444" />
+          </TouchableOpacity>
+        </View>
+
+        {node.childIds && node.childIds.map(childId => renderTreeNode(childId, depth + 1))}
+      </View>
+    );
+  };
+
+  // Find top level nodes (ones without parents)
+  const topLevelNodeIds = Object.keys(nodes).filter(id => !nodes[id].parentId);
+
+  return (
+    <>
+      <SectionHdr label="SPACES & PROJECTS HIERARCHY" action="Add" onAction={openAdd} />
+      <Card>
+        {topLevelNodeIds.map(id => renderTreeNode(id, 0))}
+        {topLevelNodeIds.length === 0 && (
+          <Text style={{ padding: 16, textAlign: 'center', color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }}>
+            No spaces configured yet. Tap Add to create one.
+          </Text>
+        )}
+      </Card>
+
+      {/* Add Hierarchy Sheet */}
+      <Sheet visible={showAdd} onClose={() => setShowAdd(false)} title="New Space">
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Name</Text>
+        <SheetInput
+          placeholder="e.g. Design Team or Acme Corp"
+          value={name}
+          onChangeText={setName}
+          autoFocus
+        />
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Type</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          {(['COMPANY', 'PROJECT', 'TEAM'] as NodeType[]).map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[
+                ms.typeChip,
+                { 
+                  backgroundColor: type === t ? theme.colors.primary : theme.colors.secondary,
+                }
+              ]}
+              onPress={() => setType(t)}
+            >
+              <Text style={{ 
+                color: type === t ? '#fff' : theme.colors.textSecondary,
+                fontFamily: 'Inter_600SemiBold',
+                fontSize: 12
+              }}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Parent Node (Nesting)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
+          <TouchableOpacity
+            style={[
+              ms.parentChip,
+              { 
+                backgroundColor: parentId === null ? theme.colors.primary : theme.colors.secondary,
+              }
+            ]}
+            onPress={() => setParentId(null)}
+          >
+            <Text style={{ color: parentId === null ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+              None (Top Level)
+            </Text>
+          </TouchableOpacity>
+          {Object.values(nodes).map(node => (
+            <TouchableOpacity
+              key={node.id}
+              style={[
+                ms.parentChip,
+                { 
+                  backgroundColor: parentId === node.id ? theme.colors.primary : theme.colors.secondary,
+                }
+              ]}
+              onPress={() => setParentId(node.id)}
+            >
+              <Text style={{ color: parentId === node.id ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+                {node.name} ({node.type})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Color Tag</Text>
+        <ColorPicker selected={color} onSelect={setColor} />
+
+        <TouchableOpacity style={[ms.doneBtn, { backgroundColor: theme.colors.primary }]} onPress={commitAdd}>
+          <Text style={[ms.doneTxt, { color: '#FFF', fontFamily: 'Inter_600SemiBold' }]}>Create Space</Text>
+        </TouchableOpacity>
+      </Sheet>
+
+      {/* Edit Hierarchy Sheet */}
+      <Sheet visible={!!editTarget} onClose={() => setEditTarget(null)} title="Edit Space">
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>Name</Text>
+        <SheetInput
+          placeholder="Name"
+          value={name}
+          onChangeText={setName}
+          autoFocus
+        />
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Type</Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          {(['COMPANY', 'PROJECT', 'TEAM'] as NodeType[]).map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[
+                ms.typeChip,
+                { 
+                  backgroundColor: type === t ? theme.colors.primary : theme.colors.secondary,
+                }
+              ]}
+              onPress={() => setType(t)}
+            >
+              <Text style={{ 
+                color: type === t ? '#fff' : theme.colors.textSecondary,
+                fontFamily: 'Inter_600SemiBold',
+                fontSize: 12
+              }}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Parent Node (Nesting)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
+          <TouchableOpacity
+            style={[
+              ms.parentChip,
+              { 
+                backgroundColor: parentId === null ? theme.colors.primary : theme.colors.secondary,
+              }
+            ]}
+            onPress={() => setParentId(null)}
+          >
+            <Text style={{ color: parentId === null ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+              None (Top Level)
+            </Text>
+          </TouchableOpacity>
+          {Object.values(nodes)
+            .filter(node => editTarget && node.id !== editTarget.id) // Filter out itself to prevent cycle
+            .map(node => (
+              <TouchableOpacity
+                key={node.id}
+                style={[
+                  ms.parentChip,
+                  { 
+                    backgroundColor: parentId === node.id ? theme.colors.primary : theme.colors.secondary,
+                  }
+                ]}
+                onPress={() => setParentId(node.id)}
+              >
+                <Text style={{ color: parentId === node.id ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+                  {node.name} ({node.type})
+                </Text>
+              </TouchableOpacity>
+            ))}
+        </ScrollView>
+
+        <Text style={[ms.sheetLabel2, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular', marginTop: 16 }]}>Color Tag</Text>
+        <ColorPicker selected={color} onSelect={setColor} />
+
+        <TouchableOpacity style={[ms.doneBtn, { backgroundColor: theme.colors.primary }]} onPress={commitEdit}>
+          <Text style={[ms.doneTxt, { color: '#FFF', fontFamily: 'Inter_600SemiBold' }]}>Save Changes</Text>
+        </TouchableOpacity>
+      </Sheet>
+    </>
+  );
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
 // MAIN SCREEN
 // ──────────────────────────────────────────────────────────────────────────────
 export const ManageScreen = () => {
@@ -967,6 +1257,8 @@ export const ManageScreen = () => {
           <PriorityManager />
           <View style={ms.gap} />
           <TagManager />
+          <View style={ms.gap} />
+          <HierarchyManager />
           <View style={ms.gap} />
           <ReminderPresetsManager />
         </View>
@@ -1061,4 +1353,17 @@ const ms = StyleSheet.create({
 
   // Hint
   hint: { fontSize: 12, lineHeight: 17, marginTop: 6, marginBottom: 4, paddingHorizontal: 2 },
+
+  // Hierarchy Manager chips
+  typeChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  parentChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
 });

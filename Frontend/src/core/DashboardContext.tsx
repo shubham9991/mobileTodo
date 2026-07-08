@@ -6,6 +6,32 @@ import { dummyData, Task } from './dummyData';
 export type SectionId = 'hero' | 'tabs' | 'tasks' | 'notes' | 'upcoming';
 export type LayoutMode = 'compact' | 'comfortable' | 'expanded';
 
+export type NodeType = 'COMPANY' | 'FOLDER' | 'PROJECT' | 'TEAM';
+
+export interface ProjectNode {
+  id: string;
+  name: string;
+  type: NodeType;
+  parentId: string | null;
+  color?: string;
+  icon?: string;
+  childIds: string[];
+}
+
+export interface DashboardView {
+  id: string;
+  name: string;
+  layout: 'list' | 'calendar';
+  showCompleted: boolean;
+  grouping: 'none' | 'priority' | 'tag' | 'dueDate' | 'project';
+  sorting: 'manual' | 'dueDate' | 'priority' | 'created' | 'alphabetical';
+  filterDate: 'all' | 'today' | 'tomorrow' | 'overdue' | 'week';
+  filterPriorities: ('HIGH' | 'MED' | 'LOW')[];
+  filterTags: string[];
+  filterSourceNodeId: string | null;
+  widgets: { id: string; visible: boolean }[];
+}
+
 export const SECTION_META: Record<SectionId, { label: string; icon: string }> = {
   hero: { label: 'Hero Widget', icon: 'bolt' },
   tabs: { label: 'Category Tabs', icon: 'tab' },
@@ -40,30 +66,195 @@ export interface HistoryEvent {
   icon: string;
 }
 
+// Helper to recursively get all descendant node IDs
+export function getDescendantNodeIds(nodes: Record<string, ProjectNode>, rootId: string): string[] {
+  const result: string[] = [rootId];
+  const traverse = (id: string) => {
+    const node = nodes[id];
+    if (node && node.childIds) {
+      node.childIds.forEach(childId => {
+        result.push(childId);
+        traverse(childId);
+      });
+    }
+  };
+  traverse(rootId);
+  return result;
+}
+
+// ─── Default Nodes & Views Seed Data ──────────────────────────────────────────
+export const DEFAULT_NODES: Record<string, ProjectNode> = {
+  company_worksphere: {
+    id: 'company_worksphere',
+    name: 'WorkSphere',
+    type: 'COMPANY',
+    parentId: null,
+    color: '#6366F1',
+    icon: 'business',
+    childIds: ['company_modular', 'company_nayayein'],
+  },
+  company_modular: {
+    id: 'company_modular',
+    name: 'Modular Inc',
+    type: 'COMPANY',
+    parentId: 'company_worksphere',
+    color: '#8B5CF6',
+    icon: 'corporate-fare',
+    childIds: ['project_getting_started', 'project_weekly_review'],
+  },
+  project_getting_started: {
+    id: 'project_getting_started',
+    name: 'Getting Started',
+    type: 'PROJECT',
+    parentId: 'company_modular',
+    color: '#10B981',
+    icon: 'emoji-objects',
+    childIds: [],
+  },
+  project_weekly_review: {
+    id: 'project_weekly_review',
+    name: 'Weekly Review',
+    type: 'PROJECT',
+    parentId: 'company_modular',
+    color: '#F59E0B',
+    icon: 'fact-check',
+    childIds: [],
+  },
+  company_nayayein: {
+    id: 'company_nayayein',
+    name: 'Nayayein Rajyam',
+    type: 'COMPANY',
+    parentId: 'company_worksphere',
+    color: '#EC4899',
+    icon: 'domain',
+    childIds: ['project_team_setup', 'project_msm', 'project_vhm'],
+  },
+  project_team_setup: {
+    id: 'project_team_setup',
+    name: 'Team Setup Guide',
+    type: 'PROJECT',
+    parentId: 'company_nayayein',
+    color: '#3B82F6',
+    icon: 'groups',
+    childIds: [],
+  },
+  project_msm: {
+    id: 'project_msm',
+    name: 'Msm',
+    type: 'PROJECT',
+    parentId: 'company_nayayein',
+    color: '#EF4444',
+    icon: 'folder',
+    childIds: [],
+  },
+  project_vhm: {
+    id: 'project_vhm',
+    name: 'Vhm',
+    type: 'PROJECT',
+    parentId: 'company_nayayein',
+    color: '#14B8A6',
+    icon: 'work',
+    childIds: [],
+  },
+};
+
+export const DEFAULT_VIEWS: DashboardView[] = [
+  {
+    id: 'view_inbox',
+    name: 'Inbox',
+    layout: 'list',
+    showCompleted: true,
+    grouping: 'none',
+    sorting: 'dueDate',
+    filterDate: 'all',
+    filterPriorities: ['HIGH', 'MED', 'LOW'],
+    filterTags: [],
+    filterSourceNodeId: null,
+    widgets: [
+      { id: 'hero', visible: true },
+      { id: 'tabs', visible: true },
+      { id: 'tasks', visible: true },
+      { id: 'notes', visible: true },
+      { id: 'upcoming', visible: true },
+    ],
+  },
+  {
+    id: 'view_guyu',
+    name: 'Guyu',
+    layout: 'list',
+    showCompleted: false,
+    grouping: 'none',
+    sorting: 'dueDate',
+    filterDate: 'all',
+    filterPriorities: ['HIGH', 'MED', 'LOW'],
+    filterTags: [],
+    filterSourceNodeId: null,
+    widgets: [
+      { id: 'hero', visible: true },
+      { id: 'tabs', visible: true },
+      { id: 'tasks', visible: true },
+      { id: 'notes', visible: false },
+      { id: 'upcoming', visible: false },
+    ],
+  },
+  {
+    id: 'view_shjjh',
+    name: 'Shjjh',
+    layout: 'list',
+    showCompleted: false,
+    grouping: 'priority',
+    sorting: 'manual',
+    filterDate: 'all',
+    filterPriorities: ['HIGH', 'MED', 'LOW'],
+    filterTags: [],
+    filterSourceNodeId: null,
+    widgets: [
+      { id: 'hero', visible: false },
+      { id: 'tabs', visible: false },
+      { id: 'tasks', visible: true },
+      { id: 'notes', visible: false },
+      { id: 'upcoming', visible: false },
+    ],
+  },
+  {
+    id: 'view_beeu',
+    name: 'Beeu',
+    layout: 'calendar',
+    showCompleted: true,
+    grouping: 'none',
+    sorting: 'dueDate',
+    filterDate: 'all',
+    filterPriorities: ['HIGH', 'MED', 'LOW'],
+    filterTags: [],
+    filterSourceNodeId: null,
+    widgets: [
+      { id: 'hero', visible: false },
+      { id: 'tabs', visible: false },
+      { id: 'tasks', visible: true },
+      { id: 'notes', visible: false },
+      { id: 'upcoming', visible: true },
+    ],
+  },
+];
+
 // ─── Date Normalizer ─────────────────────────────────────────────────────────
-// Converts any human-readable date label to ISO yyyy-MM-dd so the calendar
-// never receives an ambiguous string that JS's Date constructor can't parse.
 function normalizeToISO(dateStr?: string): string | undefined {
   if (!dateStr) return undefined;
-  // Already ISO
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const today = new Date();
   const lower = dateStr.toLowerCase().trim();
   if (lower === 'today') return format(today, 'yyyy-MM-dd');
   if (lower === 'tomorrow') return format(addDays(today, 1), 'yyyy-MM-dd');
-  // "Wed, May 20" format (from DateTimePicker's fromISO)
   const withDay = dateStr.match(/^\w+,\s+(\w+)\s+(\d{1,2})$/);
   if (withDay) {
     const d = parse(`${withDay[1]} ${withDay[2]} ${today.getFullYear()}`, 'MMM d yyyy', today);
     if (isValid(d)) return format(d, 'yyyy-MM-dd');
   }
-  // "May 20" format (from smartParser)
   const monthDay = dateStr.match(/^(\w+)\s+(\d{1,2})$/);
   if (monthDay) {
     const d = parse(`${monthDay[1]} ${monthDay[2]} ${today.getFullYear()}`, 'MMM d yyyy', today);
     if (isValid(d)) return format(d, 'yyyy-MM-dd');
   }
-  // "next Monday", "May 20, 2026" etc. — last-resort native parse
   const attempt = new Date(dateStr);
   if (isValid(attempt)) return format(attempt, 'yyyy-MM-dd');
   return undefined;
@@ -76,14 +267,27 @@ interface DashboardContextType {
   layoutMode: LayoutMode;
   taskGroups: TaskGroup[];
   taskHistory: Record<string, HistoryEvent[]>;
+  views: DashboardView[];
+  activeViewIndex: number;
+  nodes: Record<string, ProjectNode>;
+  activeNodeId: string | null;
   setSectionOrder: (order: SectionId[]) => void;
   toggleSectionVisibility: (id: SectionId) => void;
   setLayoutMode: (mode: LayoutMode) => void;
   setTaskGroups: React.Dispatch<React.SetStateAction<TaskGroup[]>>;
+  setViews: React.Dispatch<React.SetStateAction<DashboardView[]>>;
+  setActiveViewIndex: (index: number) => void;
+  setActiveNodeId: (id: string | null) => void;
   handleComposerSave: (taskData: any) => void;
   updateTask: (taskId: string, updater: (t: Task) => Task) => void;
   deleteTask: (taskId: string) => void;
   addHistoryEvent: (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => void;
+  createView: (view: Omit<DashboardView, 'id'>) => void;
+  updateView: (id: string, changes: Partial<DashboardView>) => void;
+  deleteView: (id: string) => void;
+  createProjectNode: (node: Omit<ProjectNode, 'id' | 'childIds'>) => void;
+  deleteProjectNode: (id: string) => void;
+  updateProjectNode: (id: string, changes: Partial<ProjectNode>) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType>({
@@ -92,14 +296,27 @@ const DashboardContext = createContext<DashboardContextType>({
   layoutMode: 'comfortable',
   taskGroups: [],
   taskHistory: {},
+  views: DEFAULT_VIEWS,
+  activeViewIndex: 0,
+  nodes: DEFAULT_NODES,
+  activeNodeId: null,
   setSectionOrder: () => { },
   toggleSectionVisibility: () => { },
   setLayoutMode: () => { },
   setTaskGroups: () => { },
+  setViews: () => { },
+  setActiveViewIndex: () => { },
+  setActiveNodeId: () => { },
   handleComposerSave: () => { },
   updateTask: () => { },
   deleteTask: () => { },
   addHistoryEvent: () => { },
+  createView: () => { },
+  updateView: () => { },
+  deleteView: () => { },
+  createProjectNode: () => { },
+  deleteProjectNode: () => { },
+  updateProjectNode: () => { },
 });
 
 export const DashboardProvider = ({ children }: { children: ReactNode }) => {
@@ -108,6 +325,14 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('comfortable');
   const [taskGroups, setTaskGroups] = useState<TaskGroup[]>(dummyData.taskGroups as any);
   const [taskHistory, setTaskHistory] = useState<Record<string, HistoryEvent[]>>({});
+  
+  // Custom multi-view state
+  const [views, setViews] = useState<DashboardView[]>(DEFAULT_VIEWS);
+  const [activeViewIndex, setActiveViewIndex] = useState<number>(0);
+  
+  // Custom nested hierarchy state
+  const [nodes, setNodes] = useState<Record<string, ProjectNode>>(DEFAULT_NODES);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
 
   const addHistoryEvent = (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => {
     const newEvent: HistoryEvent = {
@@ -132,7 +357,6 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       tagType: (taskData.tags?.[0]?.id || taskData.tags?.[0] || 'personal') as any,
       priority: taskData.priority,
       completed: false,
-      // ← Normalize to ISO yyyy-MM-dd so the calendar always gets a clean date
       dueDate: normalizeToISO(taskData.dueDate),
       dueEndDate: normalizeToISO(taskData.dueEndDate),
       dueTime: taskData.dueTime,
@@ -140,14 +364,13 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       hasReminder: !!taskData.reminder,
       subtasks: taskData.subtasks,
       attachments: taskData.attachments,
+      nodeId: taskData.nodeId || activeNodeId || undefined,
     };
 
     setTaskGroups(prev => {
       const todayISO = format(new Date(), 'yyyy-MM-dd');
       const dueISO = newTask.dueDate || '';
-      // Put in "today" group if due today or earlier, otherwise "week"
       const targetGroupId = !dueISO || dueISO <= todayISO ? 'today' : 'week';
-      // Append to matched group; if no group found, append to first group
       const matched = prev.some(g => g.id === targetGroupId);
       return prev.map(g => {
         if (matched ? g.id === targetGroupId : prev.indexOf(g) === 0) {
@@ -234,11 +457,95 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  // View CRUD actions
+  const createView = (view: Omit<DashboardView, 'id'>) => {
+    const id = `view_${Date.now()}`;
+    const newView: DashboardView = { id, ...view };
+    setViews(prev => [...prev, newView]);
+  };
+
+  const updateView = (id: string, changes: Partial<DashboardView>) => {
+    setViews(prev => prev.map(v => v.id === id ? { ...v, ...changes } : v));
+  };
+
+  const deleteView = (id: string) => {
+    setViews(prev => {
+      if (prev.length <= 1) return prev; // Keep at least one view
+      const filtered = prev.filter(v => v.id !== id);
+      // Adjust active view index if it went out of bounds
+      setActiveViewIndex(old => Math.min(old, filtered.length - 1));
+      return filtered;
+    });
+  };
+
+  // Hierarchy Node actions
+  const createProjectNode = (node: Omit<ProjectNode, 'id' | 'childIds'>) => {
+    const id = `node_${Date.now()}`;
+    const newNode: ProjectNode = { id, ...node, childIds: [] };
+    
+    setNodes(prev => {
+      const next = { ...prev, [id]: newNode };
+      // If there is a parent, append to parent's childIds
+      if (node.parentId && next[node.parentId]) {
+        next[node.parentId] = {
+          ...next[node.parentId],
+          childIds: [...next[node.parentId].childIds, id],
+        };
+      }
+      return next;
+    });
+  };
+
+  const deleteProjectNode = (id: string) => {
+    setNodes(prev => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      const nodeToDelete = next[id];
+      
+      // Clean up parent's child reference
+      if (nodeToDelete.parentId && next[nodeToDelete.parentId]) {
+        next[nodeToDelete.parentId] = {
+          ...next[nodeToDelete.parentId],
+          childIds: next[nodeToDelete.parentId].childIds.filter(cid => cid !== id),
+        };
+      }
+      
+      // Recursive delete children helper
+      const removeNodeAndChildren = (nid: string) => {
+        const item = next[nid];
+        if (item) {
+          item.childIds.forEach(childId => removeNodeAndChildren(childId));
+          delete next[nid];
+        }
+      };
+      
+      removeNodeAndChildren(id);
+      if (activeNodeId === id) {
+        setActiveNodeId(null);
+      }
+      return next;
+    });
+  };
+
+  const updateProjectNode = (id: string, changes: Partial<ProjectNode>) => {
+    setNodes(prev => {
+      if (!prev[id]) return prev;
+      return {
+        ...prev,
+        [id]: { ...prev[id], ...changes },
+      };
+    });
+  };
+
   return (
     <DashboardContext.Provider value={{
       sectionOrder, sectionVisibility, layoutMode, taskGroups, taskHistory,
+      views, activeViewIndex, nodes, activeNodeId,
       setSectionOrder, toggleSectionVisibility, setLayoutMode,
-      setTaskGroups, handleComposerSave, updateTask, deleteTask, addHistoryEvent,
+      setTaskGroups, setViews, setActiveViewIndex, setActiveNodeId,
+      handleComposerSave, updateTask, deleteTask, addHistoryEvent,
+      createView, updateView, deleteView,
+      createProjectNode, deleteProjectNode, updateProjectNode,
     }}>
       {children}
     </DashboardContext.Provider>
