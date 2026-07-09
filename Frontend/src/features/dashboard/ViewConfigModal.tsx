@@ -87,6 +87,14 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     setWidgets(prev => prev.map(w => w.id === widgetId ? { ...w, visible: !w.visible } : w));
   };
 
+  const moveWidget = (index: number, dir: 1 | -1) => {
+    const arr = [...widgets];
+    const target = index + dir;
+    if (target < 0 || target >= arr.length) return;
+    [arr[index], arr[target]] = [arr[target], arr[index]];
+    setWidgets(arr);
+  };
+
   const handleSave = () => {
     if (applyToAll) {
       // Copy settings configuration to ALL pages
@@ -137,9 +145,9 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     setFilterTags([]);
     setFilterSourceNodeId(null);
     setWidgets([
+      { id: 'tasks', visible: true },
       { id: 'hero', visible: true },
       { id: 'tabs', visible: true },
-      { id: 'tasks', visible: true },
       { id: 'notes', visible: true },
       { id: 'upcoming', visible: true },
     ]);
@@ -208,6 +216,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
               {([
                 { id: 'list', label: 'List', icon: 'view-list' },
                 { id: 'calendar', label: 'Calendar', icon: 'calendar-month' },
+                { id: 'paged', label: 'Paged', icon: 'pages' },
               ] as const).map(item => {
                 const isSelected = layout === item.id;
                 return (
@@ -479,7 +488,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
             </Text>
 
             <View style={styles.widgetsContainer}>
-              {widgets.map(w => (
+              {widgets.map((w, index) => (
                 <View key={w.id} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
                   <View style={styles.widgetInfo}>
                     <MaterialIcons 
@@ -491,11 +500,27 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
                       {w.id === 'hero' ? 'Hero Next Focus' : w.id === 'tabs' ? 'Category Tabs' : w.id === 'tasks' ? 'Tasks List' : w.id === 'notes' ? 'Recent Notes' : 'Upcoming Timeline'}
                     </Text>
                   </View>
-                  <Switch
-                    value={w.visible}
-                    onValueChange={() => toggleWidget(w.id)}
-                    trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-                  />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
+                      onPress={() => moveWidget(index, -1)}
+                      disabled={index === 0}
+                    >
+                      <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ opacity: index === widgets.length - 1 ? 0.3 : 1, padding: 4 }}
+                      onPress={() => moveWidget(index, 1)}
+                      disabled={index === widgets.length - 1}
+                    >
+                      <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                    </TouchableOpacity>
+                    <Switch
+                      value={w.visible}
+                      onValueChange={() => toggleWidget(w.id)}
+                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                    />
+                  </View>
                 </View>
               ))}
             </View>

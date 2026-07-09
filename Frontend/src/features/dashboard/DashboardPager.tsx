@@ -31,7 +31,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
   const dotWidths = useRef(views.map(() => new Animated.Value(8))).current;
   const [showAddModal, setShowAddModal] = useState(false);
   const [newViewName, setNewViewName] = useState('');
-  const [selectedLayout, setSelectedLayout] = useState<'list' | 'calendar'>('list');
+  const [selectedLayout, setSelectedLayout] = useState<'list' | 'calendar' | 'paged'>('list');
 
   // Sync dot widths when activeViewIndex changes
   useEffect(() => {
@@ -74,9 +74,9 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
       filterTags: [],
       filterSourceNodeId: null,
       widgets: [
+        { id: 'tasks', visible: true },
         { id: 'hero', visible: false },
         { id: 'tabs', visible: false },
-        { id: 'tasks', visible: true },
         { id: 'notes', visible: false },
         { id: 'upcoming', visible: false },
       ],
@@ -179,7 +179,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
               Layout style
             </Text>
              <View style={styles.layoutSelectorRow}>
-              {(['list', 'calendar'] as const).map((lay) => (
+              {(['list', 'calendar', 'paged'] as const).map((lay) => (
                 <TouchableOpacity
                   key={lay}
                   style={[
@@ -192,7 +192,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
                   onPress={() => setSelectedLayout(lay)}
                 >
                   <MaterialIcons 
-                    name={lay === 'list' ? 'view-list' : 'calendar-today'} 
+                    name={lay === 'list' ? 'view-list' : lay === 'paged' ? 'pages' : 'calendar-today'} 
                     size={20} 
                     color={selectedLayout === lay ? theme.colors.primary : theme.colors.textSecondary} 
                   />

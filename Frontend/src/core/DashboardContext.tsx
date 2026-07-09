@@ -21,7 +21,7 @@ export interface ProjectNode {
 export interface DashboardView {
   id: string;
   name: string;
-  layout: 'list' | 'calendar';
+  layout: 'list' | 'calendar' | 'paged';
   showCompleted: boolean;
   grouping: 'none' | 'priority' | 'tag' | 'dueDate' | 'project';
   sorting: 'manual' | 'dueDate' | 'priority' | 'created' | 'alphabetical';
@@ -171,9 +171,9 @@ export const DEFAULT_VIEWS: DashboardView[] = [
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
+      { id: 'tasks', visible: true },
       { id: 'hero', visible: true },
       { id: 'tabs', visible: true },
-      { id: 'tasks', visible: true },
       { id: 'notes', visible: true },
       { id: 'upcoming', visible: true },
     ],
@@ -190,9 +190,9 @@ export const DEFAULT_VIEWS: DashboardView[] = [
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
+      { id: 'tasks', visible: true },
       { id: 'hero', visible: true },
       { id: 'tabs', visible: true },
-      { id: 'tasks', visible: true },
       { id: 'notes', visible: false },
       { id: 'upcoming', visible: false },
     ],
@@ -209,9 +209,9 @@ export const DEFAULT_VIEWS: DashboardView[] = [
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
+      { id: 'tasks', visible: true },
       { id: 'hero', visible: false },
       { id: 'tabs', visible: false },
-      { id: 'tasks', visible: true },
       { id: 'notes', visible: false },
       { id: 'upcoming', visible: false },
     ],
@@ -228,9 +228,9 @@ export const DEFAULT_VIEWS: DashboardView[] = [
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
+      { id: 'tasks', visible: true },
       { id: 'hero', visible: false },
       { id: 'tabs', visible: false },
-      { id: 'tasks', visible: true },
       { id: 'notes', visible: false },
       { id: 'upcoming', visible: true },
     ],
