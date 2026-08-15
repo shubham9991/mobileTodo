@@ -14,7 +14,6 @@ import WebView from 'react-native-webview';
 import { useTheme } from '../../themes/ThemeContext';
 import { useEditorBridge, SavePayload } from './useEditorBridge';
 import { NoteToolbar } from './NoteToolbar';
-import { SlashCommandMenu } from './SlashCommandMenu';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
@@ -41,7 +40,6 @@ const EDITOR_SOURCE: { uri: string } =
 
 export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggered, onCommandReady }: NoteEditorProps) {
   const { theme, isDark } = useTheme();
-  const [slashMenuVisible, setSlashMenuVisible] = useState(false);
   const [codeLanguageClickTrigger, setCodeLanguageClickTrigger] = useState(0);
   const [activeModalTrigger, setActiveModalTrigger] = useState<{ type: string; count: number } | null>(null);
 
@@ -72,15 +70,8 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
       if (Platform.OS === 'android') ToastAndroid.show(message, ToastAndroid.SHORT);
       else Alert.alert('Info', message);
     },
-    onSlashMenuOpen: () => setSlashMenuVisible(true),
-    onSlashMenuClose: () => dismissSlashMenu(),
     onCodeLangClick: () => setCodeLanguageClickTrigger(c => c + 1),
   });
-
-  const dismissSlashMenu = useCallback(() => {
-    setSlashMenuVisible(false);
-    webviewRef.current?.injectJavaScript('window.__slashMenuClose && window.__slashMenuClose(); true;');
-  }, [webviewRef]);
 
   // After editor signals ready: sync theme + accent + load existing state
   useEffect(() => {
@@ -139,16 +130,6 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
     onActionTriggered?.(type, payload);
   }, [sendCommand, onActionTriggered]);
 
-  // Called by SlashCommandMenu when a special action is needed
-  const handleSlashSpecial = useCallback((action: string) => {
-    dismissSlashMenu();
-    if (action === 'INSERT_IMAGE_NATIVE') {
-      handleActionTriggered('INSERT_IMAGE_NATIVE');
-    } else {
-      setActiveModalTrigger(prev => ({ type: action, count: (prev?.count ?? 0) + 1 }));
-    }
-  }, [handleActionTriggered, dismissSlashMenu]);
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <WebView
@@ -174,9 +155,6 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
         cacheEnabled={false}
         // Message bridge
         onMessage={onMessage}
-        onConsoleMessage={(event) => {
-          console.log('[WebView Console Log]', event.nativeEvent.message);
-        }}
         onLoad={handleLoad}
         // Allow file:// access for loading assets
         allowFileAccess={true}
@@ -193,7 +171,6 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
       />
 
       {/* Native toolbar rendered OUTSIDE the WebView — participates in safe area + keyboard */}
-      {/* Native toolbar rendered OUTSIDE the WebView — participates in safe area + keyboard */}
       <NoteToolbar
         sendCommand={sendCommand}
         selectionState={selectionState}
@@ -202,15 +179,6 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
         blurWebView={blurWebView}
         codeLanguageClickTrigger={codeLanguageClickTrigger}
         activeModalTrigger={activeModalTrigger}
-      />
-
-      {/* Slash command menu — shown when user types "/" in editor */}
-      <SlashCommandMenu
-        visible={slashMenuVisible}
-        onClose={dismissSlashMenu}
-        sendCommand={sendCommand}
-        onSpecialAction={handleSlashSpecial}
-        isDark={isDark}
       />
     </View>
   );

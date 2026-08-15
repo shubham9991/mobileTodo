@@ -61,20 +61,6 @@ const FONT_FAMILIES: { id: string; label: string; fontStyle?: string }[] = [
   { id: 'Courier New', label: 'Courier New', fontStyle: 'Courier New' },
 ];
 
-const FONT_SIZES = [
-  '8', '9', '10', '11', '12', '14', '16',
-  '18', '20', '22', '24', '26', '28', '36', '48', '72',
-];
-
-// Paragraph styles — Word Mobile grid: each card shows pure styled text preview, no sub-label
-const PARA_STYLES = [
-  { id: 'paragraph', label: 'Normal', cmd: 'SET_PARAGRAPH', previewText: 'AaBbCcDd', subLabel: 'Normal', fontSize: 13, bold: false, italic: false },
-  { id: 'h1', label: 'Heading 1', cmd: 'SET_HEADING', payload: 'h1', previewText: 'AaBbCcDd', subLabel: 'Heading 1', fontSize: 17, bold: true, italic: false },
-  { id: 'h2', label: 'Heading 2', cmd: 'SET_HEADING', payload: 'h2', previewText: 'AaBbCcDd', subLabel: 'Heading 2', fontSize: 15, bold: true, italic: false },
-  { id: 'h3', label: 'Heading 3', cmd: 'SET_HEADING', payload: 'h3', previewText: 'AaBbCcDd', subLabel: 'Heading 3', fontSize: 13, bold: true, italic: false },
-  { id: 'quote', label: 'Quote', cmd: 'SET_QUOTE', previewText: 'AaBbCcDd', subLabel: 'Quote', fontSize: 13, bold: false, italic: true },
-];
-
 const BULLET_STYLES = [
   { id: 'disc', label: '•  Bullet', lines: ['•  Item one', '•  Item two', '•  Item three'], cmd: 'INSERT_UL' },
   { id: 'circle', label: '○  Circle', lines: ['○  Item one', '○  Item two', '○  Item three'], cmd: 'INSERT_UL' },
@@ -87,37 +73,6 @@ const NUMBERED_STYLES = [
   { id: 'upper-alpha', label: 'A.  Alpha', lines: ['A.  Item one', 'B.  Item two', 'C.  Item three'], cmd: 'INSERT_OL' },
   { id: 'lower-roman', label: 'i.  Roman', lines: ['i.  Item one', 'ii.  Item two', 'iii.  Item three'], cmd: 'INSERT_OL' },
   { id: 'upper-roman', label: 'I.  Roman', lines: ['I.  Item one', 'II.  Item two', 'III.  Item three'], cmd: 'INSERT_OL' },
-];
-
-const PAGE_SIZES = [
-  { id: 'pageless', label: 'Pageless', desc: 'Infinite scroll' },
-  { id: 'a4', label: 'A4', desc: '8.27" × 11.69"' },
-  { id: 'letter', label: 'Letter', desc: '8.5" × 11"' },
-  { id: 'legal', label: 'Legal', desc: '8.5" × 14"' },
-  { id: 'tabloid', label: 'Tabloid', desc: '11" × 17"' },
-  { id: 'a3', label: 'A3', desc: '11.69" × 16.54"' },
-  { id: 'a5', label: 'A5', desc: '5.83" × 8.27"' },
-  { id: 'b4', label: 'B4', desc: '9.84" × 13.90"' },
-  { id: 'b5', label: 'B5', desc: '6.93" × 9.84"' },
-  { id: 'statement', label: 'Statement', desc: '5.5" × 8.5"' },
-  { id: 'executive', label: 'Executive', desc: '7.25" × 10.5"' },
-  { id: 'folio', label: 'Folio', desc: '8.5" × 13"' },
-];
-
-const MARGIN_OPTIONS = [
-  { id: 'narrow', label: 'Narrow', desc: '0.25"' },
-  { id: 'normal', label: 'Normal', desc: '0.4"' },
-  { id: 'moderate', label: 'Moderate', desc: '0.75"' },
-  { id: 'wide', label: 'Wide', desc: '1"' },
-];
-
-const LINE_SPACINGS = [
-  { id: '1', label: 'Single', desc: '1' },
-  { id: '1.15', label: '1.15 Lines', desc: '1.15' },
-  { id: '1.5', label: '1.5 Lines', desc: '1.5' },
-  { id: '2', label: 'Double', desc: '2' },
-  { id: '2.5', label: '2.5 Lines', desc: '2.5' },
-  { id: '3', label: 'Triple', desc: '3' },
 ];
 
 const LANGUAGE_OPTIONS: { id: string; label: string }[] = [
@@ -140,11 +95,10 @@ const LANGUAGE_OPTIONS: { id: string; label: string }[] = [
   { id: 'xml', label: 'XML' },
 ];
 
-type TabId = 'home' | 'insert' | 'layout';
+type TabId = 'home' | 'insert';
 type SubPanel =
-  | 'none' | 'fontFamily' | 'fontSize' | 'highlight' | 'fontColor'
-  | 'paraStyle' | 'bulletStyle' | 'numberedStyle' | 'textTransform'
-  | 'codeLanguage' | 'pageSize' | 'orientation' | 'margins' | 'lineSpacing';
+  | 'none' | 'fontFamily' | 'highlight' | 'fontColor'
+  | 'bulletStyle' | 'numberedStyle' | 'codeLanguage';
 
 interface Props {
   sendCommand: (type: string, payload?: string) => void;
@@ -176,22 +130,9 @@ export function NoteToolbar({
   const [showTabDropdown, setShowTabDropdown] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  const [pageSize, setPageSize] = useState('pageless');
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [margins, setMargins] = useState('normal');
-  const [lineSpacing, setLineSpacing] = useState('1');
-
   // Modals
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [showYouTubeModal, setShowYouTubeModal] = useState(false);
-  const [showEquationModal, setShowEquationModal] = useState(false);
   const [showTableModal, setShowTableModal] = useState(false);
-  const [showTweetModal, setShowTweetModal] = useState(false);
   const [showDeleteTableModal, setShowDeleteTableModal] = useState(false);
-  const [linkUrl, setLinkUrl] = useState('');
-  const [youtubeUrl, setYoutubeUrl] = useState('');
-  const [equation, setEquation] = useState('');
-  const [tweetUrl, setTweetUrl] = useState('');
   const [tableRows, setTableRows] = useState(3);
   const [tableCols, setTableCols] = useState(3);
   const [tableHoverRow, setTableHoverRow] = useState(3);
@@ -199,12 +140,6 @@ export function NoteToolbar({
 
   const [downloadedFonts, setDownloadedFonts] = useState<Record<string, boolean>>({});
   const [downloadingFonts, setDownloadingFonts] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    if (isEditorReady) {
-      sendPageLayout({ pageSize, orientation, margins, lineSpacing });
-    }
-  }, [isEditorReady]);
 
   useEffect(() => {
     const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => {
@@ -231,9 +166,6 @@ export function NoteToolbar({
     if (activeModalTrigger && activeModalTrigger.count > 0) {
       const { type } = activeModalTrigger;
       if (type === 'TABLE_MODAL') setShowTableModal(true);
-      else if (type === 'EQUATION_MODAL') setShowEquationModal(true);
-      else if (type === 'YOUTUBE_MODAL') setShowYouTubeModal(true);
-      else if (type === 'TWEET_MODAL') setShowTweetModal(true);
     }
   }, [activeModalTrigger]);
 
@@ -289,11 +221,6 @@ export function NoteToolbar({
     return () => handler.remove();
   }, [isExpanded, subPanel, collapse]);
 
-  const sendPageLayout = (overrides: Partial<{ pageSize: string; orientation: string; margins: string; lineSpacing: string }>) => {
-    const layout = { pageSize, orientation, margins, lineSpacing, ...overrides };
-    sendCommand('PAGE_LAYOUT', JSON.stringify(layout));
-  };
-
   const handleFontSelect = async (fontId: string) => {
     if (downloadedFonts[fontId]) { cmd('SET_FONT_FAMILY', fontId); setSubPanel('none'); return; }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -306,15 +233,6 @@ export function NoteToolbar({
       setSubPanel('none');
     }
     setDownloadingFonts(prev => { const n = { ...prev }; delete n[fontId]; return n; });
-  };
-
-  const currentFontSizeNum = parseInt(selectionState.fontSize ?? '16px', 10) || 16;
-  // Font size stepper must NOT call the regular cmd() which blurs the WebView and triggers
-  // keyboardDidShow → setIsExpanded(false). Call sendCommand directly instead.
-  const changeFontSize = (delta: number) => {
-    const next = Math.max(8, Math.min(96, currentFontSizeNum + delta));
-    sendCommand('SET_FONT_SIZE', `${next}px`);
-    onActionTriggered?.('SET_FONT_SIZE', `${next}px`);
   };
 
   // ─── Color tokens — Word-faithful ────────────────────────────────────────
@@ -332,11 +250,10 @@ export function NoteToolbar({
   const panelPb = Platform.OS === 'android' ? (insets.bottom > 0 ? insets.bottom + 6 : 20) : Math.max(insets.bottom, 6);
 
   const subPanelTitle: Record<SubPanel, string> = {
-    none: '', fontFamily: 'Font', fontSize: 'Font Size',
+    none: '', fontFamily: 'Font',
     highlight: 'Highlight Color', fontColor: 'Text Color',
-    paraStyle: 'Styles', bulletStyle: 'Bullet List', numberedStyle: 'Numbered List',
-    textTransform: 'Change Case', codeLanguage: 'Language',
-    pageSize: 'Page Size', orientation: 'Orientation', margins: 'Margins', lineSpacing: 'Line Spacing',
+    bulletStyle: 'Bullet List', numberedStyle: 'Numbered List',
+    codeLanguage: 'Language',
   };
 
   // ─── Code Mini Bar ─────────────────────────────────────────
@@ -399,54 +316,64 @@ export function NoteToolbar({
   );
 
   // ─── Mini Bar ─────────────────────────────────────────────────────────────
+  const isChecklist = selectionState.blockType === 'check';
+
   const renderMiniBar = () => (
     <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
-      <View style={[S.miniBar, { backgroundColor: surface, borderTopColor: border, paddingBottom: miniPb }]}>
+      <View
+        pointerEvents={isChecklist ? 'none' : 'auto'}
+        style={[
+          S.miniBar,
+          { backgroundColor: surface, borderTopColor: border, paddingBottom: miniPb },
+          isChecklist && { opacity: 0.35 }
+        ]}
+      >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={S.miniScroll}>
           {/* B */}
-          <MiniFormatBtn active={selectionState.bold} onPress={() => cmd('FORMAT_TEXT', `bold:${selectionState.bold ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.bold} onPress={() => cmd('FORMAT_TEXT', `bold:${selectionState.bold ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniB, { color: selectionState.bold ? blue : textPri }]}>B</Text>
           </MiniFormatBtn>
           {/* I */}
-          <MiniFormatBtn active={selectionState.italic} onPress={() => cmd('FORMAT_TEXT', `italic:${selectionState.italic ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.italic} onPress={() => cmd('FORMAT_TEXT', `italic:${selectionState.italic ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniI, { color: selectionState.italic ? blue : textPri }]}>I</Text>
           </MiniFormatBtn>
           {/* U */}
-          <MiniFormatBtn active={selectionState.underline} onPress={() => cmd('FORMAT_TEXT', `underline:${selectionState.underline ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.underline} onPress={() => cmd('FORMAT_TEXT', `underline:${selectionState.underline ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniU, { color: selectionState.underline ? blue : textPri }]}>U</Text>
           </MiniFormatBtn>
           {/* S */}
-          <MiniFormatBtn active={selectionState.strikethrough} onPress={() => cmd('FORMAT_TEXT', `strikethrough:${selectionState.strikethrough ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.strikethrough} onPress={() => cmd('FORMAT_TEXT', `strikethrough:${selectionState.strikethrough ? '0' : '1'}`)} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniS, { color: selectionState.strikethrough ? blue : textPri }]}>S</Text>
           </MiniFormatBtn>
+
           <MiniSep color={border} />
           {/* H1 */}
-          <MiniFormatBtn active={selectionState.blockType === 'h1'} onPress={() => cmd('SET_HEADING', 'h1')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'h1'} onPress={() => cmd('SET_HEADING', 'h1')} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniH, { color: selectionState.blockType === 'h1' ? blue : textPri, fontSize: 15 }]}>H1</Text>
           </MiniFormatBtn>
           {/* H2 */}
-          <MiniFormatBtn active={selectionState.blockType === 'h2'} onPress={() => cmd('SET_HEADING', 'h2')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'h2'} onPress={() => cmd('SET_HEADING', 'h2')} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniH, { color: selectionState.blockType === 'h2' ? blue : textPri, fontSize: 14 }]}>H2</Text>
           </MiniFormatBtn>
           {/* H3 */}
-          <MiniFormatBtn active={selectionState.blockType === 'h3'} onPress={() => cmd('SET_HEADING', 'h3')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'h3'} onPress={() => cmd('SET_HEADING', 'h3')} blue={blue} surface={surfaceSub}>
             <Text style={[S.miniH, { color: selectionState.blockType === 'h3' ? blue : textPri, fontSize: 13 }]}>H3</Text>
           </MiniFormatBtn>
           <MiniSep color={border} />
           {/* Bullet */}
-          <MiniFormatBtn active={selectionState.blockType === 'bullet'} onPress={() => cmd('INSERT_UL')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'bullet'} onPress={() => cmd('INSERT_UL')} blue={blue} surface={surfaceSub}>
             <MaterialIcons name="format-list-bulleted" size={20} color={selectionState.blockType === 'bullet' ? blue : textPri} />
           </MiniFormatBtn>
           {/* Numbered */}
-          <MiniFormatBtn active={selectionState.blockType === 'number'} onPress={() => cmd('INSERT_OL')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'number'} onPress={() => cmd('INSERT_OL')} blue={blue} surface={surfaceSub}>
             <MaterialIcons name="format-list-numbered" size={20} color={selectionState.blockType === 'number' ? blue : textPri} />
           </MiniFormatBtn>
           {/* Check */}
-          <MiniFormatBtn active={selectionState.blockType === 'check'} onPress={() => cmd('INSERT_CHECK')} blue={blue} surface={surfaceSub}>
+          <MiniFormatBtn disabled={isChecklist} active={selectionState.blockType === 'check'} onPress={() => cmd('INSERT_CHECK')} blue={blue} surface={surfaceSub}>
             <MaterialIcons name="checklist" size={20} color={selectionState.blockType === 'check' ? blue : textPri} />
           </MiniFormatBtn>
         </ScrollView>
-        <MiniExpandBtn onPress={expand} blue={blue} surface={surfaceSub} />
+        <MiniExpandBtn disabled={isChecklist} onPress={expand} blue={blue} surface={surfaceSub} />
       </View>
     </KeyboardStickyView>
   );
@@ -471,7 +398,7 @@ export function NoteToolbar({
       <View style={[S.header, { backgroundColor: surfaceSub, borderBottomColor: border }]}>
         <TouchableOpacity style={S.tabTrigger} onPress={() => setShowTabDropdown(v => !v)}>
           <Text style={[S.headerTabText, { color: blue }]}>
-            {activeTab === 'home' ? 'Home' : activeTab === 'insert' ? 'Insert' : 'Layout'}
+            {activeTab === 'home' ? 'Home' : 'Insert'}
           </Text>
           <MaterialIcons name={showTabDropdown ? 'keyboard-arrow-up' : 'keyboard-arrow-down'} size={18} color={blue} />
         </TouchableOpacity>
@@ -492,14 +419,14 @@ export function NoteToolbar({
         {showTabDropdown && <Pressable style={S.dropBackdrop} onPress={() => setShowTabDropdown(false)} />}
         {showTabDropdown && (
           <View style={[S.dropdown, { backgroundColor: surface, borderColor: border }]}>
-            {(['home', 'insert', 'layout'] as TabId[]).map(tab => (
+            {(['home', 'insert'] as TabId[]).map(tab => (
               <TouchableOpacity
                 key={tab}
                 style={[S.dropItem, { borderBottomColor: borderHair }]}
                 onPress={() => { setActiveTab(tab); setShowTabDropdown(false); setSubPanel('none'); }}
               >
                 <Text style={[S.dropItemText, { color: activeTab === tab ? blue : textPri }]}>
-                  {tab === 'home' ? 'Home' : tab === 'insert' ? 'Insert' : 'Layout'}
+                  {tab === 'home' ? 'Home' : 'Insert'}
                 </Text>
                 {activeTab === tab && <MaterialIcons name="check" size={16} color={blue} />}
               </TouchableOpacity>
@@ -515,7 +442,7 @@ export function NoteToolbar({
     <View>
       <View style={[S.fontRow, { borderBottomColor: border }]}>
         <TouchableOpacity
-          style={[S.fontPicker, { borderColor: border }]}
+          style={[S.fontPicker, { borderColor: border, flex: 1 }]}
           onPress={() => setSubPanel('fontFamily')}
         >
           <MaterialIcons name="text-format" size={16} color={textSec} style={{ marginRight: 6 }} />
@@ -524,17 +451,6 @@ export function NoteToolbar({
           </Text>
           <MaterialIcons name="chevron-right" size={16} color={textSec} />
         </TouchableOpacity>
-        <View style={[S.sizeStepper, { borderColor: border }]}>
-          <TouchableOpacity style={S.stepBtn} onPress={() => changeFontSize(-1)}>
-            <MaterialIcons name="remove" size={18} color={textPri} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSubPanel('fontSize')} style={S.sizeCenter}>
-            <Text style={[S.sizeText, { color: textPri }]}>{currentFontSizeNum}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.stepBtn} onPress={() => changeFontSize(1)}>
-            <MaterialIcons name="add" size={18} color={textPri} />
-          </TouchableOpacity>
-        </View>
       </View>
 
       <View style={[S.fmtRow, { borderBottomColor: border }]}>
@@ -610,7 +526,6 @@ export function NoteToolbar({
         </View>
       </View>
 
-      <Row icon="notes" label="Styles" rightText={getBlockLabel(selectionState.blockType)} onPress={() => setSubPanel('paraStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={['paragraph','h1','h2','h3','quote'].includes(selectionState.blockType)} />
       <Row icon="format-list-bulleted" label="Bullet List" onPress={() => setSubPanel('bulletStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'bullet'} />
       <Row icon="format-list-numbered" label="Numbered List" onPress={() => setSubPanel('numberedStyle')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'number'} />
       <Row icon="checklist" label="Checklist" showChevron={false} onPress={() => cmd('INSERT_CHECK')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} active={selectionState.blockType === 'check'} />
@@ -641,7 +556,6 @@ export function NoteToolbar({
       </View>
       <Row icon="border-color" label="Highlight" rightText={selectionState.highlight ? 'On' : ''} onPress={() => setSubPanel('highlight')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} colorBar="rgba(250,204,21,0.85)" />
       <Row icon="format-color-text" label="Text Color" onPress={() => setSubPanel('fontColor')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} colorBar="#C00000" />
-      <Row icon="text-fields" label="Change Case" onPress={() => setSubPanel('textTransform')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
       <Row icon="format-clear" label="Clear Formatting" showChevron={false} onPress={() => cmd('CLEAR_FORMATTING')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
     </View>
   );
@@ -653,8 +567,6 @@ export function NoteToolbar({
         title: 'Media',
         items: [
           { icon: 'image', label: 'Image', desc: 'Insert from library', color: '#10B981', onPress: () => cmd('INSERT_IMAGE_NATIVE') },
-          { icon: 'play-circle-outline', label: 'YouTube', desc: 'Embed a video', color: '#EF4444', onPress: () => setShowYouTubeModal(true) },
-          { icon: 'alternate-email', label: 'Tweet / X', desc: 'Embed a post', color: '#1D9BF0', onPress: () => setShowTweetModal(true) },
         ],
       },
       {
@@ -663,14 +575,6 @@ export function NoteToolbar({
           { icon: 'table-chart', label: 'Table', desc: 'Insert a table', color: '#6366F1', onPress: () => setShowTableModal(true) },
           { icon: 'poll', label: 'Poll', desc: 'Add a poll block', color: '#F59E0B', onPress: () => cmd('INSERT_POLL') },
           { icon: 'expand-more', label: 'Collapsible', desc: 'Collapsible section', color: '#8B5CF6', onPress: () => cmd('INSERT_COLLAPSIBLE') },
-        ],
-      },
-      {
-        title: 'Tools',
-        items: [
-          { icon: 'link', label: 'Link', desc: 'Insert a hyperlink', color: '#3B82F6', onPress: () => setShowLinkModal(true) },
-          { icon: 'functions', label: 'Equation', desc: 'LaTeX math block', color: '#EC4899', onPress: () => setShowEquationModal(true) },
-          { icon: 'today', label: 'Date', desc: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }), color: '#06B6D4', onPress: () => cmd('INSERT_DATE', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })) },
         ],
       },
       {
@@ -709,48 +613,6 @@ export function NoteToolbar({
     );
   };
 
-  // ─── LAYOUT TAB ───────────────────────────────────────────────────────────
-  const renderLayoutTab = () => (
-    <View>
-      <View style={[S.alignRow, { borderBottomColor: border }]}>
-        <View style={{ flex: 4, flexDirection: 'row' }}>
-          {[
-            { a: 'left', icon: 'format-align-left' },
-            { a: 'center', icon: 'format-align-center' },
-            { a: 'right', icon: 'format-align-right' },
-            { a: 'justify', icon: 'format-align-justify' },
-          ].map(({ a, icon }) => (
-            <View key={a} style={S.gridCell}>
-              <TouchableOpacity style={[S.alignBtn, selectionState.align === a && { backgroundColor: blue + '15' }]} onPress={() => cmd('FORMAT_ELEMENT', a)}>
-                <MaterialIcons name={icon as any} size={20} color={selectionState.align === a ? blue : textPri} />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-
-        <View style={[S.fmtSep, { backgroundColor: border }]} />
-
-        <View style={{ flex: 2, flexDirection: 'row' }}>
-          <View style={S.gridCell}>
-            <TouchableOpacity style={S.alignBtn} onPress={() => cmd('OUTDENT')}>
-              <MaterialIcons name="format-indent-decrease" size={20} color={textPri} />
-            </TouchableOpacity>
-          </View>
-          <View style={S.gridCell}>
-            <TouchableOpacity style={S.alignBtn} onPress={() => cmd('INDENT')}>
-              <MaterialIcons name="format-indent-increase" size={20} color={textPri} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-
-      <Row icon="article" label="Page Size" rightText={PAGE_SIZES.find(p => p.id === pageSize)?.label ?? 'A4'} onPress={() => setSubPanel('pageSize')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
-      <Row icon={orientation === 'portrait' ? 'crop-portrait' : 'crop-landscape'} label="Orientation" rightText={orientation === 'portrait' ? 'Portrait' : 'Landscape'} onPress={() => setSubPanel('orientation')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
-      <Row icon="margin" label="Margins" rightText={MARGIN_OPTIONS.find(m => m.id === margins)?.label ?? 'Normal'} onPress={() => setSubPanel('margins')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
-      <Row icon="format-line-spacing" label="Line Spacing" rightText={LINE_SPACINGS.find(l => l.id === lineSpacing)?.label ?? 'Single'} onPress={() => setSubPanel('lineSpacing')} textPri={textPri} textSec={textSec} borderCol={borderHair} blue={blue} />
-    </View>
-  );
-
   // ─── SUB-PANELS ───────────────────────────────────────────────────────────
 
   const renderFontPanel = () => (
@@ -771,20 +633,6 @@ export function NoteToolbar({
                 : isActive
                   ? <MaterialIcons name="check" size={20} color={blue} />
                   : null}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-
-  const renderFontSizePanel = () => (
-    <View>
-      {FONT_SIZES.map(sz => {
-        const isActive = currentFontSizeNum === parseInt(sz, 10);
-        return (
-          <TouchableOpacity key={sz} style={[S.listRow, { borderBottomColor: borderHair }]} onPress={() => { cmd('SET_FONT_SIZE', `${sz}px`); setSubPanel('none'); }}>
-            <Text style={[S.listRowLabel, { color: isActive ? blue : textPri, fontWeight: isActive ? '600' : '400' }]}>{sz}</Text>
-            {isActive && <MaterialIcons name="check" size={20} color={blue} />}
           </TouchableOpacity>
         );
       })}
@@ -814,39 +662,6 @@ export function NoteToolbar({
       </View>
     );
   };
-
-  const renderParaStylePanel = () => (
-    <View>
-      <View style={S.styleGrid}>
-        {PARA_STYLES.map(style => {
-          const isActive = selectionState.blockType === style.id;
-          return (
-            <TouchableOpacity
-              key={style.id}
-              style={[S.styleCard, { borderColor: isActive ? blue : border, backgroundColor: isActive ? blue + '0D' : surface }]}
-              onPress={() => { (style as any).payload ? cmd(style.cmd, (style as any).payload) : cmd(style.cmd); setSubPanel('none'); }}
-            >
-              <Text style={{
-                fontSize: style.fontSize,
-                fontFamily: style.bold ? 'Inter_700Bold' : style.italic ? 'Inter_500Medium' : 'Inter_400Regular',
-                fontStyle: style.italic ? 'italic' : 'normal',
-                color: isActive ? blue : textPri,
-                textAlign: 'left',
-              }} numberOfLines={2}>
-                {style.previewText}
-              </Text>
-              <Text style={[S.styleCardLabel, { color: isActive ? blue : textSec }]}>{style.subLabel}</Text>
-              {isActive && (
-                <View style={[S.styleCardCheck, { backgroundColor: blue }]}>
-                  <MaterialIcons name="check" size={10} color="#fff" />
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
 
   const renderBulletStylePanel = () => (
     <View style={S.listTypeGrid}>
@@ -904,32 +719,6 @@ export function NoteToolbar({
     </View>
   );
 
-  const renderTextTransformPanel = () => (
-    <View style={{ padding: 12, gap: 10 }}>
-      {[
-        { id: 'uppercase', display: 'AA', title: 'UPPERCASE', desc: 'ALL LETTERS CAPITALIZED' },
-        { id: 'lowercase', display: 'aa', title: 'lowercase', desc: 'all letters lowercase' },
-        { id: 'capitalize', display: 'Aa', title: 'Capitalize Each Word', desc: 'Title Case' },
-      ].map(t => (
-        <TouchableOpacity
-          key={t.id}
-          style={[S.caseCard, { borderColor: border, backgroundColor: surface }]}
-          onPress={() => { cmd('TEXT_TRANSFORM', t.id); setSubPanel('none'); }}
-          activeOpacity={0.7}
-        >
-          <View style={[S.caseIconBox, { backgroundColor: surfaceSub }]}>
-            <Text style={[S.caseIconText, { color: blue }]}>{t.display}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[S.caseTitle, { color: textPri }]}>{t.title}</Text>
-            <Text style={[S.caseDesc, { color: textSec }]}>{t.desc}</Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={20} color={textSec} />
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-
   const renderCodeLangPanel = () => (
     <View>
       {LANGUAGE_OPTIONS.map(lang => {
@@ -944,89 +733,16 @@ export function NoteToolbar({
     </View>
   );
 
-  const renderPageSizePanel = () => (
-    <View>
-      {PAGE_SIZES.map(p => {
-        const isActive = pageSize === p.id;
-        return (
-          <TouchableOpacity key={p.id} style={[S.listRow, { borderBottomColor: borderHair }]} onPress={() => { setPageSize(p.id); sendPageLayout({ pageSize: p.id }); setSubPanel('none'); }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[S.listRowLabel, { color: isActive ? blue : textPri, fontWeight: isActive ? '600' : '400' }]}>{p.label}</Text>
-              <Text style={[S.listRowSub, { color: textSec }]}>{p.desc}</Text>
-            </View>
-            {isActive && <MaterialIcons name="check" size={20} color={blue} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-
-  const renderOrientationPanel = () => (
-    <View>
-      {(['portrait', 'landscape'] as const).map(o => {
-        const isActive = orientation === o;
-        return (
-          <TouchableOpacity key={o} style={[S.listRow, { borderBottomColor: borderHair }]} onPress={() => { setOrientation(o); sendPageLayout({ orientation: o }); setSubPanel('none'); }}>
-            <MaterialIcons name={o === 'portrait' ? 'crop-portrait' : 'crop-landscape'} size={20} color={isActive ? blue : textSec} style={{ marginRight: 12 }} />
-            <Text style={[S.listRowLabel, { color: isActive ? blue : textPri, fontWeight: isActive ? '600' : '400' }]}>
-              {o === 'portrait' ? 'Portrait' : 'Landscape'}
-            </Text>
-            {isActive && <MaterialIcons name="check" size={20} color={blue} style={{ marginLeft: 'auto' }} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-
-  const renderMarginsPanel = () => (
-    <View>
-      {MARGIN_OPTIONS.map(m => {
-        const isActive = margins === m.id;
-        return (
-          <TouchableOpacity key={m.id} style={[S.listRow, { borderBottomColor: borderHair }]} onPress={() => { setMargins(m.id); sendPageLayout({ margins: m.id }); setSubPanel('none'); }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[S.listRowLabel, { color: isActive ? blue : textPri, fontWeight: isActive ? '600' : '400' }]}>{m.label}</Text>
-              <Text style={[S.listRowSub, { color: textSec }]}>{m.desc}</Text>
-            </View>
-            {isActive && <MaterialIcons name="check" size={20} color={blue} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-
-  const renderLineSpacingPanel = () => (
-    <View>
-      {LINE_SPACINGS.map(l => {
-        const isActive = lineSpacing === l.id;
-        return (
-          <TouchableOpacity key={l.id} style={[S.listRow, { borderBottomColor: borderHair }]} onPress={() => { setLineSpacing(l.id); sendPageLayout({ lineSpacing: l.id }); setSubPanel('none'); }}>
-            <Text style={[S.listRowLabel, { color: isActive ? blue : textPri, fontWeight: isActive ? '600' : '400' }]}>{l.label}</Text>
-            {isActive && <MaterialIcons name="check" size={20} color={blue} />}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-
   // ─── Panel content router ─────────────────────────────────────────────────
   const renderContent = () => {
     if (subPanel === 'fontFamily') return renderFontPanel();
-    if (subPanel === 'fontSize') return renderFontSizePanel();
     if (subPanel === 'highlight') return renderColorPanel('highlight');
     if (subPanel === 'fontColor') return renderColorPanel('fontColor');
-    if (subPanel === 'paraStyle') return renderParaStylePanel();
     if (subPanel === 'bulletStyle') return renderBulletStylePanel();
     if (subPanel === 'numberedStyle') return renderNumberedStylePanel();
-    if (subPanel === 'textTransform') return renderTextTransformPanel();
     if (subPanel === 'codeLanguage') return renderCodeLangPanel();
-    if (subPanel === 'pageSize') return renderPageSizePanel();
-    if (subPanel === 'orientation') return renderOrientationPanel();
-    if (subPanel === 'margins') return renderMarginsPanel();
-    if (subPanel === 'lineSpacing') return renderLineSpacingPanel();
     if (activeTab === 'home') return renderHomeTab();
     if (activeTab === 'insert') return renderInsertTab();
-    if (activeTab === 'layout') return renderLayoutTab();
     return null;
   };
 
@@ -1105,49 +821,6 @@ export function NoteToolbar({
     </Modal>
   );
 
-  // ─── Simple input modal ───────────────────────────────────────────────────
-  const renderInputModal = (
-    visible: boolean,
-    onClose: () => void,
-    title: string,
-    value: string,
-    onChange: (v: string) => void,
-    placeholder: string,
-    onConfirm: () => void,
-    confirmLabel: string,
-    multiline = false,
-    keyboardType: 'default' | 'url' = 'url',
-  ) => (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={S.modalOverlay} onPress={onClose}>
-        <Pressable>
-          <View style={[S.modalCard, { backgroundColor: surface, borderColor: border }]}>
-            <Text style={[S.modalTitle, { color: textPri }]}>{title}</Text>
-            <TextInput
-              style={[S.modalInput, { borderColor: border, color: textPri, backgroundColor: surfaceSub }]}
-              placeholder={placeholder}
-              placeholderTextColor={textSec}
-              value={value}
-              onChangeText={onChange}
-              autoFocus
-              keyboardType={keyboardType}
-              autoCapitalize="none"
-              multiline={multiline}
-            />
-            <View style={S.modalBtns}>
-              <TouchableOpacity style={[S.modalCancelBtn, { borderColor: border }]} onPress={onClose}>
-                <Text style={[S.modalCancelText, { color: textSec }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[S.modalOkBtn, { backgroundColor: blue }]} onPress={onConfirm}>
-                <Text style={S.modalOkText}>{confirmLabel}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <>
@@ -1165,24 +838,10 @@ export function NoteToolbar({
       )}
 
       {/* Modals */}
-      {renderInputModal(showLinkModal, () => setShowLinkModal(false), 'Insert Link', linkUrl, setLinkUrl, 'https://', () => { cmd('TOGGLE_LINK', linkUrl); setLinkUrl(''); setShowLinkModal(false); }, 'Insert')}
-      {renderInputModal(showYouTubeModal, () => setShowYouTubeModal(false), 'YouTube Video', youtubeUrl, setYoutubeUrl, 'https://youtube.com/watch?v=…', () => { const id = extractYouTubeId(youtubeUrl); if (id) { cmd('INSERT_YOUTUBE', id); setYoutubeUrl(''); setShowYouTubeModal(false); } }, 'Embed')}
-      {renderInputModal(showTweetModal, () => setShowTweetModal(false), 'Tweet / X Post', tweetUrl, setTweetUrl, 'https://x.com/…', () => { cmd('INSERT_TWEET', tweetUrl); setTweetUrl(''); setShowTweetModal(false); }, 'Embed')}
-      {renderInputModal(showEquationModal, () => setShowEquationModal(false), 'LaTeX Equation', equation, setEquation, 'e.g. \\frac{1}{2}mv^2', () => { cmd('INSERT_EQUATION', JSON.stringify({ equation, inline: false })); setEquation(''); setShowEquationModal(false); }, 'Insert', true, 'default')}
       {showTableModal && renderTableModal()}
       {showDeleteTableModal && renderDeleteTableModal()}
     </>
   );
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function extractYouTubeId(url: string): string | null {
-  // Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID, youtube.com/embed/ID
-  const m = url.match(
-    /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
-  );
-  return m ? m[1] : null;
 }
 
 function getBlockLabel(blockType: string): string {
@@ -1213,17 +872,35 @@ function MiniSep({ color }: { color: string }) {
   return <View style={[S.miniSep, { backgroundColor: color }]} />;
 }
 
-function MiniFormatBtn({ active, onPress, blue, surface, children }: { active: boolean; onPress: () => void; blue: string; surface: string; children: React.ReactNode }) {
+function MiniFormatBtn({ active, onPress, blue, surface, disabled = false, children }: { active: boolean; onPress: () => void; blue: string; surface: string; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <TouchableOpacity style={[S.miniBtn, active && { backgroundColor: blue + '18' }]} onPress={onPress}>
+    <TouchableOpacity
+      style={[
+        S.miniBtn,
+        active && { backgroundColor: blue + '18' },
+        disabled && { opacity: 0.25 }
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={disabled ? 1 : 0.7}
+    >
       {children}
     </TouchableOpacity>
   );
 }
 
-function MiniExpandBtn({ onPress, blue, surface }: { onPress: () => void; blue: string; surface: string }) {
+function MiniExpandBtn({ onPress, blue, surface, disabled = false }: { onPress: () => void; blue: string; surface: string; disabled?: boolean }) {
   return (
-    <TouchableOpacity style={[S.miniExpandBtn, { backgroundColor: surface }]} onPress={onPress}>
+    <TouchableOpacity
+      style={[
+        S.miniExpandBtn,
+        { backgroundColor: surface },
+        disabled && { opacity: 0.25 }
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={disabled ? 1 : 0.7}
+    >
       <MaterialIcons name="keyboard-arrow-up" size={22} color={blue} />
     </TouchableOpacity>
   );
@@ -1269,32 +946,53 @@ const S = StyleSheet.create({
   miniBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingTop: 5,
     borderTopWidth: StyleSheet.hairlineWidth,
-    minHeight: 48,
+    minHeight: 50,
+  },
+  checklistMiniBar: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  checklistBtnGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    maxWidth: 420,
+    alignSelf: 'center',
+  },
+  checklistBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   miniScroll: {
     alignItems: 'center',
-    gap: 1,
+    gap: 2,
     paddingRight: 6,
   },
   miniBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 6,
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   miniSep: {
     width: StyleSheet.hairlineWidth,
-    height: 20,
+    height: 22,
     marginHorizontal: 4,
   },
   miniExpandBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 6,
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 2,

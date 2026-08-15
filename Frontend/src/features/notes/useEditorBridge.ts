@@ -62,9 +62,6 @@ export type EditorEventHandler = {
   onDownloadCode?: (payload: { content: string; filename: string; language: string }) => void;
   onCopyFallback?: (content: string) => void;
   onFeatureNote?: (message: string) => void;
-  onLayoutChange?: (layout: object) => void;
-  onSlashMenuOpen?: () => void;
-  onSlashMenuClose?: () => void;
   onCodeLangClick?: () => void;
   onOpenUrl?: (url: string) => void;
 };
@@ -113,6 +110,7 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
 
     switch (type) {
       case 'SELECTION_STATE':
+      case 'SELECTION_CHANGE':
         setSelectionState(payload as SelectionState);
         break;
       case 'AUTO_SAVE':
@@ -143,15 +141,6 @@ export function useEditorBridge(handlers: EditorEventHandler = {}) {
         break;
       case 'FEATURE_NOTE':
         handlers.onFeatureNote?.(payload as string);
-        break;
-      case 'PAGE_LAYOUT_CHANGE':
-        handlers.onLayoutChange?.(payload as object);
-        break;
-      case 'SLASH_MENU_OPEN':
-        handlers.onSlashMenuOpen?.();
-        break;
-      case 'SLASH_MENU_CLOSE':
-        handlers.onSlashMenuClose?.();
         break;
       case 'CODE_LANG_CLICK':
         handlers.onCodeLangClick?.();

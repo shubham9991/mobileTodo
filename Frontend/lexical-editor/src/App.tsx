@@ -95,6 +95,8 @@ import {
 import { $createPollNode } from './plugins/nodes/PollNode';
 import { $createPageBreakNode } from './plugins/nodes/PageBreakNode';
 import { $createTweetCardNode } from './plugins/nodes/TweetCardNode';
+import { $createLinkPreviewNode } from './plugins/nodes/LinkPreviewNode';
+import { $createKeepChecklistNode, $isKeepChecklistNode, KeepChecklistItem } from './plugins/nodes/KeepChecklistNode';
 import CodeActionMenuPlugin from './plugins/CodeActionMenuPlugin';
 
 
@@ -155,6 +157,7 @@ function SelectionStatePlugin() {
         let blockType = 'paragraph';
         if ($isHeadingNode(element)) blockType = element.getTag();
         else if ($isListNode(element)) blockType = element.getListType();
+        else if ($isKeepChecklistNode(element) || (element as any).getType?.() === 'keep-checklist') blockType = 'check';
         else if (!$isParagraphNode(element)) blockType = element.getType();
 
         // Detect if cursor is inside a table cell
@@ -284,112 +287,6 @@ function SelectionSaverPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SLASH COMMAND PLUGIN — detects "/" keypress, posts SLASH_MENU_OPEN to RN
-// ═══════════════════════════════════════════════════════════════════════════════
-// Helper to get all text in the current block up to the cursor position
-function getTextBeforeCursor(selection: any): string {
-  const anchor = selection.anchor;
-  const node = anchor.getNode();
-  if ($isTextNode(node)) {
-    let text = node.getTextContent().slice(0, anchor.offset);
-    let prevSibling = node.getPreviousSibling();
-    while (prevSibling !== null) {
-      text = prevSibling.getTextContent() + text;
-      prevSibling = prevSibling.getPreviousSibling();
-    }
-    return text;
-  } else if ($isElementNode(node)) {
-    const children = node.getChildren();
-    let text = '';
-    for (let i = 0; i < anchor.offset && i < children.length; i++) {
-      text += children[i].getTextContent();
-    }
-    return text;
-  }
-  return '';
-}
-
-function SlashCommandPlugin() {
-  const [editor] = useLexicalComposerContext();
-  const slashActiveRef = useRef(false);
-  const lastTriggerOffsetRef = useRef<{key: string, offset: number} | null>(null);
-
-  useEffect(() => {
-    const unregisterUpdate = editor.registerUpdateListener(({ editorState }) => {
-      editorState.read(() => {
-        const selection = $getSelection();
-        if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
-          return;
-        }
-
-        const anchor = selection.anchor;
-        const node = anchor.getNode();
-
-        // Retrieve the entire text in the current block up to the cursor
-        const textBefore = getTextBeforeCursor(selection);
-        console.log('[SlashCommandPlugin] Text before cursor:', JSON.stringify(textBefore));
-
-        // We want to trigger if the character just before the cursor is '/'
-        // and it's either the very first character or preceded by a space or newline.
-        const isSlashTrigger = textBefore === '/' || textBefore.endsWith(' /') || textBefore.endsWith('\n/');
-        console.log('[SlashCommandPlugin] isSlashTrigger:', isSlashTrigger, 'slashActiveRef:', slashActiveRef.current);
-
-        if (isSlashTrigger) {
-          // Check if we already triggered at this exact position (node key & offset)
-          const lastTrigger = lastTriggerOffsetRef.current;
-          if (lastTrigger && lastTrigger.key === node.getKey() && lastTrigger.offset === anchor.offset) {
-            console.log('[SlashCommandPlugin] Skip trigger: already triggered at this position.');
-            return;
-          }
-
-          if (!slashActiveRef.current) {
-            console.log('[SlashCommandPlugin] Posting SLASH_MENU_OPEN!');
-            lastTriggerOffsetRef.current = { key: node.getKey(), offset: anchor.offset };
-            slashActiveRef.current = true;
-            window.ReactNativeWebView?.postMessage(JSON.stringify({
-              type: 'SLASH_MENU_OPEN',
-            }));
-          }
-        } else {
-          // Reset the trigger block if they move away or delete the slash
-          if (!slashActiveRef.current) {
-            lastTriggerOffsetRef.current = null;
-          }
-        }
-      });
-    });
-
-    const unregisterKey = editor.registerCommand(
-      KEY_DOWN_COMMAND,
-      (event: KeyboardEvent) => {
-        // Fallback for hardware keyboard Escape
-        if (event.key === 'Escape' && slashActiveRef.current) {
-          console.log('[SlashCommandPlugin] Escape key pressed, closing slash menu.');
-          window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'SLASH_MENU_CLOSE' }));
-          slashActiveRef.current = false;
-          return true;
-        }
-        return false;
-      },
-      COMMAND_PRIORITY_LOW,
-    );
-
-    const handleClose = () => {
-      console.log('[SlashCommandPlugin] __slashMenuClose called, resetting slashActiveRef.');
-      slashActiveRef.current = false;
-    };
-    (window as any).__slashMenuClose = handleClose;
-
-    return () => {
-      unregisterUpdate();
-      unregisterKey();
-    };
-  }, [editor]);
-
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // TOOLBAR BRIDGE PLUGIN — receives commands from native RN toolbar
 // ═══════════════════════════════════════════════════════════════════════════════
 function ToolbarBridgePlugin() {
@@ -417,6 +314,52 @@ function ToolbarBridgePlugin() {
               fmt = payload as TextFormatType;
               desiredActive = true;
             }
+
+            // Check if active element or last focused input is a checklist item
+            const activeEl = document.activeElement as HTMLElement | null;
+            const lastCheckEl = (window as any).__lastFocusedChecklistInput as HTMLElement | null;
+            const targetCheckEl = activeEl?.closest('.keep-item-input') || (lastCheckEl?.isConnected ? lastCheckEl : null);
+
+            if (targetCheckEl) {
+              const cmdMap: Record<string, string> = {
+                bold: 'bold',
+                italic: 'italic',
+                underline: 'underline',
+                strikethrough: 'strikeThrough',
+              };
+              const execCmd = cmdMap[fmt];
+              if (execCmd) {
+                (targetCheckEl as HTMLElement).focus();
+                document.execCommand(execCmd, false);
+                targetCheckEl.dispatchEvent(new Event('input', { bubbles: true }));
+
+                const isBold = document.queryCommandState('bold');
+                const isItalic = document.queryCommandState('italic');
+                const isUnderline = document.queryCommandState('underline');
+                const isStrike = document.queryCommandState('strikeThrough');
+
+                window.ReactNativeWebView?.postMessage(JSON.stringify({
+                  type: 'SELECTION_STATE',
+                  payload: {
+                    bold: isBold,
+                    italic: isItalic,
+                    underline: isUnderline,
+                    strikethrough: isStrike,
+                    code: false,
+                    subscript: false,
+                    superscript: false,
+                    highlight: false,
+                    blockType: 'check',
+                    align: '',
+                    fontFamily: 'System',
+                    fontSize: '16px',
+                    codeLanguage: '',
+                  }
+                }));
+              }
+              break;
+            }
+
             _desiredFormats.set(fmt, { active: desiredActive, expiresAt: Date.now() + 12_000 });
             editor.update(() => { restoreSelection(); }, {
               onUpdate: () => {
@@ -453,7 +396,27 @@ function ToolbarBridgePlugin() {
             editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined); });
             break;
           case 'INSERT_CHECK':
-            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_CHECK_LIST_COMMAND, undefined); });
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              if ($isRangeSelection(sel)) {
+                const anchorNode = sel.anchor.getNode();
+                const element = anchorNode.getKey() === 'root'
+                  ? anchorNode
+                  : anchorNode.getTopLevelElementOrThrow();
+                const text = element.getTextContent().trim();
+                const keepChecklist = $createKeepChecklistNode([
+                  { id: Math.random().toString(36).slice(2, 9), text: text, checked: false },
+                ]);
+
+                if (element.getKey() === 'root') {
+                  const root = $getRoot();
+                  root.append(keepChecklist);
+                } else {
+                  element.replace(keepChecklist);
+                }
+              }
+            });
             break;
           case 'REMOVE_LIST':
             editor.update(() => { restoreSelection(); editor.dispatchCommand(REMOVE_LIST_COMMAND, undefined); });
@@ -644,38 +607,8 @@ function ToolbarBridgePlugin() {
             });
             break;
           }
-          case 'PAGE_LAYOUT': {
-            if (payload) {
-              try {
-                const layout = JSON.parse(payload);
-                document.documentElement.setAttribute('data-page-size', layout.pageSize || 'pageless');
-                document.documentElement.setAttribute('data-page-orientation', layout.orientation || 'portrait');
-                document.documentElement.setAttribute('data-page-margins', layout.margins || 'normal');
-                document.documentElement.setAttribute('data-page-line-spacing', layout.lineSpacing || '1');
-              } catch (e) {
-                console.error('[Lexical] PAGE_LAYOUT parse failed:', e);
-              }
-              window.ReactNativeWebView?.postMessage(JSON.stringify({
-                type: 'PAGE_LAYOUT_CHANGE',
-                payload: JSON.parse(payload),
-              }));
-            }
-            break;
-          }
 
-          // ── Slash menu: delete the "/" character before inserting block ──
-          case 'DELETE_SLASH': {
-            editor.update(() => {
-              restoreSelection();
-              const sel = $getSelection();
-              if ($isRangeSelection(sel) && sel.isCollapsed()) {
-                // Delete one character before the cursor (the "/")
-                sel.modify('extend', true, 'character');
-                sel.deleteCharacter(true);
-              }
-            });
-            break;
-          }
+
 
           // ── Text color / highlight color ──────────────────────────────
           case 'SET_TEXT_COLOR': {
@@ -910,54 +843,54 @@ function CodeHighlightPlugin() {
   return null;
 }
 
+
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// FLOATING LINK EDITOR — shows on link selection
+// KEEP CHECKLIST MIGRATION PLUGIN
 // ═══════════════════════════════════════════════════════════════════════════════
-function FloatingLinkEditorPlugin() {
+function KeepChecklistMigrationPlugin() {
   const [editor] = useLexicalComposerContext();
-  const [linkUrl, setLinkUrl] = useState('');
-  const [visible, setVisible] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
+    let migrating = false;
+    return editor.registerUpdateListener(({ editorState, dirtyLeaves }) => {
+      if (migrating || dirtyLeaves.size === 0) return;
+
       editorState.read(() => {
-        const sel = $getSelection();
-        if (!$isRangeSelection(sel)) { setVisible(false); return; }
-        const node = sel.anchor.getNode();
-        const parent = node.getParent();
-        const linkNode = node.getType() === 'link' ? node : (parent?.getType() === 'link' ? parent : null);
-        if (linkNode) {
-          setVisible(true);
-          setLinkUrl((linkNode as any).__url ?? '');
-        } else {
-          setVisible(false);
+        const root = $getRoot();
+        const checkLists: any[] = [];
+        const findChecklists = (node: any) => {
+          if ($isListNode(node) && node.getListType() === 'check') {
+            checkLists.push(node);
+          } else if (typeof node.getChildren === 'function') {
+            node.getChildren().forEach(findChecklists);
+          }
+        };
+        root.getChildren().forEach(findChecklists);
+
+        if (checkLists.length > 0) {
+          migrating = true;
+          editor.update(() => {
+            for (const list of checkLists) {
+              const fresh = $getNodeByKey(list.getKey());
+              if (fresh && $isListNode(fresh) && fresh.getListType() === 'check') {
+                const listItems = fresh.getChildren();
+                const items: KeepChecklistItem[] = listItems.map((li: any) => ({
+                  id: Math.random().toString(36).slice(2, 9),
+                  text: typeof li.getTextContent === 'function' ? li.getTextContent() : '',
+                  checked: typeof li.getChecked === 'function' ? li.getChecked() : false,
+                }));
+                const keepNode = $createKeepChecklistNode(items.length > 0 ? items : undefined);
+                fresh.replace(keepNode);
+              }
+            }
+          }, { onUpdate: () => { migrating = false; } });
         }
       });
     });
   }, [editor]);
 
-  const applyLink = () => {
-    editor.dispatchCommand(TOGGLE_LINK_COMMAND, linkUrl || null);
-    setVisible(false);
-  };
-
-  if (!visible) return null;
-
-  return (
-    <div className="link-editor" style={{ bottom: 60, left: 16, top: 'auto' }}>
-      <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>🔗</span>
-      <input
-        ref={inputRef}
-        value={linkUrl}
-        onChange={(e) => setLinkUrl(e.target.value)}
-        placeholder="https://..."
-        onKeyDown={(e) => { if (e.key === 'Enter') applyLink(); }}
-      />
-      <button className="link-editor-btn" onClick={applyLink}>✓</button>
-      <button className="link-editor-btn" onClick={() => { editor.dispatchCommand(TOGGLE_LINK_COMMAND, null); setVisible(false); }}>✕</button>
-    </div>
-  );
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -969,13 +902,32 @@ function ClickFocusPlugin() {
   useEffect(() => {
     const handleContainerClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
+      if (!target) return;
+
       if (
         target.classList.contains('editor-container') ||
         target.classList.contains('editor-shell') ||
         target.tagName === 'BODY' ||
         target.tagName === 'HTML'
       ) {
-        editor.update(() => { editor.focus(); });
+        editor.update(() => {
+          const root = $getRoot();
+          const last = root.getLastChild();
+          if (last && ($isKeepChecklistNode(last) || (last as any).getType?.() === 'keep-checklist')) {
+            const p = $createParagraphNode();
+            root.append(p);
+            p.select();
+          } else {
+            const sel = $getSelection();
+            if (!sel) {
+              const p = $createParagraphNode();
+              root.append(p);
+              p.select();
+            } else {
+              editor.focus();
+            }
+          }
+        });
       }
     };
     document.addEventListener('click', handleContainerClick);
@@ -1017,127 +969,6 @@ function CodeLanguageClickPlugin() {
       document.removeEventListener('click', handleClick, true);
     };
   }, []);
-
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PAGINATION PLUGIN
-// ═══════════════════════════════════════════════════════════════════════════════
-function PaginationPlugin() {
-  const [editor] = useLexicalComposerContext();
-
-  useEffect(() => {
-    const updatePagination = () => {
-      const rootEl = editor.getRootElement();
-      if (!rootEl) return;
-
-      const pageSize = document.documentElement.getAttribute('data-page-size') || 'pageless';
-      const orientation = document.documentElement.getAttribute('data-page-orientation') || 'portrait';
-      const marginAttr = document.documentElement.getAttribute('data-page-margins') || 'normal';
-
-      const children = Array.from(rootEl.children) as HTMLElement[];
-
-      // Clear all page starts first
-      children.forEach(child => {
-        child.removeAttribute('data-page-start');
-      });
-
-      if (pageSize === 'pageless') return;
-
-      const width = rootEl.clientWidth;
-
-      // Aspect ratios map
-      const ASPECT_RATIOS: Record<string, number> = {
-        a4: 1.414,
-        letter: 1.294,
-        legal: 1.647,
-        tabloid: 1.545,
-        a3: 1.414,
-        a5: 1.414,
-        b4: 1.412,
-        b5: 1.420,
-        statement: 1.545,
-        executive: 1.448,
-        folio: 1.529,
-      };
-
-      const ratio = ASPECT_RATIOS[pageSize] || 1.414;
-      const heightMultiplier = orientation === 'portrait' ? ratio : 1 / ratio;
-
-      // Calculate total page height based on viewport size
-      const totalPageHeight = width * heightMultiplier;
-
-      // Subtract padding to find the printable height
-      const marginMap: Record<string, number> = { narrow: 32, normal: 56, moderate: 80, wide: 104 };
-      const totalPadding = marginMap[marginAttr] || 56;
-      const printableHeight = totalPageHeight - totalPadding;
-
-      let cumulativeHeight = 0;
-      let pageCount = 1;
-
-      children.forEach((child) => {
-        // Skip editor action bar or helper elements that are absolutely positioned
-        if (child.classList.contains('code-action-bar') || child.tagName === 'BUTTON') return;
-
-        const childHeight = child.offsetHeight;
-        cumulativeHeight += childHeight;
-
-        // If this child element pushes the page past the printable height boundary
-        if (cumulativeHeight > printableHeight) {
-          child.setAttribute('data-page-start', 'true');
-          // Reset count starting with this child's height on the new page
-          cumulativeHeight = childHeight;
-          pageCount++;
-        }
-      });
-
-      // Dynamically size the editor-input container to always span full pages
-      // total height = (number of pages * height of one page) + (number of gaps * gap height)
-      const totalPageHeightWithGaps = (pageCount * totalPageHeight) + ((pageCount - 1) * 56);
-      rootEl.style.minHeight = `${totalPageHeightWithGaps}px`;
-    };
-
-    // Run on editor updates (text changes, node insertions/deletions)
-    const unregisterUpdate = editor.registerUpdateListener(() => {
-      // Run after the DOM finishes updating
-      setTimeout(updatePagination, 0);
-    });
-
-    // Run on window resize or orientation change
-    window.addEventListener('resize', updatePagination, { passive: true });
-
-    // Use ResizeObserver for accurate container size tracking
-    const rootEl = editor.getRootElement();
-    let ro: ResizeObserver | null = null;
-    if (rootEl) {
-      ro = new ResizeObserver(() => {
-        updatePagination();
-      });
-      ro.observe(rootEl);
-    }
-
-    // Also run a MutationObserver on document.documentElement attributes
-    // so we re-paginate immediately when the user changes layout settings
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach(mutation => {
-        if (mutation.attributeName && mutation.attributeName.startsWith('data-page-')) {
-          updatePagination();
-        }
-      });
-    });
-    observer.observe(document.documentElement, { attributes: true });
-
-    // Initial run
-    setTimeout(updatePagination, 100);
-
-    return () => {
-      unregisterUpdate();
-      window.removeEventListener('resize', updatePagination);
-      observer.disconnect();
-      if (ro) ro.disconnect();
-    };
-  }, [editor]);
 
   return null;
 }
@@ -1271,99 +1102,6 @@ function BackspaceNodeDeletionPlugin(): null {
 }
 
 
-// ── AutoEmbedPlugin — converts pasted YouTube / Twitter URLs into embed cards ──
-const YT_REGEX = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-const TWITTER_REGEX = /(?:twitter\.com|x\.com)\/\S+\/status\/\d+/;
-
-function AutoEmbedPlugin(): null {
-  const [editor] = useLexicalComposerContext();
-
-  useEffect(() => {
-    // ── Method 1: intercept paste event (works on desktop & some Android) ──
-    const onPaste = (e: ClipboardEvent) => {
-      const text = e.clipboardData?.getData('text/plain')?.trim();
-      if (!text) return;
-
-      const ytMatch = text.match(YT_REGEX);
-      if (ytMatch) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        const videoID = ytMatch[1];
-        editor.update(() => {
-          const sel = $getSelection();
-          if (sel) sel.insertNodes([$createYouTubeNode(videoID)]);
-        });
-        return;
-      }
-
-      if (TWITTER_REGEX.test(text)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        editor.update(() => {
-          const sel = $getSelection();
-          if (sel) sel.insertNodes([$createTweetCardNode(text)]);
-        });
-      }
-    };
-
-    const pasteCleanup = editor.registerRootListener((root, prevRoot) => {
-      if (prevRoot) prevRoot.removeEventListener('paste', onPaste, true);
-      if (root) root.addEventListener('paste', onPaste, true);
-    });
-
-    // ── Method 2: scan paragraphs after every update (catches Android clipboard paste) ──
-    // If a paragraph contains ONLY a URL with no other content, replace it with an embed
-    let converting = false; // prevent re-entrant loops
-    const updateCleanup = editor.registerUpdateListener(({ editorState, dirtyLeaves }) => {
-      if (converting || dirtyLeaves.size === 0) return;
-
-      editorState.read(() => {
-        const root = $getRoot();
-        const children = root.getChildren();
-        for (const child of children) {
-          if (child.getType() !== 'paragraph') continue;
-          const text = child.getTextContent().trim();
-          if (!text) continue;
-
-          const ytMatch = text.match(YT_REGEX);
-          if (ytMatch) {
-            const videoID = ytMatch[1];
-            converting = true;
-            editor.update(() => {
-              const fresh = $getNodeByKey(child.getKey());
-              if (fresh && fresh.getType() === 'paragraph' && fresh.getTextContent().trim() === text) {
-                const embed = $createYouTubeNode(videoID);
-                fresh.replace(embed);
-              }
-            }, { onUpdate: () => { converting = false; } });
-            return;
-          }
-
-          if (TWITTER_REGEX.test(text)) {
-            converting = true;
-            editor.update(() => {
-              const fresh = $getNodeByKey(child.getKey());
-              if (fresh && fresh.getType() === 'paragraph' && fresh.getTextContent().trim() === text) {
-                const embed = $createTweetCardNode(text);
-                fresh.replace(embed);
-              }
-            }, { onUpdate: () => { converting = false; } });
-            return;
-          }
-        }
-      });
-    });
-
-    return () => {
-      pasteCleanup();
-      updateCleanup();
-    };
-  }, [editor]);
-
-  return null;
-}
-
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1414,13 +1152,10 @@ export default function App() {
           <SelectionStatePlugin />
           <AutoSavePlugin />
           <KeyboardScrollPlugin />
-          <FloatingLinkEditorPlugin />
           <ClickFocusPlugin />
-          <SlashCommandPlugin />
           <CodeLanguageClickPlugin />
-          <PaginationPlugin />
           <BackspaceNodeDeletionPlugin />
-          <AutoEmbedPlugin />
+          <KeepChecklistMigrationPlugin />
         </div>
       </div>
     </LexicalComposer>

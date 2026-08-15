@@ -23,6 +23,8 @@ import {
 import { PollNode } from './PollNode';
 import { PageBreakNode } from './PageBreakNode';
 import { TweetCardNode } from './TweetCardNode';
+import { LinkPreviewNode } from './LinkPreviewNode';
+import { KeepChecklistNode } from './KeepChecklistNode';
 
 export const allNodes: Array<Klass<LexicalNode>> = [
   // Built-in rich text
@@ -56,6 +58,16 @@ export const allNodes: Array<Klass<LexicalNode>> = [
   PollNode,
   PageBreakNode,
   TweetCardNode,
+  LinkPreviewNode,
+  KeepChecklistNode,
 ];
 
-
+export * from './ImageNode';
+export * from './YouTubeNode';
+export * from './EquationNode';
+export * from './CollapsibleNodes';
+export * from './PollNode';
+export * from './PageBreakNode';
+export * from './TweetCardNode';
+export * from './LinkPreviewNode';
+export * from './KeepChecklistNode';

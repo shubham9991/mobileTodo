@@ -1,0 +1,185 @@
+/* ═══════════════════════════════════════════════════════════════
+   BACKUP OF REMOVED FEATURE: PAGE LAYOUT & SIZING STYLES
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Desk background for page layout modes */
+html:not([data-page-size="pageless"]) body {
+  background-color: var(--page-desk-bg) !important;
+}
+
+/* Styling the editor-input container as a physical page sheet */
+html:not([data-page-size="pageless"]) .editor-input {
+  background: var(--card);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.02);
+  border: 1px solid var(--border);
+  margin: 16px auto 160px auto;
+  width: 92vw;
+  max-width: 800px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  overflow-x: hidden; /* Clips visual page breaks exactly at the page border */
+}
+
+/* Margins styling */
+html[data-page-margins="narrow"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 16px;
+}
+html[data-page-margins="normal"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 28px;
+}
+html[data-page-margins="moderate"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 40px;
+}
+html[data-page-margins="wide"]:not([data-page-size="pageless"]) .editor-input {
+  padding: 52px;
+}
+
+/* Page Start Visual Break Styling */
+html:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"] {
+  margin-top: 56px !important; /* Push element down to make space for page gap */
+  position: relative;
+}
+
+html:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  content: 'PAGE BREAK';
+  position: absolute;
+  top: -42px; /* Position page break divider in the margin area */
+  height: 24px;
+  background-color: var(--page-desk-bg); /* Filled with the desk color */
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Position page breaks to span the full width of the container, accounting for margin padding */
+html[data-page-margins="narrow"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -16px;
+  right: -16px;
+}
+html[data-page-margins="normal"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -28px;
+  right: -28px;
+}
+html[data-page-margins="moderate"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -40px;
+  right: -40px;
+}
+html[data-page-margins="wide"]:not([data-page-size="pageless"]) .editor-input > [data-page-start="true"]::before {
+  left: -52px;
+  right: -52px;
+}
+
+/* Page Break view customization */
+html:not([data-page-size="pageless"]) .editor-hr {
+  border: none;
+  border-top: 2px dashed var(--border);
+  height: 1px;
+  margin: 24px 0;
+  position: relative;
+}
+html:not([data-page-size="pageless"]) .editor-hr::after {
+  content: 'PAGE BREAK';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card);
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+}
+
+/* Line Spacing styles */
+html[data-page-line-spacing="1"] .editor-input p,
+html[data-page-line-spacing="1"] .editor-input li { line-height: 1.15 !important; }
+
+html[data-page-line-spacing="1.15"] .editor-input p,
+html[data-page-line-spacing="1.15"] .editor-input li { line-height: 1.30 !important; }
+
+html[data-page-line-spacing="1.5"] .editor-input p,
+html[data-page-line-spacing="1.5"] .editor-input li { line-height: 1.65 !important; }
+
+html[data-page-line-spacing="2"] .editor-input p,
+html[data-page-line-spacing="2"] .editor-input li { line-height: 2.15 !important; }
+
+html[data-page-line-spacing="2.5"] .editor-input p,
+html[data-page-line-spacing="2.5"] .editor-input li { line-height: 2.65 !important; }
+
+html[data-page-line-spacing="3"] .editor-input p,
+html[data-page-line-spacing="3"] .editor-input li { line-height: 3.15 !important; }
+
+/* Viewport-based responsive min-heights & widths for all page sizes (obvious visual differences) */
+
+/* A4: Standard width, standard height */
+html[data-page-size="a4"] .editor-input { width: 90% !important; }
+html[data-page-size="a4"][data-page-orientation="portrait"] .editor-input { min-height: 116vw; }
+html[data-page-size="a4"][data-page-orientation="landscape"] .editor-input { min-height: 58vw; }
+
+/* Letter: Slightly wider than A4, slightly shorter */
+html[data-page-size="letter"] .editor-input { width: 92% !important; }
+html[data-page-size="letter"][data-page-orientation="portrait"] .editor-input { min-height: 109vw; }
+html[data-page-size="letter"][data-page-orientation="landscape"] .editor-input { min-height: 65vw; }
+
+/* Legal: Wider than A4, much taller */
+html[data-page-size="legal"] .editor-input { width: 92% !important; }
+html[data-page-size="legal"][data-page-orientation="portrait"] .editor-input { min-height: 139vw; }
+html[data-page-size="legal"][data-page-orientation="landscape"] .editor-input { min-height: 51vw; }
+
+/* Tabloid: Full screen width, very tall */
+html[data-page-size="tabloid"] .editor-input { width: 100% !important; }
+html[data-page-size="tabloid"][data-page-orientation="portrait"] .editor-input { min-height: 142vw; }
+html[data-page-size="tabloid"][data-page-orientation="landscape"] .editor-input { min-height: 59vw; }
+
+/* A3: Full screen width, extremely tall */
+html[data-page-size="a3"] .editor-input { width: 100% !important; }
+html[data-page-size="a3"][data-page-orientation="portrait"] .editor-input { min-height: 130vw; }
+html[data-page-size="a3"][data-page-orientation="landscape"] .editor-input { min-height: 65vw; }
+
+/* A5: Much narrower, much shorter */
+html[data-page-size="a5"] .editor-input { width: 74% !important; }
+html[data-page-size="a5"][data-page-orientation="portrait"] .editor-input { min-height: 96vw; }
+html[data-page-size="a5"][data-page-orientation="landscape"] .editor-input { min-height: 48vw; }
+
+/* B4: Wider, tall */
+html[data-page-size="b4"] .editor-input { width: 96% !important; }
+html[data-page-size="b4"][data-page-orientation="portrait"] .editor-input { min-height: 124vw; }
+html[data-page-size="b4"][data-page-orientation="landscape"] .editor-input { min-height: 62vw; }
+
+/* B5: Compact width, shorter */
+html[data-page-size="b5"] .editor-input { width: 82% !important; }
+html[data-page-size="b5"][data-page-orientation="portrait"] .editor-input { min-height: 107vw; }
+html[data-page-size="b5"][data-page-orientation="landscape"] .editor-input { min-height: 53vw; }
+
+/* Statement: Very narrow and compact (like a memo) */
+html[data-page-size="statement"] .editor-input { width: 68% !important; }
+html[data-page-size="statement"][data-page-orientation="portrait"] .editor-input { min-height: 96vw; }
+html[data-page-size="statement"][data-page-orientation="landscape"] .editor-input { min-height: 40vw; }
+
+/* Executive: Clean semi-wide, shorter */
+html[data-page-size="executive"] .editor-input { width: 86% !important; }
+html[data-page-size="executive"][data-page-orientation="portrait"] .editor-input { min-height: 114vw; }
+html[data-page-size="executive"][data-page-orientation="landscape"] .editor-input { min-height: 54vw; }
+
+/* Folio: Normal width, taller */
+html[data-page-size="folio"] .editor-input { width: 90% !important; }
+html[data-page-size="folio"][data-page-orientation="portrait"] .editor-input { min-height: 126vw; }
+html[data-page-size="folio"][data-page-orientation="landscape"] .editor-input { min-height: 54vw; }
+
+/* Desk background color variables added to theme root */
+:root {
+  --page-desk-bg: #E2E8F0;
+}
+[data-theme="dark"] {
+  --page-desk-bg: #09090B;
+}
