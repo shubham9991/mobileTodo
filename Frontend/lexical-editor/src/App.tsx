@@ -11,7 +11,28 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — no @types/prismjs bundled; prism works fine at runtime
 import Prism from 'prismjs';
+import 'prismjs/components/prism-c';
+import 'prismjs/components/prism-cpp';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-rust';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-swift';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-powershell';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-yaml';
 import 'prismjs/components/prism-go';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-markup-templating';
+import 'prismjs/components/prism-objectivec';
 import 'prismjs/components/prism-xml-doc';
 (window as any).Prism = Prism;
 
@@ -41,6 +62,8 @@ import {
   SELECTION_CHANGE_COMMAND,
   COMMAND_PRIORITY_HIGH,
   KEY_DOWN_COMMAND,
+  KEY_ENTER_COMMAND,
+  KEY_ARROW_DOWN_COMMAND,
   COMMAND_PRIORITY_LOW,
   $getRoot,
   $getSelection,
@@ -404,7 +427,16 @@ function ToolbarBridgePlugin() {
                 const element = anchorNode.getKey() === 'root'
                   ? anchorNode
                   : anchorNode.getTopLevelElementOrThrow();
-                const text = element.getTextContent().trim();
+
+                // If already inside a checklist node, do not duplicate
+                if ($isKeepChecklistNode(element) || (element as any).getType?.() === 'keep-checklist') {
+                  return;
+                }
+
+                let text = element.getTextContent().trim();
+                // Strip any existing brackets or checkbox markers
+                text = text.replace(/^(\[\s*\]|\[x\])\s*/gi, '').trim();
+
                 const keepChecklist = $createKeepChecklistNode([
                   { id: Math.random().toString(36).slice(2, 9), text: text, checked: false },
                 ]);
@@ -462,11 +494,23 @@ function ToolbarBridgePlugin() {
             break;
           case 'SET_CODE_LANGUAGE':
             editor.update(() => {
+              restoreSelection();
+              let codeNode: any = null;
               const selection = $getSelection();
               if ($isRangeSelection(selection)) {
                 const anchorNode = selection.anchor.getNode();
-                const codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
-                if (codeNode) codeNode.setLanguage(payload || '');
+                codeNode = anchorNode.getParents().find($isCodeNode) || ($isCodeNode(anchorNode) ? anchorNode : null);
+              }
+              if (!codeNode) {
+                const root = $getRoot();
+                const findCode = (n: any) => {
+                  if ($isCodeNode(n)) codeNode = n;
+                  else if (typeof n.getChildren === 'function') n.getChildren().forEach(findCode);
+                };
+                root.getChildren().forEach(findCode);
+              }
+              if (codeNode && $isCodeNode(codeNode)) {
+                codeNode.setLanguage(payload || '');
               }
             });
             break;
@@ -684,16 +728,27 @@ function ToolbarBridgePlugin() {
           case 'COPY_CODE': {
             editor.getEditorState().read(() => {
               const sel = $getSelection();
-              if (!$isRangeSelection(sel)) return;
-              const anchor = sel.anchor.getNode();
-              const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+              let codeNode: any = null;
+              if ($isRangeSelection(sel)) {
+                const anchor = sel.anchor.getNode();
+                codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+              }
+              if (!codeNode) {
+                const root = $getRoot();
+                const findCode = (n: any) => {
+                  if ($isCodeNode(n)) codeNode = n;
+                  else if (typeof n.getChildren === 'function') n.getChildren().forEach(findCode);
+                };
+                root.getChildren().forEach(findCode);
+              }
               if (codeNode && $isCodeNode(codeNode)) {
                 const content = codeNode.getTextContent();
-                navigator.clipboard.writeText(content).then(() => {
-                  window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_RESULT', payload: 'ok' }));
-                }).catch(() => {
-                  window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content }));
-                });
+                window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content }));
+                try {
+                  navigator.clipboard?.writeText(content).catch(() => {});
+                } catch {
+                  // ignore
+                }
               }
             });
             break;
@@ -875,11 +930,15 @@ function KeepChecklistMigrationPlugin() {
               const fresh = $getNodeByKey(list.getKey());
               if (fresh && $isListNode(fresh) && fresh.getListType() === 'check') {
                 const listItems = fresh.getChildren();
-                const items: KeepChecklistItem[] = listItems.map((li: any) => ({
-                  id: Math.random().toString(36).slice(2, 9),
-                  text: typeof li.getTextContent === 'function' ? li.getTextContent() : '',
-                  checked: typeof li.getChecked === 'function' ? li.getChecked() : false,
-                }));
+                const items: KeepChecklistItem[] = listItems.map((li: any) => {
+                  let raw = typeof li.getTextContent === 'function' ? li.getTextContent() : '';
+                  raw = raw.replace(/^(\[\s*\]|\[x\])\s*/gi, '').trim();
+                  return {
+                    id: Math.random().toString(36).slice(2, 9),
+                    text: raw,
+                    checked: typeof li.getChecked === 'function' ? li.getChecked() : false,
+                  };
+                });
                 const keepNode = $createKeepChecklistNode(items.length > 0 ? items : undefined);
                 fresh.replace(keepNode);
               }
@@ -894,44 +953,71 @@ function KeepChecklistMigrationPlugin() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CLICK FOCUS PLUGIN
+// CLICK FOCUS PLUGIN — tapping blank note space below any block always creates/selects a paragraph
 // ═══════════════════════════════════════════════════════════════════════════════
 function ClickFocusPlugin() {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    const handleContainerClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
       if (!target) return;
 
+      // Don't intercept interactive buttons/checkboxes
       if (
+        target.closest('.code-copy-btn') ||
+        target.closest('.keep-drag-handle') ||
+        target.closest('.keep-checkbox') ||
+        target.closest('.keep-item-delete') ||
+        target.closest('.keep-add-row') ||
+        target.closest('.keep-accordion-header')
+      ) {
+        return;
+      }
+
+      // If user clicked inside a checklist item to edit it, let them
+      if (target.closest('.keep-item-input')) {
+        return;
+      }
+
+      const rootEl = editor.getRootElement();
+      if (!rootEl) return;
+
+      // Check if click was on rootEl, editor-input, container, shell, body, html, or below last child
+      const isContainerOrBody =
+        target === rootEl ||
+        target.classList.contains('editor-input') ||
         target.classList.contains('editor-container') ||
         target.classList.contains('editor-shell') ||
         target.tagName === 'BODY' ||
-        target.tagName === 'HTML'
-      ) {
+        target.tagName === 'HTML';
+
+      const lastChildEl = rootEl.lastElementChild as HTMLElement | null;
+      const isBelowLastChild = lastChildEl && e.clientY > lastChildEl.getBoundingClientRect().bottom + 4;
+
+      if (isContainerOrBody || isBelowLastChild) {
         editor.update(() => {
           const root = $getRoot();
           const last = root.getLastChild();
-          if (last && ($isKeepChecklistNode(last) || (last as any).getType?.() === 'keep-checklist')) {
-            const p = $createParagraphNode();
-            root.append(p);
-            p.select();
-          } else {
-            const sel = $getSelection();
-            if (!sel) {
-              const p = $createParagraphNode();
-              root.append(p);
-              p.select();
-            } else {
-              editor.focus();
-            }
+
+          // If the last block is already an empty paragraph, just select it
+          if (last && $isParagraphNode(last) && last.getTextContent().trim() === '') {
+            last.select();
+            return;
           }
+
+          // Otherwise append a new paragraph at the bottom and focus it
+          const p = $createParagraphNode();
+          root.append(p);
+          p.select();
         });
       }
     };
-    document.addEventListener('click', handleContainerClick);
-    return () => { document.removeEventListener('click', handleContainerClick); };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => {
+      document.removeEventListener('click', handleDocumentClick);
+    };
   }, [editor]);
 
   return null;
@@ -948,7 +1034,7 @@ function CodeLanguageClickPlugin() {
 
       const codeEl = target.closest('code.editor-code');
       if (codeEl) {
-        if (target.closest('.code-action-bar')) {
+        if (target.closest('.code-action-bar') || target.closest('.code-copy-btn')) {
           return;
         }
 
@@ -969,6 +1055,198 @@ function CodeLanguageClickPlugin() {
       document.removeEventListener('click', handleClick, true);
     };
   }, []);
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CODE BLOCK EXIT PLUGIN — allows easy exit from code block via Enter, ArrowDown, mobile beforeinput
+// ═══════════════════════════════════════════════════════════════════════════════
+function CodeBlockExitPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    // 1. Enter key: pressing Enter on an empty line at the end of the code block exits to a paragraph below
+    const unregisterEnter = editor.registerCommand(
+      KEY_ENTER_COMMAND,
+      (e) => {
+        let handled = false;
+        editor.update(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+
+          const anchor = sel.anchor.getNode();
+          const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+          if (!codeNode || !$isCodeNode(codeNode)) return;
+
+          const text = codeNode.getTextContent();
+          if (text.trim() === '') {
+            const p = $createParagraphNode();
+            codeNode.replace(p);
+            p.select();
+            handled = true;
+            return;
+          }
+
+          // If code text ends with a newline (meaning user is on the empty trailing line) or Shift+Enter was pressed:
+          if (text.endsWith('\n') || (e as KeyboardEvent)?.shiftKey) {
+            const lastDescendant = codeNode.getLastDescendant();
+            if (text.endsWith('\n') && lastDescendant && $isTextNode(lastDescendant)) {
+              const cur = lastDescendant.getTextContent();
+              if (cur.endsWith('\n')) {
+                lastDescendant.setTextContent(cur.slice(0, -1));
+              }
+            }
+            const p = $createParagraphNode();
+            codeNode.insertAfter(p);
+            p.select();
+            handled = true;
+          }
+        });
+
+        if (handled && e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return handled;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+
+    // 2. ArrowDown key: pressing ArrowDown at the end of a code block creates/moves to paragraph below
+    const unregisterArrowDown = editor.registerCommand(
+      KEY_ARROW_DOWN_COMMAND,
+      (e) => {
+        let handled = false;
+        editor.update(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+
+          const anchor = sel.anchor.getNode();
+          const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+          if (!codeNode || !$isCodeNode(codeNode)) return;
+
+          const nextSibling = codeNode.getNextSibling();
+          if (!nextSibling) {
+            const p = $createParagraphNode();
+            codeNode.insertAfter(p);
+            p.select();
+            handled = true;
+          } else if (typeof (nextSibling as any).selectStart === 'function') {
+            (nextSibling as any).selectStart();
+            handled = true;
+          }
+        });
+
+        if (handled && e) {
+          e.preventDefault();
+        }
+        return handled;
+      },
+      COMMAND_PRIORITY_HIGH,
+    );
+
+    // 3. Capture-phase keydown handler to catch Enter before any default handling
+    const handleKeyDownCapture = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        let shouldExit = false;
+        editor.getEditorState().read(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+
+          const anchor = sel.anchor.getNode();
+          const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+          if (!codeNode || !$isCodeNode(codeNode)) return;
+
+          const text = codeNode.getTextContent();
+          if (text.endsWith('\n') || text.trim() === '') {
+            shouldExit = true;
+          }
+        });
+
+        if (shouldExit) {
+          e.preventDefault();
+          e.stopPropagation();
+          editor.update(() => {
+            const sel = $getSelection();
+            if (!$isRangeSelection(sel)) return;
+            const anchor = sel.anchor.getNode();
+            const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+            if (codeNode && $isCodeNode(codeNode)) {
+              const text = codeNode.getTextContent();
+              if (text.endsWith('\n')) {
+                const lastDescendant = codeNode.getLastDescendant();
+                if (lastDescendant && $isTextNode(lastDescendant) && lastDescendant.getTextContent().endsWith('\n')) {
+                  const cur = lastDescendant.getTextContent();
+                  lastDescendant.setTextContent(cur.slice(0, -1));
+                }
+              }
+              const p = $createParagraphNode();
+              codeNode.insertAfter(p);
+              p.select();
+            }
+          });
+        }
+      }
+    };
+
+    // 4. Mobile touch/keyboard beforeinput event
+    const onBeforeInput = (e: Event) => {
+      const inputEvent = e as InputEvent;
+      if (inputEvent.inputType === 'insertParagraph' || inputEvent.inputType === 'insertLineBreak') {
+        let shouldExit = false;
+        editor.getEditorState().read(() => {
+          const sel = $getSelection();
+          if (!$isRangeSelection(sel) || !sel.isCollapsed()) return;
+
+          const anchor = sel.anchor.getNode();
+          const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+          if (!codeNode || !$isCodeNode(codeNode)) return;
+
+          const text = codeNode.getTextContent();
+          if (text.endsWith('\n') || text.trim() === '') {
+            shouldExit = true;
+          }
+        });
+
+        if (shouldExit) {
+          e.preventDefault();
+          e.stopPropagation();
+          editor.update(() => {
+            const sel = $getSelection();
+            if (!$isRangeSelection(sel)) return;
+            const anchor = sel.anchor.getNode();
+            const codeNode = anchor.getParents().find($isCodeNode) || ($isCodeNode(anchor) ? anchor : null);
+            if (codeNode && $isCodeNode(codeNode)) {
+              const lastDescendant = codeNode.getLastDescendant();
+              if (lastDescendant && $isTextNode(lastDescendant) && lastDescendant.getTextContent().endsWith('\n')) {
+                const cur = lastDescendant.getTextContent();
+                lastDescendant.setTextContent(cur.slice(0, -1));
+              }
+              const p = $createParagraphNode();
+              codeNode.insertAfter(p);
+              p.select();
+            }
+          });
+        }
+      }
+    };
+
+    return editor.registerRootListener((root, prevRoot) => {
+      if (prevRoot) {
+        prevRoot.removeEventListener('keydown', handleKeyDownCapture, true);
+        prevRoot.removeEventListener('beforeinput', onBeforeInput, true);
+      }
+      if (root) {
+        root.addEventListener('keydown', handleKeyDownCapture, true);
+        root.addEventListener('beforeinput', onBeforeInput, true);
+      }
+      return () => {
+        unregisterEnter();
+        unregisterArrowDown();
+      };
+    });
+  }, [editor]);
 
   return null;
 }
@@ -1142,6 +1420,7 @@ export default function App() {
           <HorizontalRulePlugin />
           <CodeHighlightPlugin />
           <CodeActionMenuPlugin />
+          <CodeBlockExitPlugin />
 
           {/* Tier 2: Structural plugins */}
           <TablePlugin />

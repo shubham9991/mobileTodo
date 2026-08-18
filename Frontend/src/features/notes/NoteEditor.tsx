@@ -17,6 +17,7 @@ import { NoteToolbar } from './NoteToolbar';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 
 interface NoteEditorProps {
   /** Serialized Lexical JSON AST string (for editing existing notes) */
@@ -47,10 +48,17 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
     onSave,
     onReady,
     onCopied: () => {
-      if (Platform.OS === 'android') ToastAndroid.show('Copied!', ToastAndroid.SHORT);
+      if (Platform.OS === 'android') ToastAndroid.show('Code copied to clipboard!', ToastAndroid.SHORT);
+      else Alert.alert('Copied', 'Code copied to clipboard!');
     },
-    onCopyFallback: async (_content: string) => {
-      if (Platform.OS === 'android') ToastAndroid.show('Copied!', ToastAndroid.SHORT);
+    onCopyFallback: async (content: string) => {
+      try {
+        await Clipboard.setStringAsync(content);
+      } catch {
+        // ignore
+      }
+      if (Platform.OS === 'android') ToastAndroid.show('Code copied to clipboard!', ToastAndroid.SHORT);
+      else Alert.alert('Copied', 'Code copied to clipboard!');
     },
     onDownloadCode: async ({ content, filename }) => {
       try {

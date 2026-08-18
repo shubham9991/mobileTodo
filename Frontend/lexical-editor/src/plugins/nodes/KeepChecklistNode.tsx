@@ -279,17 +279,21 @@ function KeepChecklistComponent({ nodeKey, initialItems, initialIsCollapsed }: K
 
   // Delete an item
   const handleDeleteItem = (id: string) => {
-    setItems(prev => {
-      if (prev.length <= 1) {
-        // Keep at least one empty item if all are deleted
-        const next = [{ id: uid(), text: '', checked: false }];
-        syncWithNode(next, isCollapsed);
-        return next;
-      }
-      const next = prev.filter(it => it.id !== id);
-      syncWithNode(next, isCollapsed);
-      return next;
-    });
+    if (items.length <= 1) {
+      // When deleting the only remaining item in the checklist, delete the whole checklist node
+      editor.update(() => {
+        const node = $getNodeByKey(nodeKey);
+        if (node) {
+          const p = $createParagraphNode();
+          node.replace(p);
+          p.select();
+        }
+      });
+      return;
+    }
+    const next = items.filter(it => it.id !== id);
+    setItems(next);
+    syncWithNode(next, isCollapsed);
   };
 
   // Add a new unchecked item

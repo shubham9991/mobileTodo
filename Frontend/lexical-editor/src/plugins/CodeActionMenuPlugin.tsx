@@ -2,11 +2,10 @@
  * CodeActionMenuPlugin
  *
  * 1. Tracks each `code.editor-code` element via MutationObserver + Lexical updates.
- * 2. Adds touch + scroll listeners to update `--csx` CSS variable so the
- *    ::before (gutter) and ::after (header) pseudo-elements counter-scroll
- *    smoothly without wobble.
- * 3. Portals the Copy button to document.body with position:fixed so it is
- *    NEVER clipped or hidden by the code element's overflow-x:auto.
+ * 2. Portals the Copy button to `.editor-container` with position:absolute,
+ *    keeping it completely OUTSIDE Lexical's internal <code> children to avoid
+ *    any DOM reconciliation or selection conflicts.
+ * 3. Aligns the Copy button perfectly inside the top-right of the 32px header bar.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
@@ -24,6 +23,7 @@ function CopyIcon() {
     </svg>
   );
 }
+
 function CheckIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
@@ -33,51 +33,42 @@ function CheckIcon() {
   );
 }
 
-// ── Copy button — portaled to document.body, position:fixed ───────────────────
-// This means it is NEVER inside the overflow-x:auto <code> element,
-// so it can never be clipped or hidden, regardless of scroll state.
+// ── Copy button inside code block header ─────────────────────────────────────
 function CopyButton({ codeEl, editor }: { codeEl: HTMLElement; editor: LexicalEditor }) {
   const [copied, setCopied] = useState(false);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
-  // Compute fixed position from the code element's bounding rect
   useEffect(() => {
     const update = () => {
       if (!codeEl.isConnected) return;
+      const container = codeEl.closest('.editor-container') || codeEl.parentElement;
+      if (!container) return;
+      const cRect = container.getBoundingClientRect();
       const r = codeEl.getBoundingClientRect();
       if (r.width === 0) return;
+
       setPos({
-        top: r.top + 5,
-        right: window.innerWidth - r.right + 10,
+        top: r.top - cRect.top + 4,
+        right: cRect.right - r.right + 8,
       });
     };
 
     update();
 
-    // Re-compute if the window resizes (orientation change etc.)
     window.addEventListener('resize', update, { passive: true });
-
-    // Re-compute if the code block height changes (lines added/removed)
     const ro = new ResizeObserver(update);
     ro.observe(codeEl);
 
-    // Re-compute if parent container scrolls (editor vertical scroll)
-    let el: HTMLElement | null = codeEl.parentElement;
-    const scrollParents: HTMLElement[] = [];
-    while (el) {
-      el.addEventListener('scroll', update, { passive: true });
-      scrollParents.push(el);
-      el = el.parentElement;
-    }
+    const container = codeEl.closest('.editor-container');
+    if (container) ro.observe(container);
 
     return () => {
       window.removeEventListener('resize', update);
       ro.disconnect();
-      scrollParents.forEach(p => p.removeEventListener('scroll', update));
     };
   }, [codeEl]);
 
-  const handleCopy = useCallback((e: React.MouseEvent) => {
+  const handleCopy = useCallback((e: React.SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -90,16 +81,20 @@ function CopyButton({ codeEl, editor }: { codeEl: HTMLElement; editor: LexicalEd
       });
     } catch (_) { /* ignore */ }
 
-    if (!content) return;
+    if (!content) {
+      content = codeEl.innerText || codeEl.textContent || '';
+    }
 
-    navigator.clipboard.writeText(content).catch(() => {
-      window.ReactNativeWebView?.postMessage(
-        JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content })
-      );
-    });
+    // Forward code content to React Native native clipboard
     window.ReactNativeWebView?.postMessage(
-      JSON.stringify({ type: 'COPY_CODE_RESULT', payload: 'ok' })
+      JSON.stringify({ type: 'COPY_CODE_CONTENT', payload: content })
     );
+
+    try {
+      navigator.clipboard?.writeText(content).catch(() => {});
+    } catch {
+      // ignore
+    }
 
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -109,10 +104,19 @@ function CopyButton({ codeEl, editor }: { codeEl: HTMLElement; editor: LexicalEd
 
   return (
     <button
+      type="button"
       className={`code-copy-btn${copied ? ' copied' : ''}`}
+      onClick={handleCopy}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchEnd={handleCopy}
       onMouseDown={handleCopy}
       title="Copy code"
-      style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999 }}
+      style={{
+        position: 'absolute',
+        top: pos.top,
+        right: pos.right,
+        zIndex: 10,
+      }}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
       <span>{copied ? 'Copied!' : 'Copy'}</span>
@@ -155,66 +159,17 @@ export default function CodeActionMenuPlugin(): React.ReactElement | null {
     };
   }, [editor]);
 
-  // ── Scroll + touch listeners → update --csx for gutter/header transforms ──
-  // Using touchmove fires BEFORE the browser composites the scroll,
-  // which eliminates the 1-frame wobble seen with scroll-only approach.
-  useEffect(() => {
-    if (codeEls.length === 0) return;
-    const cleanups: (() => void)[] = [];
-
-    for (const el of codeEls) {
-      let touchStartX = 0;
-      let scrollAtTouchStart = 0;
-
-      const setCsx = (v: number) => {
-        el.style.setProperty('--csx', `${v}px`);
-      };
-
-      const onTouchStart = (e: TouchEvent) => {
-        touchStartX = e.touches[0].clientX;
-        scrollAtTouchStart = el.scrollLeft;
-      };
-
-      const onTouchMove = (e: TouchEvent) => {
-        // Estimate scroll offset from touch delta — fires before scroll compositing
-        const delta = touchStartX - e.touches[0].clientX;
-        const estimated = Math.max(
-          0,
-          Math.min(el.scrollWidth - el.clientWidth, scrollAtTouchStart + delta)
-        );
-        setCsx(estimated);
-      };
-
-      const onScroll = () => {
-        // Fires after compositing — corrects any estimation drift
-        setCsx(el.scrollLeft);
-      };
-
-      setCsx(el.scrollLeft);
-      el.addEventListener('touchstart', onTouchStart, { passive: true });
-      el.addEventListener('touchmove', onTouchMove, { passive: true });
-      el.addEventListener('scroll', onScroll, { passive: true });
-
-      cleanups.push(() => {
-        el.removeEventListener('touchstart', onTouchStart);
-        el.removeEventListener('touchmove', onTouchMove);
-        el.removeEventListener('scroll', onScroll);
-        el.style.removeProperty('--csx');
-      });
-    }
-
-    return () => cleanups.forEach(fn => fn());
-  }, [codeEls]);
-
   if (codeEls.length === 0) return null;
 
-  // Portal each copy button to document.body (NOT into the <code> element)
+  const container = editor.getRootElement()?.closest('.editor-container') || document.body;
+
+  // Portal each copy button to .editor-container (outside code node)
   return (
     <>
       {codeEls.map((el, i) =>
         ReactDOM.createPortal(
           <CopyButton key={i} codeEl={el} editor={editor} />,
-          document.body,
+          container,
         )
       )}
     </>
