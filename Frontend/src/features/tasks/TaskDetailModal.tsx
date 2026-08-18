@@ -7,11 +7,11 @@ import {
 import BottomSheet, {
   BottomSheetScrollView,
   BottomSheetBackdrop,
-  BottomSheetView,
   BottomSheetTextInput,
   BottomSheetFooter,
 } from '@gorhom/bottom-sheet';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -152,30 +152,18 @@ const formatBytes = (bytes?: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-// ─── NEW COMPONENT: Isolated Comment Input ─────────────────────────────────────
-// By isolating this, typing text no longer causes the parent Modal to remount!
-const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onClearAtt, onTextChange }: any) => {
+// ─── Comment Input Bar ──────────────────────────────────────────────────────────
+// Rendered inside BottomSheetFooter: always sticky at the bottom of the BottomSheet,
+// elevates automatically above keyboard via Gorhom's native reanimated keyboard tracking.
+const CommentInputBar = ({ theme, insets, onSend, onTextChange, onFocus }: any) => {
   const [text, setText] = useState('');
-  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
-
-  // Listen to keyboard state to remove the gap dynamically
-  useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
 
   const handleSend = () => {
-    if (!text.trim() && !commentAtt) return;
-    onSend(text, commentAtt);
+    if (!text.trim()) return;
+    onSend(text);
     setText('');
-    onTextChange(''); // Clear parent's warning ref
+    onTextChange('');
   };
-
-  // Bulletproof spacing: Symmetric 10px when typing, generous 30px+ when closed
-  const dynamicBottomSpace = isKeyboardVisible
-    ? 10
-    : insets.bottom > 0 ? insets.bottom + 12 : 30;
 
   return (
     <View style={[
@@ -184,58 +172,30 @@ const CommentInputBar = ({ theme, insets, onSend, onPickAtt, commentAtt, onClear
         backgroundColor: theme.colors.cardPrimary,
         borderTopColor: theme.colors.border,
         paddingTop: 10,
-        flexDirection: 'column'
+        paddingBottom: Math.max(insets.bottom, 12) + 2,
+        paddingHorizontal: 16,
       }
     ]}>
-      {commentAtt && (
-        <View style={[st.attPreview, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, marginHorizontal: 12, marginBottom: 8 }]}>
-          {commentAtt.type === 'image'
-            ? <Image source={{ uri: commentAtt.uri }} style={st.attPreviewImg} resizeMode="cover" />
-            : <DocumentIcon fileName={commentAtt.name} theme={theme} size={36} />
-          }
-          <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{commentAtt.name}</Text>
-          <TouchableOpacity onPress={onClearAtt}>
-            <MaterialIcons name="close" size={16} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        gap: 8,
-        paddingHorizontal: 12,
-        width: '100%',
-      }}>
-        <TouchableOpacity style={st.attachBtn} onPress={onPickAtt}>
-          <MaterialIcons name="attach-file" size={24} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
-
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
         <BottomSheetTextInput
-          style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary }]}
+          style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary, flex: 1 }]}
           placeholder="Add a comment…"
           placeholderTextColor={theme.colors.textSecondary}
           value={text}
-          onChangeText={(val) => {
-            setText(val);
-            onTextChange(val); // Keep parent updated for the "Discard" warning ONLY
-          }}
+          onChangeText={(val) => { setText(val); onTextChange(val); }}
+          onFocus={onFocus}
           onSubmitEditing={handleSend}
           returnKeyType="send"
           multiline
         />
-
         <TouchableOpacity
-          style={[st.sendBtn, { backgroundColor: (text.trim() || commentAtt) ? theme.colors.primary : theme.colors.border }]}
+          style={[st.sendBtn, { backgroundColor: text.trim() ? theme.colors.primary : theme.colors.border }]}
           onPress={handleSend}
-          disabled={!text.trim() && !commentAtt}
+          disabled={!text.trim()}
         >
           <MaterialIcons name="send" size={16} color="#fff" />
         </TouchableOpacity>
       </View>
-
-      {/* Bulletproof Spacer: This View physically forces the space at the bottom */}
-      <View style={{ height: dynamicBottomSpace }} />
     </View>
   );
 };
@@ -257,6 +217,302 @@ const formatHistoryDate = (timestamp: number): string => {
     ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 };
 
+interface DraggableSubtaskRowProps {
+  item: Subtask;
+  index: number;
+  isDragging: boolean;
+  isHovered: boolean;
+  theme: any;
+  onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+  onEdit: (id: string, text: string) => void;
+  onDragStart: (index: number) => void;
+  onDragUpdate: (index: number, translationY: number, absoluteY?: number) => void;
+  onDragEnd: (index: number) => void;
+}
+
+const DraggableSubtaskRow = React.memo(function DraggableSubtaskRow({
+  item,
+  index,
+  isDragging,
+  isHovered,
+  theme,
+  onToggle,
+  onDelete,
+  onEdit,
+  onDragStart,
+  onDragUpdate,
+  onDragEnd,
+}: DraggableSubtaskRowProps) {
+  const panGesture = useMemo(() => {
+    return Gesture.Pan()
+      .activeOffsetY([-2, 2])
+      .failOffsetX([-30, 30])
+      .shouldCancelWhenOutside(false)
+      .hitSlop({ top: 16, bottom: 16, left: 16, right: 24 })
+      .onStart(() => {
+        'worklet';
+        runOnJS(onDragStart)(index);
+      })
+      .onUpdate((e) => {
+        'worklet';
+        runOnJS(onDragUpdate)(index, e.translationY, e.absoluteY);
+      })
+      .onEnd(() => {
+        'worklet';
+        runOnJS(onDragEnd)(index);
+      })
+      .onFinalize(() => {
+        'worklet';
+        runOnJS(onDragEnd)(index);
+      });
+  }, [index, onDragStart, onDragUpdate, onDragEnd]);
+
+  return (
+    <View
+      style={[
+        st.checklistRow,
+        isDragging && [
+          st.checklistRowDragging,
+          {
+            backgroundColor: `${theme.colors.primary}20`,
+            borderRadius: 8,
+            elevation: 4,
+            transform: [{ scale: 1.01 }],
+          },
+        ],
+        isHovered && !isDragging && {
+          backgroundColor: `${theme.colors.primary}12`,
+          borderRadius: 8,
+        },
+      ]}
+    >
+      {/* 6-dots Drag Handle */}
+      <GestureDetector gesture={panGesture}>
+        <View style={st.dragHandle}>
+          <MaterialIcons
+            name="drag-indicator"
+            size={20}
+            color={isDragging ? theme.colors.primary : theme.colors.textSecondary}
+            style={{ opacity: isDragging ? 1 : 0.55 }}
+          />
+        </View>
+      </GestureDetector>
+
+      {/* Square Checkbox [ ] */}
+      <TouchableOpacity
+        style={[st.keepCheckbox, { borderColor: theme.colors.textSecondary }]}
+        onPress={() => onToggle(item.id)}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        activeOpacity={0.7}
+      />
+
+      {/* Editable Text — tapping opens composer in edit mode */}
+      <TouchableOpacity
+        style={st.checklistTextWrap}
+        onPress={() => onEdit(item.id, item.text)}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[st.checklistText, { color: theme.colors.text }]}
+          numberOfLines={0}
+        >
+          {item.text || <Text style={{ color: theme.colors.textSecondary }}>Add subtask</Text>}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Delete Button ✕ */}
+      <TouchableOpacity
+        onPress={() => onDelete(item.id)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={st.checklistDeleteBtn}
+        activeOpacity={0.7}
+      >
+        <MaterialIcons name="close" size={18} color={theme.colors.textSecondary} style={{ opacity: 0.6 }} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+// ─── Subtask Quick Composer Modal ─────────────────────────────────────────────
+interface SubtaskComposerModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onAddSubtask: (title: string) => void;
+  editingItem?: { id: string; text: string } | null;
+  onEditSubtask?: (id: string, text: string) => void;
+}
+
+const SubtaskComposerModal = ({
+  visible,
+  onClose,
+  onAddSubtask,
+  editingItem,
+  onEditSubtask,
+}: SubtaskComposerModalProps) => {
+  const isEditMode = !!editingItem;
+  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [text, setText] = useState('');
+  const inputRef = useRef<TextInput>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (visible) {
+      setText(isEditMode ? editingItem!.text : '');
+      const timer = setTimeout(() => inputRef.current?.focus(), 120);
+      return () => clearTimeout(timer);
+    }
+  }, [visible, editingItem]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleAdd = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (isEditMode) {
+      onEditSubtask?.(editingItem!.id, trimmed);
+    } else {
+      onAddSubtask(trimmed);
+    }
+    setText('');
+    onClose();
+  };
+
+  const handleAddAndKeepOpen = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onAddSubtask(trimmed);
+    setText('');
+    inputRef.current?.focus();
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={[subComposerStyles.flex, { paddingBottom: keyboardHeight }]}>
+        <Pressable style={subComposerStyles.backdrop} onPress={onClose} />
+
+        <View
+          style={[
+            subComposerStyles.sheet,
+            {
+              backgroundColor: theme.colors.cardPrimary,
+              borderTopColor: theme.colors.border,
+              paddingBottom: Math.max(insets.bottom, 16) + 6,
+            },
+          ]}
+        >
+          {/* Header */}
+          <View style={subComposerStyles.headerRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MaterialIcons name="checklist" size={18} color={theme.colors.primary} />
+              <Text style={[subComposerStyles.headerTitle, { color: theme.colors.text }]}>
+                {isEditMode ? 'Edit Subtask' : 'New Subtask'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={subComposerStyles.closeBtn}
+            >
+              <MaterialIcons name="close" size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Subtask Input */}
+          <View style={subComposerStyles.inputContainer}>
+            <TextInput
+              ref={inputRef}
+              style={[
+                subComposerStyles.input,
+                { color: theme.colors.text, fontFamily: 'Inter_500Medium' },
+              ]}
+              placeholder="What needs to be done?"
+              placeholderTextColor={theme.colors.textSecondary}
+              value={text}
+              onChangeText={setText}
+              returnKeyType="next"
+              onSubmitEditing={handleAddAndKeepOpen}
+              blurOnSubmit={false}
+              autoFocus
+            />
+          </View>
+
+          {/* Action Bar */}
+          <View style={[subComposerStyles.actionBar, { borderTopColor: theme.colors.border }]}>
+            {!isEditMode && (
+              <TouchableOpacity
+                style={[
+                  subComposerStyles.addMoreBtn,
+                  { backgroundColor: text.trim() ? `${theme.colors.primary}15` : 'transparent' },
+                ]}
+                onPress={handleAddAndKeepOpen}
+                disabled={!text.trim()}
+                activeOpacity={0.7}
+              >
+                <MaterialIcons
+                  name="add"
+                  size={16}
+                  color={text.trim() ? theme.colors.primary : theme.colors.textSecondary}
+                  style={{ opacity: text.trim() ? 1 : 0.4 }}
+                />
+                <Text
+                  style={[
+                    subComposerStyles.addMoreTxt,
+                    {
+                      color: text.trim() ? theme.colors.primary : theme.colors.textSecondary,
+                      opacity: text.trim() ? 1 : 0.4,
+                    },
+                  ]}
+                >
+                  Add &amp; next
+                </Text>
+              </TouchableOpacity>
+            )}
+            {isEditMode && <View style={{ flex: 1 }} />}
+
+            <TouchableOpacity
+              style={[
+                subComposerStyles.confirmBtn,
+                {
+                  backgroundColor: text.trim() ? theme.colors.primary : `${theme.colors.primary}50`,
+                },
+              ]}
+              onPress={handleAdd}
+              disabled={!text.trim()}
+              activeOpacity={0.8}
+            >
+              <Text style={subComposerStyles.confirmTxt}>{isEditMode ? 'Save' : 'Add'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalProps) => {
   const insets = useSafeAreaInsets();
@@ -265,25 +521,36 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
   // Replaced `newComment` state with a Ref to prevent re-renders when typing
   const unsavedTextRef = useRef('');
-  const [commentAtt, setCommentAtt] = useState<{ uri: string; name: string; type: 'image' | 'file' } | null>(null);
 
   const [activeTab, setActiveTab] = useState<Tab>('subtasks');
   const [showActionMenu, setShowActionMenu] = useState(false);
-  const [composerVisible, setComposerVisible] = useState(false);
   const [editComposerVisible, setEditComposerVisible] = useState(false);
+  const [subtaskComposerVisible, setSubtaskComposerVisible] = useState(false);
+  const [editingSubtask, setEditingSubtask] = useState<{ id: string; text: string } | null>(null);
   const [selectedSubtaskId, setSelectedSubtaskId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [attachmentToRename, setAttachmentToRename] = useState<any | null>(null);
   const [renameInput, setRenameInput] = useState('');
 
+  // Subtask Checklist states & refs
+  const [isAccordionCollapsed, setIsAccordionCollapsed] = useState(false);
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const hoverIdxRef = useRef<number | null>(null);
+  const scrollOffsetRef = useRef(0);
+  const dragStartScrollYRef = useRef(0);
+  const dragIndexRef = useRef<number | null>(null);
+  const lastTranslationYRef = useRef(0);
+  const autoScrollTimerRef = useRef<any>(null);
+
   const bottomSheetRef = useRef<BottomSheet>(null);
   const subtaskListRef = useRef<any>(null);
+  const commentsScrollRef = useRef<any>(null);
 
   const snapPoints = useMemo(() => ['70%', '80%', '90%', '100%'], []);
 
   const dismiss = useCallback(() => {
     unsavedTextRef.current = '';
-    setCommentAtt(null);
     setActiveTab('subtasks');
     bottomSheetRef.current?.close();
   }, []);
@@ -338,7 +605,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
       // Reset state so it always starts fresh on the subtasks tab
       setActiveTab('subtasks');
       unsavedTextRef.current = '';
-      setCommentAtt(null);
 
       // 150ms gives the Modal and BottomSheet enough time to mount and attach the ref
       // on slower devices before attempting to snap it open.
@@ -371,34 +637,187 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const overallDone = topDone + nestedDone;
   const progress = overallTotal > 0 ? overallDone / overallTotal : 0;
 
-  const toggleSubtask = (subId: string) => {
+  // Split into unchecked and checked subtasks
+  const uncheckedSubs = useMemo(() => ((task?.subtasks as Subtask[]) || []).filter(s => !s.done), [task?.subtasks]);
+  const checkedSubs = useMemo(() => ((task?.subtasks as Subtask[]) || []).filter(s => s.done), [task?.subtasks]);
+
+  // Toggle item checked state (checking moves down to accordion, unchecking moves back up)
+  const handleToggleSubtask = (id: string) => {
     if (!task) return;
-    Haptics.selectionAsync();
-    const sub = (task.subtasks as any[])?.find((s: any) => s.id === subId);
-    const wasDone = sub?.done ?? false;
-    updateTask(task.id, (t: any) => ({ ...t, subtasks: t.subtasks?.map((s: any) => s.id === subId ? { ...s, done: !s.done } : s) }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const allSubs = (task.subtasks as Subtask[]) || [];
+    const target = allSubs.find(s => s.id === id);
+    if (!target) return;
+
+    const newDone = !target.done;
+    const otherSubs = allSubs.filter(s => s.id !== id);
+    const updatedTarget = { ...target, done: newDone, completed: newDone };
+
+    let nextSubs: Subtask[];
+    if (newDone) {
+      // Moved to bottom (checked list)
+      nextSubs = [...otherSubs, updatedTarget];
+    } else {
+      // Moved back to active list (at the end of unchecked items)
+      const unchecks = otherSubs.filter(s => !s.done);
+      const checks = otherSubs.filter(s => s.done);
+      nextSubs = [...unchecks, updatedTarget, ...checks];
+    }
+
+    updateTask(task.id, (t: any) => ({ ...t, subtasks: nextSubs }));
     addHistoryEvent(task.id, {
-      action: wasDone
-        ? `Unmarked subtask as done: "${sub?.text ?? ''}"`
-        : `Marked subtask as done: "${sub?.text ?? ''}"`,
-      icon: wasDone ? 'radio-button-unchecked' : 'check-circle',
+      action: newDone
+        ? `Marked subtask as done: "${target.text || ''}"`
+        : `Unmarked subtask as done: "${target.text || ''}"`,
+      icon: newDone ? 'check-circle' : 'radio-button-unchecked',
     });
   };
 
-  const switchTab = (tab: Tab) => { Haptics.selectionAsync(); setActiveTab(tab); };
 
-  const pickCommentAtt = async () => {
-    const MAX = 3 * 1024 * 1024; // 3MB limit
-    try {
-      const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-      if (!res.canceled && res.assets?.[0]) {
-        const a = res.assets[0];
-        if (a.size && a.size > MAX) { Alert.alert('Too Large', 'Max 3MB per comment attachment.'); return; }
-        const isImage = a.mimeType?.startsWith('image/');
-        setCommentAtt({ uri: a.uri, name: a.name || 'File', type: isImage ? 'image' : 'file', size: a.size, mimeType: a.mimeType });
-      }
-    } catch { Alert.alert('Error', 'Could not pick file.'); }
+  // Delete a subtask item
+  const handleDeleteSubtaskItem = (id: string) => {
+    if (!task) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const allSubs = (task.subtasks as Subtask[]) || [];
+    const target = allSubs.find(s => s.id === id);
+    const nextSubs = allSubs.filter(s => s.id !== id);
+    updateTask(task.id, (t: any) => ({ ...t, subtasks: nextSubs }));
+    addHistoryEvent(task.id, { action: `Deleted subtask: "${target?.text || ''}"`, icon: 'delete-outline' });
   };
+
+  // Add new subtask from composer popup or inline
+  const handleAddNewSubtask = (title: string) => {
+    if (!task || !title.trim()) return;
+    const newId = `st_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const newSub: Subtask = { id: newId, text: title.trim(), title: title.trim(), done: false };
+
+    const currentSubs = (task.subtasks as Subtask[]) || [];
+    const unchecks = currentSubs.filter(s => !s.done);
+    const checks = currentSubs.filter(s => s.done);
+    const nextSubs = [...unchecks, newSub, ...checks];
+
+    updateTask(task.id, (t: any) => ({ ...t, subtasks: nextSubs }));
+    addHistoryEvent(task.id, { action: `Added subtask: "${title.trim()}"`, icon: 'add-circle' });
+    setTimeout(() => {
+      subtaskListRef.current?.scrollToEnd?.({ animated: true });
+    }, 100);
+  };
+
+  // Open composer in edit mode for an existing subtask
+  const handleEditSubtask = useCallback((id: string, text: string) => {
+    setEditingSubtask({ id, text });
+    setSubtaskComposerVisible(true);
+  }, []);
+
+  // Save edited subtask text
+  const handleSaveEditedSubtask = useCallback((id: string, newText: string) => {
+    if (!task || !newText.trim()) return;
+    updateTask(task.id, (t: any) => ({
+      ...t,
+      subtasks: (t.subtasks || []).map((s: Subtask) =>
+        s.id === id ? { ...s, text: newText.trim(), title: newText.trim() } : s
+      ),
+    }));
+    addHistoryEvent(task.id, { action: `Edited subtask: "${newText.trim()}"`, icon: 'edit' });
+    setEditingSubtask(null);
+  }, [task, updateTask, addHistoryEvent]);
+
+  // Add a new unchecked item (opens clean composer popup)
+  const handleAddSubtaskItem = () => {
+    setEditingSubtask(null);
+    setSubtaskComposerVisible(true);
+  };
+
+  // Auto-scrolling and Drag Reordering Handlers for unchecked items
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current) {
+      clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+  }, []);
+
+  const updateHoverTarget = useCallback((idx: number, transY: number) => {
+    const effectiveTransY = transY + (scrollOffsetRef.current - dragStartScrollYRef.current);
+    const estimatedRowHeight = 40;
+    const diff = Math.round(effectiveTransY / estimatedRowHeight);
+    const target = Math.max(0, Math.min(uncheckedSubs.length - 1, idx + diff));
+    if (target !== hoverIdxRef.current) {
+      hoverIdxRef.current = target;
+      setHoverIdx(target);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [uncheckedSubs.length]);
+
+  const handleDragStart = useCallback((index: number) => {
+    dragIndexRef.current = index;
+    dragStartScrollYRef.current = scrollOffsetRef.current;
+    lastTranslationYRef.current = 0;
+    setDraggingIdx(index);
+    setHoverIdx(index);
+    hoverIdxRef.current = index;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, []);
+
+  const handleDragUpdate = useCallback((index: number, translationY: number, absoluteY?: number) => {
+    lastTranslationYRef.current = translationY;
+    updateHoverTarget(index, translationY);
+
+    const screenHeight = Dimensions.get('window').height;
+    const topThreshold = insets.top + 240;
+    const bottomThreshold = screenHeight - Math.max(insets.bottom, 20) - 120;
+
+    if (absoluteY !== undefined) {
+      if (absoluteY < topThreshold && scrollOffsetRef.current > 0) {
+        if (!autoScrollTimerRef.current) {
+          autoScrollTimerRef.current = setInterval(() => {
+            const currentScroll = scrollOffsetRef.current;
+            const newY = Math.max(0, currentScroll - 16);
+            subtaskListRef.current?.scrollTo({ y: newY, animated: false });
+            scrollOffsetRef.current = newY;
+            if (dragIndexRef.current !== null) {
+              updateHoverTarget(dragIndexRef.current, lastTranslationYRef.current);
+            }
+            if (newY <= 0) {
+              stopAutoScroll();
+            }
+          }, 20);
+        }
+      } else if (absoluteY > bottomThreshold) {
+        if (!autoScrollTimerRef.current) {
+          autoScrollTimerRef.current = setInterval(() => {
+            const currentScroll = scrollOffsetRef.current;
+            const newY = currentScroll + 16;
+            subtaskListRef.current?.scrollTo({ y: newY, animated: false });
+            scrollOffsetRef.current = newY;
+            if (dragIndexRef.current !== null) {
+              updateHoverTarget(dragIndexRef.current, lastTranslationYRef.current);
+            }
+          }, 20);
+        }
+      } else {
+        stopAutoScroll();
+      }
+    }
+  }, [insets.top, insets.bottom, updateHoverTarget, stopAutoScroll]);
+
+  const handleDragEnd = useCallback((index: number) => {
+    stopAutoScroll();
+    const finalTarget = hoverIdxRef.current;
+    if (finalTarget !== null && finalTarget !== index && index >= 0 && index < uncheckedSubs.length && task) {
+      const reordered = [...uncheckedSubs];
+      const [moved] = reordered.splice(index, 1);
+      reordered.splice(finalTarget, 0, moved);
+      const next = [...reordered, ...checkedSubs];
+      updateTask(task.id, (t: any) => ({ ...t, subtasks: next }));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setDraggingIdx(null);
+    setHoverIdx(null);
+    hoverIdxRef.current = null;
+    dragIndexRef.current = null;
+  }, [uncheckedSubs, checkedSubs, task, updateTask, stopAutoScroll]);
+
+  const switchTab = (tab: Tab) => { Haptics.selectionAsync(); setActiveTab(tab); };
 
   const handleOpenAtt = async (att: any) => {
     try {
@@ -432,17 +851,40 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     }
   };
 
-  // Refactored to accept text directly from the isolated component
-  const handleAddComment = useCallback((text: string, att: any) => {
-    if (!task) return;
+  // Add comment directly from the isolated component (no attachments)
+  const handleAddComment = useCallback((text: string) => {
+    if (!task || !text.trim()) return;
     Haptics.selectionAsync();
     updateTask(task.id, (t: any) => ({
       ...t,
-      commentsList: [...(t.commentsList ?? []), { id: Date.now().toString(), text: text.trim(), date: 'Just now', attachment: att ?? undefined }],
+      commentsList: [...(t.commentsList ?? []), { id: Date.now().toString(), text: text.trim(), date: 'Just now' }],
     }));
     addHistoryEvent(task.id, { action: 'Added a comment', icon: 'chat-bubble-outline' });
-    setCommentAtt(null);
+    setTimeout(() => {
+      commentsScrollRef.current?.scrollToEnd?.({ animated: true });
+    }, 100);
   }, [task, updateTask, addHistoryEvent]);
+
+  // Sticky bottom footer for the Comments tab
+  const renderFooter = useCallback(
+    (props: any) => {
+      if (activeTab !== 'comments') return null;
+      return (
+        <BottomSheetFooter {...props} bottomInset={0}>
+          <CommentInputBar
+            theme={theme}
+            insets={insets}
+            onSend={handleAddComment}
+            onTextChange={(val: string) => { unsavedTextRef.current = val; }}
+            onFocus={() => {
+              setTimeout(() => commentsScrollRef.current?.scrollToEnd?.({ animated: true }), 200);
+            }}
+          />
+        </BottomSheetFooter>
+      );
+    },
+    [activeTab, theme, insets, handleAddComment]
+  );
 
   const handleAddTaskAttachment = async () => {
     if (!task) return;
@@ -528,27 +970,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     }));
   }, [taskHistory, task?.id]);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  const renderFooter = useCallback(
-    (props: any) => {
-      if (activeTab !== 'comments') return null;
-
-      return (
-        <BottomSheetFooter {...props} bottomInset={0}>
-          <CommentInputBar
-            theme={theme}
-            insets={insets}
-            onSend={handleAddComment}
-            onPickAtt={pickCommentAtt}
-            commentAtt={commentAtt}
-            onClearAtt={() => setCommentAtt(null)}
-            onTextChange={(val: string) => { unsavedTextRef.current = val; }}
-          />
-        </BottomSheetFooter>
-      );
-    },
-    [activeTab, theme, insets.bottom, handleAddComment, commentAtt]
-  );
 
   if (!task) return null;
 
@@ -570,280 +991,362 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             enablePanDownToClose
             backdropComponent={renderBackdrop}
             onClose={handleSheetClose}
-            activeOffsetY={[-4, 4]}
-            failOffsetX={[-10, 10]}
             animationConfigs={{ duration: 350, dampingRatio: 0.82, stiffness: 140 }}
             backgroundStyle={{ backgroundColor: theme.colors.cardPrimary }}
             handleIndicatorStyle={{ backgroundColor: theme.colors.border, width: 40, height: 5 }}
-            footerComponent={renderFooter}
-            keyboardBehavior="extend"
+            keyboardBehavior="interactive"
             keyboardBlurBehavior="restore"
-            android_keyboardInputMode="adjustPan"
+            android_keyboardInputMode="adjustResize"
+            topInset={insets.top}
+            footerComponent={renderFooter}
           >
-            <BottomSheetView style={st.sheetContainer}>
 
-              {/* ════════════ STATIC HEADER ════════════ */}
-              <View style={[st.header, { backgroundColor: theme.colors.cardPrimary }]}>
-                {/* 3-dot menu */}
-                <View style={st.toolbar}>
-                  <TouchableOpacity style={st.toolBtn} onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                    <MaterialIcons name="more-vert" size={24} color={theme.colors.text} />
+            {/* ════════════ STATIC HEADER — plain View, direct child of BottomSheet ════════════ */}
+            <View style={[st.header, { backgroundColor: theme.colors.cardPrimary }]}>
+              {/* 3-dot menu */}
+              <View style={st.toolbar}>
+                <TouchableOpacity style={st.toolBtn} onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <MaterialIcons name="more-vert" size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Title */}
+              <Text
+                pointerEvents="none"
+                style={[
+                  st.title,
+                  { color: theme.colors.text },
+                  task.title.length > 60 && { fontSize: 18, lineHeight: 24 }
+                ]}
+                numberOfLines={3}
+              >
+                {task.title}
+              </Text>
+
+              {/* Description */}
+              {!!task.description && (
+                <Text pointerEvents="none" style={[st.desc, { color: theme.colors.textSecondary }]} numberOfLines={4}>
+                  {task.description}
+                </Text>
+              )}
+
+              {/* Badges */}
+              <View pointerEvents="none" style={st.badgeRow}>
+                {priority && (
+                  <View style={[st.badge, { backgroundColor: priority.bg }]}>
+                    <MaterialIcons name="flag" size={12} color={priority.color} />
+                    <Text style={[st.badgeTxt, { color: priority.color }]}>{priority.label}</Text>
+                  </View>
+                )}
+                {task.tag && (
+                  <View style={[st.badge, { backgroundColor: tagColor.bg }]}>
+                    <View style={[st.tagDot, { backgroundColor: tagColor.text }]} />
+                    <Text style={[st.badgeTxt, { color: tagColor.text }]}>{task.tag}</Text>
+                  </View>
+                )}
+                {task.hasReminder && (
+                  <View style={[st.badge, { backgroundColor: `${theme.colors.primary}18` }]}>
+                    <MaterialIcons name="notifications" size={12} color={theme.colors.primary} />
+                    <Text style={[st.badgeTxt, { color: theme.colors.primary }]}>Reminder</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Due date & time details */}
+              {(task.dueDate || task.dueEndDate || task.dueTime || task.dueEndTime) && (
+                <View pointerEvents="none" style={st.dateRow}>
+                  <MaterialIcons name="event" size={14} color={theme.colors.textSecondary} />
+                  <Text style={[st.dateTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                    {(() => {
+                      let label = '';
+                      if (task.dueDate && task.dueEndDate && task.dueDate !== task.dueEndDate) {
+                        label = `${task.dueDate} - ${task.dueEndDate}`;
+                      } else if (task.dueDate) {
+                        label = task.dueDate;
+                      } else if (task.dueEndDate) {
+                        label = task.dueEndDate;
+                      } else {
+                        label = 'No date';
+                      }
+                      if (task.dueTime) {
+                        if (task.dueEndTime) {
+                          label += `  ·  ${task.dueTime} - ${task.dueEndTime}`;
+                        } else {
+                          label += `  ·  ${task.dueTime}`;
+                        }
+                      } else if (task.dueEndTime) {
+                        label += `  ·  ${task.dueEndTime}`;
+                      }
+                      return label;
+                    })()}
+                  </Text>
+                </View>
+              )}
+
+              {/* Progress */}
+              {overallTotal > 0 && (
+                <View pointerEvents="none" style={st.progressWrap}>
+                  <View style={st.progressRow}>
+                    <Text style={[st.progressLabel, { color: theme.colors.textSecondary }]}>
+                      {overallDone}/{overallTotal} completed{nestedTotal > 0 ? ` (${nestedDone}/${nestedTotal} nested)` : ''}
+                    </Text>
+                    <Text style={[st.progressPct, { color: theme.colors.primary }]}>{Math.round(progress * 100)}%</Text>
+                  </View>
+                  <View style={[st.progressTrack, { backgroundColor: `${theme.colors.primary}22`, flexDirection: 'row' }]}>
+                    {topDone > 0 && <View style={[st.progressFill, { width: `${(topDone / overallTotal) * 100}%`, backgroundColor: theme.colors.primary }]} />}
+                    {nestedDone > 0 && <View style={[st.progressFill, { width: `${(nestedDone / overallTotal) * 100}%`, backgroundColor: '#38BDF8' }]} />}
+                  </View>
+                </View>
+              )}
+
+              <View style={[st.divider, { backgroundColor: theme.colors.border }]} />
+
+              {/* Tab pills */}
+              <View style={st.tabBar}>
+                {(TABS as readonly Tab[]).map(tab => {
+                  const active = activeTab === tab;
+                  const LABELS: Record<Tab, string> = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
+                  const ICONS: Record<Tab, string> = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
+                  return (
+                    <TouchableOpacity
+                      key={tab}
+                      style={[st.tabPill, { backgroundColor: active ? theme.colors.primary : theme.colors.secondary }]}
+                      onPress={() => switchTab(tab)}
+                      activeOpacity={0.75}
+                    >
+                      <MaterialIcons name={ICONS[tab] as any} size={13} color={active ? '#fff' : theme.colors.textSecondary} />
+                      <Text style={[st.tabTxt, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
+                        {LABELS[tab]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* ════════════ SCROLLABLE CONTENT — BottomSheetScrollView direct child of BottomSheet ════════════ */}
+            {activeTab === 'subtasks' && (
+              <BottomSheetScrollView
+                ref={subtaskListRef}
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true}
+                scrollEnabled={draggingIdx === null}
+                onScroll={(e) => {
+                  scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={16}
+                contentContainerStyle={{
+                  paddingTop: 8,
+                  paddingBottom: Math.max(insets.bottom, 20) + 120,
+                }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {/* Active Unchecked Items */}
+                {uncheckedSubs.map((item, index) => (
+                  <DraggableSubtaskRow
+                    key={item.id}
+                    item={item}
+                    index={index}
+                    isDragging={draggingIdx === index}
+                    isHovered={hoverIdx === index && draggingIdx !== null}
+                    theme={theme}
+                    onToggle={handleToggleSubtask}
+                    onDelete={handleDeleteSubtaskItem}
+                    onEdit={handleEditSubtask}
+                    onDragStart={handleDragStart}
+                    onDragUpdate={handleDragUpdate}
+                    onDragEnd={handleDragEnd}
+                  />
+                ))}
+
+                {/* "+ Add subtask" Button — aligned with checklist columns */}
+                <TouchableOpacity
+                  style={st.addListItemBtn}
+                  onPress={() => handleAddSubtaskItem()}
+                  activeOpacity={0.7}
+                >
+                  <View style={st.dragHandleSpacer} />
+                  <MaterialIcons name="add" size={18} color={theme.colors.primary} style={{ opacity: 0.9 }} />
+                  <Text style={[st.addListItemTxt, { color: theme.colors.primary, fontFamily: 'Inter_500Medium' }]}>
+                    Add subtask
+                  </Text>
+                </TouchableOpacity>
+
+                {/* ── Collapsible Accordion for Checked Items ── */}
+                {checkedSubs.length > 0 && (
+                  <View style={st.checkedSection}>
+                    <View style={[st.checklistDivider, { backgroundColor: theme.colors.border }]} />
+
+                    {/* Accordion Header */}
+                    <TouchableOpacity
+                      style={st.accordionHeader}
+                      onPress={() => setIsAccordionCollapsed((c) => !c)}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons
+                        name={isAccordionCollapsed ? 'keyboard-arrow-right' : 'keyboard-arrow-down'}
+                        size={20}
+                        color={theme.colors.textSecondary}
+                      />
+                      <Text style={[st.accordionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
+                        {checkedSubs.length} checked {checkedSubs.length === 1 ? 'item' : 'items'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Checked Items List — no extra left space, wrapped multi-line text, non-editable */}
+                    {!isAccordionCollapsed &&
+                      checkedSubs.map((item) => (
+                        <View key={item.id} style={st.checkedRow}>
+                          {/* Checked Box [✓] */}
+                          <TouchableOpacity
+                            style={[
+                              st.keepCheckbox,
+                              st.keepCheckboxChecked,
+                              { backgroundColor: theme.colors.textSecondary, borderColor: theme.colors.textSecondary },
+                            ]}
+                            onPress={() => handleToggleSubtask(item.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialIcons name="check" size={12} color="#fff" />
+                          </TouchableOpacity>
+
+                          {/* Non-editable Strikethrough Text with wrapping */}
+                          <View style={st.checklistTextWrap}>
+                            <Text
+                              style={[
+                                st.checklistText,
+                                {
+                                  color: theme.colors.textSecondary,
+                                  textDecorationLine: 'line-through',
+                                  opacity: 0.65,
+                                },
+                              ]}
+                              numberOfLines={0}
+                            >
+                              {item.text}
+                            </Text>
+                          </View>
+
+                          {/* Delete Button ✕ */}
+                          <TouchableOpacity
+                            onPress={() => handleDeleteSubtaskItem(item.id)}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={st.checklistDeleteBtn}
+                            activeOpacity={0.7}
+                          >
+                            <MaterialIcons name="close" size={18} color={theme.colors.textSecondary} style={{ opacity: 0.6 }} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                  </View>
+                )}
+              </BottomSheetScrollView>
+            )}
+
+            {activeTab === 'comments' && (
+              <BottomSheetScrollView
+                ref={commentsScrollRef}
+                style={{ flex: 1 }}
+                nestedScrollEnabled={true}
+                contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={true}
+              >
+                {(task.commentsList?.length ?? 0) > 0 ? (
+                  <View style={{ gap: 12 }}>
+                    {(task.commentsList as any[]).map((c: any) => (
+                      <View key={c.id} style={st.commentRow}>
+                        <View style={[st.avatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
+                        <View style={{ flex: 1 }}>
+                          <View style={[st.bubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
+                            <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham · {c.date}</Text>
+                            {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
+                            {c.attachment && (
+                              <TouchableOpacity
+                                activeOpacity={0.8}
+                                onPress={() => handleOpenAtt(c.attachment)}
+                                style={[st.attPreview, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, marginTop: c.text ? 8 : 0 }]}
+                              >
+                                {c.attachment.type === 'image'
+                                  ? <Image source={{ uri: c.attachment.uri }} style={st.attPreviewImg} resizeMode="cover" />
+                                  : <DocumentIcon fileName={c.attachment.name} theme={theme} size={36} />
+                                }
+                                <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{c.attachment.name}</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={st.emptyState}>
+                    <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="chat-bubble-outline" size={30} color={theme.colors.primary} /></View>
+                    <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No comments yet</Text>
+                    <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Start the conversation below</Text>
+                  </View>
+                )}
+              </BottomSheetScrollView>
+            )}
+
+            {activeTab === 'attachments' && (
+              <BottomSheetScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 120 }}
+                showsVerticalScrollIndicator={true}
+              >
+                {(task.attachments?.length ?? 0) > 0 ? (
+                  <View style={{ gap: 16 }}>
+                    <Text style={[st.sectionLabel, { color: theme.colors.textSecondary }]}>TASK ATTACHMENTS ({task.attachments?.length})</Text>
+                    <View style={{ gap: 12 }}>
+                      {task.attachments!.map((att: any) => (
+                        <TouchableOpacity
+                          key={att.id}
+                          style={[st.attListItem, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}
+                          activeOpacity={0.7}
+                          onPress={() => handleOpenAtt(att)}
+                        >
+                          <View style={st.attListThumb}>
+                            {att.type === 'image'
+                              ? <Image source={{ uri: att.uri }} style={st.attListImg} resizeMode="cover" />
+                              : <DocumentIcon fileName={att.name} theme={theme} size={40} />
+                            }
+                          </View>
+                          <View style={st.attListInfo}>
+                            <Text style={[st.attListName, { color: theme.colors.text }]} numberOfLines={1}>{att.name}</Text>
+                            <Text style={[st.attListMeta, { color: theme.colors.textSecondary }]}>
+                              {att.type === 'image' ? 'Image' : 'Document'} · {formatBytes(att.size)}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => handleAttachmentOptions(att)}
+                            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                            style={{ padding: 4 }}
+                          >
+                            <MaterialIcons name="more-vert" size={20} color={theme.colors.textSecondary} />
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={st.emptyState}>
+                    <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="attachment" size={30} color={theme.colors.primary} /></View>
+                    <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No attachments</Text>
+                    <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>No files attached to this task</Text>
+                  </View>
+                )}
+                <View style={{ paddingTop: 16 }}>
+                  <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={handleAddTaskAttachment} activeOpacity={0.75}>
+                    <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
+                    <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add attachment</Text>
                   </TouchableOpacity>
                 </View>
+              </BottomSheetScrollView>
+            )}
 
-                {/* Title */}
-                <Text
-                  style={[
-                    st.title,
-                    { color: theme.colors.text },
-                    task.title.length > 60 && { fontSize: 18, lineHeight: 24 } // dynamically reduce text size for long titles
-                  ]}
-                >
-                  {task.title}
-                </Text>
-
-                {/* Badges */}
-                <View style={st.badgeRow}>
-                  {priority && (
-                    <View style={[st.badge, { backgroundColor: priority.bg }]}>
-                      <MaterialIcons name="flag" size={12} color={priority.color} />
-                      <Text style={[st.badgeTxt, { color: priority.color }]}>{priority.label}</Text>
-                    </View>
-                  )}
-                  {task.tag && (
-                    <View style={[st.badge, { backgroundColor: tagColor.bg }]}>
-                      <View style={[st.tagDot, { backgroundColor: tagColor.text }]} />
-                      <Text style={[st.badgeTxt, { color: tagColor.text }]}>{task.tag}</Text>
-                    </View>
-                  )}
-                  {task.hasReminder && (
-                    <View style={[st.badge, { backgroundColor: `${theme.colors.primary}18` }]}>
-                      <MaterialIcons name="notifications" size={12} color={theme.colors.primary} />
-                      <Text style={[st.badgeTxt, { color: theme.colors.primary }]}>Reminder</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Due date & time details */}
-                {(task.dueDate || task.dueEndDate || task.dueTime || task.dueEndTime) && (
-                  <View style={st.dateRow}>
-                    <MaterialIcons name="event" size={14} color={theme.colors.textSecondary} />
-                    <Text style={[st.dateTxt, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
-                      {(() => {
-                        let label = '';
-                        if (task.dueDate && task.dueEndDate && task.dueDate !== task.dueEndDate) {
-                          label = `${task.dueDate} - ${task.dueEndDate}`;
-                        } else if (task.dueDate) {
-                          label = task.dueDate;
-                        } else if (task.dueEndDate) {
-                          label = task.dueEndDate;
-                        } else {
-                          label = 'No date';
-                        }
-                        
-                        if (task.dueTime) {
-                          if (task.dueEndTime) {
-                            label += `  ·  ${task.dueTime} - ${task.dueEndTime}`;
-                          } else {
-                            label += `  ·  ${task.dueTime}`;
-                          }
-                        } else if (task.dueEndTime) {
-                          label += `  ·  ${task.dueEndTime}`;
-                        }
-                        return label;
-                      })()}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Progress */}
-                {overallTotal > 0 && (
-                  <View style={st.progressWrap}>
-                    <View style={st.progressRow}>
-                      <Text style={[st.progressLabel, { color: theme.colors.textSecondary }]}>
-                        {overallDone}/{overallTotal} completed
-                        {nestedTotal > 0 ? ` (${nestedDone}/${nestedTotal} nested)` : ''}
-                      </Text>
-                      <Text style={[st.progressPct, { color: theme.colors.primary }]}>{Math.round(progress * 100)}%</Text>
-                    </View>
-                    <View style={[st.progressTrack, { backgroundColor: `${theme.colors.primary}22`, flexDirection: 'row' }]}>
-                      {topDone > 0 && <View style={[st.progressFill, { width: `${(topDone / overallTotal) * 100}%`, backgroundColor: theme.colors.primary }]} />}
-                      {nestedDone > 0 && <View style={[st.progressFill, { width: `${(nestedDone / overallTotal) * 100}%`, backgroundColor: '#38BDF8' }]} />}
-                    </View>
-                  </View>
-                )}
-
-                <View style={[st.divider, { backgroundColor: theme.colors.border }]} />
-
-                {/* Tab pills */}
-                <View style={st.tabBar}>
-                  {(TABS as readonly Tab[]).map(tab => {
-                    const active = activeTab === tab;
-                    const LABELS: Record<Tab, string> = { subtasks: 'Subtasks', comments: 'Comments', attachments: 'Attachments' };
-                    const ICONS: Record<Tab, string> = { subtasks: 'checklist', comments: 'chat-bubble-outline', attachments: 'attach-file' };
-                    return (
-                      <TouchableOpacity
-                        key={tab}
-                        style={[st.tabPill, { backgroundColor: active ? theme.colors.primary : theme.colors.secondary }]}
-                        onPress={() => switchTab(tab)}
-                        activeOpacity={0.75}
-                      >
-                        <MaterialIcons name={ICONS[tab] as any} size={13} color={active ? '#fff' : theme.colors.textSecondary} />
-                        <Text style={[st.tabTxt, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
-                          {LABELS[tab]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* ════════════ SCROLLABLE CONTENT ════════════ */}
-              <View style={{ flex: 1 }}>
-                {activeTab === 'subtasks' && (
-                  <BottomSheetScrollView ref={subtaskListRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 4, paddingBottom: Math.max(insets.bottom, 20) + 24 }}>
-                    {/* Your existing Subtasks map */}
-                    {(task.subtasks?.length ?? 0) === 0 ? (
-                      <View style={st.emptyState}>
-                        <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="checklist" size={30} color={theme.colors.primary} /></View>
-                        <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No subtasks yet</Text>
-                        <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Break this task into smaller steps</Text>
-                      </View>
-                    ) : (
-                      (task.subtasks as Subtask[]).map((sub) => {
-                        const sp = (sub as any).priority ? PRIORITY_META[(sub as any).priority] : null;
-                        const stk = (sub as any).tagType?.toLowerCase() || 'personal';
-                        const sc = TAG_META[stk] || TAG_META.personal;
-                        return (
-                          <TouchableOpacity key={sub.id} activeOpacity={0.72} onPress={() => { Haptics.selectionAsync(); setSelectedSubtaskId(sub.id); }} style={[st.subtaskRow, { borderBottomColor: theme.colors.border }]}>
-                            <TouchableOpacity style={[st.checkbox, { backgroundColor: sub.done ? theme.colors.primary : 'transparent', borderColor: sub.done ? theme.colors.primary : theme.colors.border }]} onPress={(e) => { e.stopPropagation(); toggleSubtask(sub.id); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              {sub.done && <MaterialIcons name="check" size={11} color="#fff" />}
-                            </TouchableOpacity>
-                            <View style={{ flex: 1 }}>
-                              <Text numberOfLines={2} style={[st.subtaskLabel, { color: sub.done ? theme.colors.textSecondary : theme.colors.text, textDecorationLine: sub.done ? 'line-through' : 'none', opacity: sub.done ? 0.5 : 1, fontFamily: 'Inter_500Medium' }]}>{sub.text}</Text>
-                              {!sub.done && (sp || (sub as any).tag || (sub as any).dueDate) && (
-                                <View style={st.metaRow}>
-                                  {sp && <View style={[st.miniBadge, { backgroundColor: sp.bg }]}><MaterialIcons name="flag" size={9} color={sp.color} /><Text style={[st.miniBadgeTxt, { color: sp.color }]}>{sp.label}</Text></View>}
-                                  {(sub as any).tag && <View style={[st.miniBadge, { backgroundColor: sc.bg }]}><View style={[st.tagDot, { backgroundColor: sc.text, width: 4, height: 4 }]} /><Text style={[st.miniBadgeTxt, { color: sc.text }]}>{(sub as any).tag}</Text></View>}
-                                  {(sub as any).dueDate && <View style={st.metaChip}><MaterialIcons name="event" size={10} color={theme.colors.textSecondary} /><Text style={[st.metaChipTxt, { color: theme.colors.textSecondary }]}>{(sub as any).dueDate}</Text></View>}
-                                  <View style={{ flexDirection: 'row', gap: 6, marginLeft: 'auto' }}>
-                                    {((sub as any).subtasks?.length ?? 0) > 0 && <View style={st.metaChip}><MaterialIcons name="checklist" size={10} color={theme.colors.textSecondary} /><Text style={[st.metaChipTxt, { color: theme.colors.textSecondary }]}>{(sub as any).subtasks.length}</Text></View>}
-                                    {((sub as any).attachments?.length ?? 0) > 0 && <MaterialIcons name="attach-file" size={10} color={theme.colors.textSecondary} />}
-                                  </View>
-                                </View>
-                              )}
-                            </View>
-                            <MaterialIcons name="chevron-right" size={16} color={theme.colors.border} />
-                          </TouchableOpacity>
-                        );
-                      })
-                    )}
-                    <View style={{ paddingTop: 14, paddingHorizontal: 16 }}>
-                      <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={() => setComposerVisible(true)} activeOpacity={0.75}>
-                        <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
-                        <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add subtask</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </BottomSheetScrollView>
-                )}
-
-                {activeTab === 'comments' && (
-                  <View style={{ flex: 1 }}>
-                    <BottomSheetScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 80 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                      {(task.commentsList?.length ?? 0) > 0 ? (
-                        <View style={{ gap: 12 }}>
-                          {(task.commentsList as any[]).map((c: any) => (
-                            <View key={c.id} style={st.commentRow}>
-                              <View style={[st.avatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
-                              <View style={{ flex: 1 }}>
-                                <View style={[st.bubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
-                                  <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham · {c.date}</Text>
-                                  {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
-                                  {c.attachment && (
-                                    <TouchableOpacity
-                                      activeOpacity={0.8}
-                                      onPress={() => handleOpenAtt(c.attachment)}
-                                      style={[st.attPreview, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, marginTop: c.text ? 8 : 0 }]}
-                                    >
-                                      {c.attachment.type === 'image'
-                                        ? <Image source={{ uri: c.attachment.uri }} style={st.attPreviewImg} resizeMode="cover" />
-                                        : <DocumentIcon fileName={c.attachment.name} theme={theme} size={36} />
-                                      }
-                                      <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{c.attachment.name}</Text>
-                                    </TouchableOpacity>
-                                  )}
-                                </View>
-                              </View>
-                            </View>
-                          ))}
-                        </View>
-                      ) : (
-                        <View style={st.emptyState}>
-                          <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="chat-bubble-outline" size={30} color={theme.colors.primary} /></View>
-                          <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No comments yet</Text>
-                          <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Start the conversation below</Text>
-                        </View>
-                      )}
-                    </BottomSheetScrollView>
-                  </View>
-                )}
-
-                {activeTab === 'attachments' && (
-                  <BottomSheetScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
-                    {/* Your existing Attachments map */}
-                    {(task.attachments?.length ?? 0) > 0 ? (
-                      <View style={{ gap: 16 }}>
-                        <Text style={[st.sectionLabel, { color: theme.colors.textSecondary }]}>TASK ATTACHMENTS ({task.attachments?.length})</Text>
-                        <View style={{ gap: 12 }}>
-                          {task.attachments!.map((att: any) => (
-                            <TouchableOpacity
-                              key={att.id}
-                              style={[st.attListItem, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}
-                              activeOpacity={0.7}
-                              onPress={() => handleOpenAtt(att)}
-                            >
-                              <View style={st.attListThumb}>
-                                {att.type === 'image'
-                                  ? <Image source={{ uri: att.uri }} style={st.attListImg} resizeMode="cover" />
-                                  : <DocumentIcon fileName={att.name} theme={theme} size={40} />
-                                }
-                              </View>
-                              <View style={st.attListInfo}>
-                                <Text style={[st.attListName, { color: theme.colors.text }]} numberOfLines={1}>{att.name}</Text>
-                                <Text style={[st.attListMeta, { color: theme.colors.textSecondary }]}>
-                                  {att.type === 'image' ? 'Image' : 'Document'} · {formatBytes(att.size)}
-                                </Text>
-                              </View>
-                              <TouchableOpacity
-                                onPress={() => handleAttachmentOptions(att)}
-                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                                style={{ padding: 4 }}
-                              >
-                                <MaterialIcons name="more-vert" size={20} color={theme.colors.textSecondary} />
-                              </TouchableOpacity>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={st.emptyState}>
-                        <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="attachment" size={30} color={theme.colors.primary} /></View>
-                        <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No attachments</Text>
-                        <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>No files attached to this task</Text>
-                      </View>
-                    )}
-
-                    <View style={{ paddingTop: 16 }}>
-                      <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={handleAddTaskAttachment} activeOpacity={0.75}>
-                        <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
-                        <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add attachment</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </BottomSheetScrollView>
-                )}
-              </View>
-
-            </BottomSheetView>
           </BottomSheet>
         </GestureHandlerRootView>
       </Modal>
@@ -878,16 +1381,12 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
 
       <TaskDetailModal visible={!!selectedSubtaskId} taskId={selectedSubtaskId!} onClose={() => setSelectedSubtaskId(null)} />
 
-      <TaskComposer
-        visible={composerVisible}
-        onClose={() => setComposerVisible(false)}
-        initialTitle=""
-        onSave={(taskData: any) => {
-          const newChild: any = { ...taskData, id: `c_${Date.now()}`, text: taskData.title, done: false };
-          updateTask(task.id, (t: any) => ({ ...t, subtasks: [...(t.subtasks ?? []), newChild] }));
-          addHistoryEvent(task.id, { action: `Added subtask: "${taskData.title}"`, icon: 'add-circle' });
-          setTimeout(() => subtaskListRef.current?.scrollToEnd?.({ animated: true }), 100);
-        }}
+      <SubtaskComposerModal
+        visible={subtaskComposerVisible}
+        onClose={() => { setSubtaskComposerVisible(false); setEditingSubtask(null); }}
+        onAddSubtask={handleAddNewSubtask}
+        editingItem={editingSubtask}
+        onEditSubtask={handleSaveEditedSubtask}
       />
 
       <TaskComposer
@@ -989,17 +1488,98 @@ const st = StyleSheet.create({
   tabBar: { flexDirection: 'row', paddingVertical: 10, gap: 6 },
   tabPill: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 10 },
   tabTxt: { fontSize: 12, fontWeight: '600' },
-  subtaskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.8, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  subtaskLabel: { fontSize: 15, lineHeight: 22 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' },
-  miniBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
-  miniBadgeTxt: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metaChipTxt: { fontSize: 11, fontWeight: '500' },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 12 },
-  addBtnIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  addBtnTxt: { fontSize: 14, fontWeight: '600' },
+  // Google Keep style checklist styles
+  checklistRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 5,
+    paddingHorizontal: 16,
+    gap: 8,
+    minHeight: 38,
+  },
+  checkedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingLeft: 20,
+    gap: 8,
+    minHeight: 38,
+  },
+  checklistRowDragging: {
+    opacity: 0.7,
+    backgroundColor: '#00000008',
+    borderRadius: 8,
+  },
+  dragHandle: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 0,
+  },
+  dragHandleSpacer: {
+    width: 22,
+  },
+  keepCheckbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  keepCheckboxChecked: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checklistTextWrap: {
+    flex: 1,
+    paddingVertical: 0,
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  checklistText: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: 'Inter_400Regular',
+  },
+  checklistDeleteBtn: {
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 0,
+  },
+  addListItemBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  addListItemTxt: {
+    fontSize: 15,
+  },
+  checkedSection: {
+    marginTop: 6,
+  },
+  checklistDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginVertical: 8,
+    marginHorizontal: 16,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  accordionLabel: {
+    fontSize: 13,
+  },
   emptyState: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
@@ -1028,6 +1608,85 @@ const st = StyleSheet.create({
   attListName: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   attListMeta: { fontSize: 12, fontFamily: 'Inter_400Regular' },
   historyNote: { fontSize: 13, lineHeight: 20, marginBottom: 20 },
+});
+
+const subComposerStyles = StyleSheet.create({
+  flex: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheet: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    elevation: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  inputContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  input: {
+    fontSize: 16,
+    lineHeight: 22,
+    minHeight: 40,
+    paddingVertical: 6,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  addMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  addMoreTxt: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  confirmBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  confirmTxt: {
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
 });
 
 export default TaskDetailModal;
