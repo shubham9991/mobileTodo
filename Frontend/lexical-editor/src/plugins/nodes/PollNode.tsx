@@ -11,6 +11,7 @@ import {
   SerializedLexicalNode,
   Spread,
   LexicalNode,
+  type DOMExportOutput,
 } from 'lexical';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -233,6 +234,83 @@ export class PollNode extends DecoratorNode<React.ReactElement> {
       voterId: this.__voterId,
       multiSelect: this.__multiSelect,
     };
+  }
+
+  /** Exports a static, read-only HTML snapshot used by the note-list preview WebView. */
+  exportDOM(): DOMExportOutput {
+    const container = document.createElement('div');
+    container.className = 'poll-container';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'poll-header';
+    const icon = document.createElement('span');
+    icon.className = 'poll-icon';
+    icon.textContent = '📊';
+    const questionEl = document.createElement('span');
+    questionEl.className = 'poll-question';
+    questionEl.textContent = this.__question || 'Poll';
+    header.appendChild(icon);
+    header.appendChild(questionEl);
+    container.appendChild(header);
+
+    // Options
+    const totalVotes = this.__options.reduce((s, o) => s + o.votes.length, 0);
+    const optionsEl = document.createElement('div');
+    optionsEl.className = 'poll-options';
+    this.__options.forEach((opt, idx) => {
+      const pct = totalVotes > 0 ? Math.round((opt.votes.length / totalVotes) * 100) : 0;
+      const voted = opt.votes.includes(this.__voterId);
+
+      const optEl = document.createElement('div');
+      optEl.className = `poll-option${voted ? ' poll-option-voted' : ''}`;
+
+      // Progress bar
+      const bar = document.createElement('div');
+      bar.className = 'poll-bar';
+      bar.style.width = `${pct}%`;
+      optEl.appendChild(bar);
+
+      // Inner row
+      const inner = document.createElement('div');
+      inner.className = 'poll-option-inner';
+
+      const voteBtn = document.createElement('span');
+      voteBtn.className = `poll-vote-btn${voted ? ' poll-vote-btn-active' : ''}`;
+      voteBtn.textContent = voted ? '✓' : '○';
+
+      const label = document.createElement('span');
+      label.className = 'poll-option-label';
+      label.textContent = opt.text || `Option ${idx + 1}`;
+
+      const pctEl = document.createElement('span');
+      pctEl.className = 'poll-option-pct';
+      pctEl.textContent = `${pct}%`;
+
+      inner.appendChild(voteBtn);
+      inner.appendChild(label);
+      inner.appendChild(pctEl);
+      optEl.appendChild(inner);
+      optionsEl.appendChild(optEl);
+    });
+    container.appendChild(optionsEl);
+
+    // Footer
+    const footer = document.createElement('div');
+    footer.className = 'poll-footer';
+    const total = document.createElement('span');
+    total.className = 'poll-total';
+    total.textContent = `${totalVotes} vote${totalVotes !== 1 ? 's' : ''}`;
+    if (this.__multiSelect) {
+      const badge = document.createElement('span');
+      badge.className = 'poll-multi-badge';
+      badge.textContent = ' · Multi-select';
+      total.appendChild(badge);
+    }
+    footer.appendChild(total);
+    container.appendChild(footer);
+
+    return { element: container };
   }
 
   createDOM(): HTMLElement {

@@ -22,6 +22,7 @@ import {
   $getNodeByKey,
   $createParagraphNode,
   $isParagraphNode,
+  type DOMExportOutput,
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 
@@ -736,6 +737,18 @@ export class KeepChecklistNode extends DecoratorNode<React.ReactElement> {
       items: this.__items,
       isCollapsed: this.__isCollapsed,
     };
+  }
+
+  exportDOM(): DOMExportOutput {
+    const ul = document.createElement('ul');
+    ul.className = 'keep-checklist-export';
+    this.__items.forEach(item => {
+      const li = document.createElement('li');
+      li.className = item.checked ? 'listItemChecked' : 'listItemUnchecked';
+      li.textContent = item.text ? item.text.replace(/<[^>]*>/g, '') : '';
+      ul.appendChild(li);
+    });
+    return { element: ul };
   }
 
   decorate(): React.ReactElement {

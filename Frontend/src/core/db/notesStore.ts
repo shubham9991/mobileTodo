@@ -116,12 +116,11 @@ export function createBlankNote(id: string, title = ''): Note {
 
 /** Generates a simple preview string from plain text, supporting checklists and preserving formatting. */
 export function buildPreview(text: string, html?: string, maxLen = 500): string {
-  if (html && (html.includes('listItemChecked') || html.includes('listItemUnchecked'))) {
+  if (html && (html.includes('listItemChecked') || html.includes('listItemUnchecked') || html.includes('keep-checklist'))) {
     const liRegex = /<li[^>]*class="[^"]*listItem(Checked|Unchecked)[^"]*"[^>]*>(.*?)<\/li>/gi;
     let match;
     const lines: string[] = [];
     
-    // Reset regex index
     liRegex.lastIndex = 0;
     while ((match = liRegex.exec(html)) !== null) {
       const type = match[1]; // Checked or Unchecked
@@ -136,8 +135,17 @@ export function buildPreview(text: string, html?: string, maxLen = 500): string 
     }
   }
 
-  // Preserve newlines and crop to maxLen
-  return text.trim().slice(0, maxLen);
+  if (text && text.trim().length > 0) {
+    return text.trim().slice(0, maxLen);
+  }
+
+  if (html) {
+    if (html.includes('<img')) return '🖼️ Photo note';
+    if (html.includes('poll-container') || html.includes('poll-wrapper')) return '📊 Poll';
+    if (html.includes('<table')) return '📊 Table';
+  }
+
+  return '';
 }
 
 /** Formats relative time for note cards (e.g., "2m ago", "3h ago", "Jun 2"). */

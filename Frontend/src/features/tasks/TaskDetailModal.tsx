@@ -19,6 +19,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../themes/ThemeContext';
 import { Task, Subtask } from '../../core/dummyData';
@@ -125,41 +126,98 @@ const as = StyleSheet.create({
   cancelText: { fontSize: 16 },
 });
 
-const DocumentIcon = ({ fileName, theme, size = 36 }: { fileName: string, theme: any, size?: number }) => {
+const getFileCategoryInfo = (fileName: string, mimeType?: string, theme?: any) => {
   const ext = fileName.includes('.') ? fileName.split('.').pop()?.toUpperCase() || 'FILE' : 'FILE';
-  const getColors = (e: string) => {
-    if (['PDF'].includes(e)) return { bg: '#FEF2F2', text: '#EF4444' };
-    if (['DOC', 'DOCX', 'TXT', 'RTF'].includes(e)) return { bg: '#EFF6FF', text: '#3B82F6' };
-    if (['XLS', 'XLSX', 'CSV'].includes(e)) return { bg: '#F0FDF4', text: '#22C55E' };
-    if (['ZIP', 'RAR', 'TAR'].includes(e)) return { bg: '#FEF3C7', text: '#D97706' };
-    return { bg: `${theme.colors.primary}15`, text: theme.colors.primary };
+
+  if (['PDF'].includes(ext) || mimeType === 'application/pdf') {
+    return { ext, bg: '#FEF2F2', border: '#FCA5A5', text: '#EF4444', icon: 'picture-as-pdf', label: 'PDF Document' };
+  }
+  if (['DOC', 'DOCX', 'TXT', 'RTF', 'PAGES', 'MD'].includes(ext) || mimeType?.includes('word') || mimeType?.includes('text')) {
+    return { ext, bg: '#EFF6FF', border: '#93C5FD', text: '#3B82F6', icon: 'description', label: 'Word Document' };
+  }
+  if (['XLS', 'XLSX', 'CSV', 'NUMBERS'].includes(ext) || mimeType?.includes('sheet') || mimeType?.includes('csv')) {
+    return { ext, bg: '#F0FDF4', border: '#86EFAC', text: '#10B981', icon: 'table-chart', label: 'Spreadsheet' };
+  }
+  if (['PPT', 'PPTX', 'KEY'].includes(ext) || mimeType?.includes('presentation')) {
+    return { ext, bg: '#FFF7ED', border: '#FDBA74', text: '#F97316', icon: 'slideshow', label: 'Presentation' };
+  }
+  if (['ZIP', 'RAR', 'TAR', '7Z', 'GZ'].includes(ext) || mimeType?.includes('zip')) {
+    return { ext, bg: '#FEF3C7', border: '#FCD34D', text: '#D97706', icon: 'folder-zip', label: 'Archive' };
+  }
+  if (['MP3', 'WAV', 'M4A', 'FLAC', 'AAC', 'OGG'].includes(ext) || mimeType?.startsWith('audio/')) {
+    return { ext, bg: '#F5F3FF', border: '#C4B5FD', text: '#8B5CF6', icon: 'audiotrack', label: 'Audio' };
+  }
+  if (['MP4', 'MOV', 'AVI', 'MKV', 'WEBM'].includes(ext) || mimeType?.startsWith('video/')) {
+    return { ext, bg: '#FFF1F2', border: '#FDA4AF', text: '#F43F5E', icon: 'movie', label: 'Video' };
+  }
+  if (['JS', 'TS', 'TSX', 'JSX', 'HTML', 'CSS', 'JSON', 'PY', 'JAVA', 'CPP', 'C', 'PHP'].includes(ext)) {
+    return { ext, bg: '#EEF2FF', border: '#A5B4FC', text: '#6366F1', icon: 'code', label: 'Code File' };
+  }
+  return {
+    ext,
+    bg: theme ? `${theme.colors.primary}15` : '#F1F5F9',
+    border: theme ? `${theme.colors.primary}30` : '#CBD5E1',
+    text: theme ? theme.colors.primary : '#64748B',
+    icon: 'insert-drive-file',
+    label: 'Document',
   };
-  const colors = getColors(ext);
+};
+
+const DocumentIcon = ({ fileName, mimeType, theme, size = 44, variant = 'list' }: { fileName: string; mimeType?: string; theme: any; size?: number; variant?: 'list' | 'grid' }) => {
+  const info = getFileCategoryInfo(fileName, mimeType, theme);
+
+  if (variant === 'grid') {
+    return (
+      <View style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: info.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: info.border, position: 'relative' }}>
+        <MaterialIcons name={info.icon as any} size={28} color={info.text} />
+        <View style={{ position: 'absolute', bottom: -5, backgroundColor: info.text, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+          <Text style={{ color: '#ffffff', fontSize: 8, fontFamily: 'Inter_700Bold' }} numberOfLines={1}>
+            {info.ext.slice(0, 4)}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={{ width: size, height: size, borderRadius: 8, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: `${colors.text}20` }}>
-      <Text style={{ color: colors.text, fontSize: size * 0.28, fontFamily: 'Inter_700Bold' }} numberOfLines={1}>
-        {ext.slice(0, 4)}
+    <View style={{ width: size, height: size, borderRadius: 10, backgroundColor: info.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: info.border }}>
+      <MaterialIcons name={info.icon as any} size={size * 0.46} color={info.text} />
+      <Text style={{ color: info.text, fontSize: 8.5, fontFamily: 'Inter_700Bold', marginTop: 1 }} numberOfLines={1}>
+        {info.ext.slice(0, 4)}
       </Text>
     </View>
   );
 };
 
 const formatBytes = (bytes?: number) => {
-  if (!bytes || bytes === 0) return 'Unknown size';
+  if (!bytes || bytes === 0) return '0 KB';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
+const formatCommentDate = (c: any) => {
+  if (c.timestamp) {
+    const diff = Math.floor((Date.now() - c.timestamp) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    const d = new Date(c.timestamp);
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  return c.date || 'Just now';
+};
+
 // ─── Comment Input Bar ──────────────────────────────────────────────────────────
 // Rendered inside BottomSheetFooter: always sticky at the bottom of the BottomSheet,
 // elevates automatically above keyboard via Gorhom's native reanimated keyboard tracking.
-const CommentInputBar = ({ theme, insets, onSend, onTextChange, onFocus }: any) => {
+const CommentInputBar = React.memo(({ theme, onSend, onTextChange, onFocus }: any) => {
   const [text, setText] = useState('');
 
   const handleSend = () => {
     if (!text.trim()) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSend(text);
     setText('');
     onTextChange('');
@@ -171,15 +229,26 @@ const CommentInputBar = ({ theme, insets, onSend, onTextChange, onFocus }: any) 
       {
         backgroundColor: theme.colors.cardPrimary,
         borderTopColor: theme.colors.border,
-        paddingTop: 10,
-        paddingBottom: Math.max(insets.bottom, 12) + 2,
+        paddingVertical: 10,
         paddingHorizontal: 16,
       }
     ]}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+      <View style={[
+        st.commentInputWrap,
+        {
+          backgroundColor: theme.colors.secondary,
+          borderColor: theme.colors.border,
+        }
+      ]}>
+        <MaterialIcons
+          name="chat-bubble-outline"
+          size={18}
+          color={theme.colors.textSecondary}
+          style={{ marginLeft: 12, marginRight: 2 }}
+        />
         <BottomSheetTextInput
-          style={[st.commentInput, { color: theme.colors.text, backgroundColor: theme.colors.secondary, flex: 1 }]}
-          placeholder="Add a comment…"
+          style={[st.commentInput, { color: theme.colors.text }]}
+          placeholder="Add a comment or note…"
           placeholderTextColor={theme.colors.textSecondary}
           value={text}
           onChangeText={(val) => { setText(val); onTextChange(val); }}
@@ -189,16 +258,27 @@ const CommentInputBar = ({ theme, insets, onSend, onTextChange, onFocus }: any) 
           multiline
         />
         <TouchableOpacity
-          style={[st.sendBtn, { backgroundColor: text.trim() ? theme.colors.primary : theme.colors.border }]}
+          style={[
+            st.sendBtn,
+            {
+              backgroundColor: text.trim() ? theme.colors.primary : `${theme.colors.primary}20`,
+            }
+          ]}
           onPress={handleSend}
           disabled={!text.trim()}
+          activeOpacity={0.8}
         >
-          <MaterialIcons name="send" size={16} color="#fff" />
+          <MaterialIcons
+            name="arrow-upward"
+            size={18}
+            color={text.trim() ? '#ffffff' : theme.colors.textSecondary}
+          />
         </TouchableOpacity>
       </View>
     </View>
   );
-};
+});
+CommentInputBar.displayName = 'CommentInputBar';
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -531,6 +611,12 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [attachmentToRename, setAttachmentToRename] = useState<any | null>(null);
   const [renameInput, setRenameInput] = useState('');
+  const [attFilter, setAttFilter] = useState<'all' | 'image' | 'document'>('all');
+  const [attViewMode, setAttViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedAttForMenu, setSelectedAttForMenu] = useState<any | null>(null);
+  const [selectedCommentForMenu, setSelectedCommentForMenu] = useState<any | null>(null);
+  const [lightboxAttachment, setLightboxAttachment] = useState<any | null>(null);
+  const [showUploadDropdown, setShowUploadDropdown] = useState(false);
 
   // Subtask Checklist states & refs
   const [isAccordionCollapsed, setIsAccordionCollapsed] = useState(false);
@@ -547,10 +633,17 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const subtaskListRef = useRef<any>(null);
   const commentsScrollRef = useRef<any>(null);
 
+  // Stable bottom inset: ensures the input bar never touches the Android 3-button navigation bar or home indicator
+  const bottomInset = useMemo(
+    () => Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 12) + 4,
+    [insets.bottom]
+  );
+
   const snapPoints = useMemo(() => ['70%', '80%', '90%', '100%'], []);
 
   const dismiss = useCallback(() => {
     unsavedTextRef.current = '';
+    setShowUploadDropdown(false);
     setActiveTab('subtasks');
     bottomSheetRef.current?.close();
   }, []);
@@ -817,7 +910,11 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
     dragIndexRef.current = null;
   }, [uncheckedSubs, checkedSubs, task, updateTask, stopAutoScroll]);
 
-  const switchTab = (tab: Tab) => { Haptics.selectionAsync(); setActiveTab(tab); };
+  const switchTab = (tab: Tab) => {
+    Haptics.selectionAsync();
+    setShowUploadDropdown(false);
+    setActiveTab(tab);
+  };
 
   const handleOpenAtt = async (att: any) => {
     try {
@@ -855,25 +952,59 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const handleAddComment = useCallback((text: string) => {
     if (!task || !text.trim()) return;
     Haptics.selectionAsync();
+    const newComment = {
+      id: `c_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      text: text.trim(),
+      date: 'Just now',
+      timestamp: Date.now(),
+      author: 'Shubham',
+    };
     updateTask(task.id, (t: any) => ({
       ...t,
-      commentsList: [...(t.commentsList ?? []), { id: Date.now().toString(), text: text.trim(), date: 'Just now' }],
+      commentsList: [...(t.commentsList ?? []), newComment],
     }));
     addHistoryEvent(task.id, { action: 'Added a comment', icon: 'chat-bubble-outline' });
     setTimeout(() => {
       commentsScrollRef.current?.scrollToEnd?.({ animated: true });
-    }, 100);
+    }, 150);
   }, [task, updateTask, addHistoryEvent]);
+
+  const handleDeleteComment = useCallback((comment: any) => {
+    if (!task || !comment) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert('Delete Comment', 'Are you sure you want to delete this comment?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          setSelectedCommentForMenu(null);
+          updateTask(task.id, (t: any) => ({
+            ...t,
+            commentsList: (t.commentsList ?? []).filter((c: any) => c.id !== comment.id),
+          }));
+          addHistoryEvent(task.id, { action: 'Deleted a comment', icon: 'delete-outline' });
+        },
+      },
+    ]);
+  }, [task, updateTask, addHistoryEvent]);
+
+  const handleCopyComment = useCallback(async (text: string) => {
+    if (!text) return;
+    setSelectedCommentForMenu(null);
+    await Clipboard.setStringAsync(text);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('Copied ✓', 'Comment copied to clipboard.');
+  }, []);
 
   // Sticky bottom footer for the Comments tab
   const renderFooter = useCallback(
     (props: any) => {
       if (activeTab !== 'comments') return null;
       return (
-        <BottomSheetFooter {...props} bottomInset={0}>
+        <BottomSheetFooter {...props} bottomInset={bottomInset}>
           <CommentInputBar
             theme={theme}
-            insets={insets}
             onSend={handleAddComment}
             onTextChange={(val: string) => { unsavedTextRef.current = val; }}
             onFocus={() => {
@@ -883,60 +1014,227 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         </BottomSheetFooter>
       );
     },
-    [activeTab, theme, insets, handleAddComment]
+    [activeTab, theme, bottomInset, handleAddComment]
   );
 
-  const handleAddTaskAttachment = async () => {
+  // Attachment statistics & helpers
+  const attachmentStats = useMemo(() => {
+    const atts = task?.attachments || [];
+    const totalSize = atts.reduce((acc: number, a: any) => acc + (a.size || 0), 0);
+    const imageCount = atts.filter((a: any) => a.type === 'image').length;
+    const docCount = atts.length - imageCount;
+    return {
+      total: atts.length,
+      totalSizeFormatted: formatBytes(totalSize),
+      imageCount,
+      docCount,
+    };
+  }, [task?.attachments]);
+
+  const filteredAttachments = useMemo(() => {
+    const atts = task?.attachments || [];
+    if (attFilter === 'image') return atts.filter((a: any) => a.type === 'image');
+    if (attFilter === 'document') return atts.filter((a: any) => a.type !== 'image');
+    return atts;
+  }, [task?.attachments, attFilter]);
+
+  const handleAddFromCamera = useCallback(async () => {
     if (!task) return;
     try {
-      const res = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Camera permission is required to take photos.');
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        quality: 0.85,
+        allowsEditing: false,
+      });
       if (!res.canceled && res.assets?.[0]) {
         const a = res.assets[0];
-        const isImage = a.mimeType?.startsWith('image/');
-        const newAtt = { id: Date.now().toString(), uri: a.uri, name: a.name || 'File', type: isImage ? 'image' : 'document', size: a.size, mimeType: a.mimeType };
-
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const fileName = a.fileName || `Photo_${dateStr}_${Math.floor(Math.random() * 1000)}.jpg`;
+        const newAtt = {
+          id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          uri: a.uri,
+          name: fileName,
+          type: 'image',
+          size: a.fileSize || 0,
+          mimeType: a.mimeType || 'image/jpeg',
+          createdAt: Date.now(),
+        };
         updateTask(task.id, (t: any) => ({
           ...t,
-          attachments: [...(t.attachments ?? []), newAtt]
+          attachments: [...(t.attachments ?? []), newAtt],
         }));
-        addHistoryEvent(task.id, { action: `Attached file: "${a.name}"`, icon: 'attach-file' });
+        addHistoryEvent(task.id, { action: `Captured photo: "${fileName}"`, icon: 'camera-alt' });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-    } catch { Alert.alert('Error', 'Could not pick file.'); }
-  };
+    } catch {
+      Alert.alert('Error', 'Could not open camera.');
+    }
+  }, [task, updateTask, addHistoryEvent]);
 
-  const handleAttachmentOptions = (att: any) => {
+  const handleAddFromLibrary = useCallback(async () => {
     if (!task) return;
-    Haptics.selectionAsync();
-    Alert.alert(
-      att.name,
-      'Select an option',
-      [
-        { text: 'Open', onPress: () => handleOpenAtt(att) },
-        { text: 'Rename', onPress: () => { setAttachmentToRename(att); setRenameInput(att.name); } },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            setTimeout(() => {
-              Alert.alert('Delete Attachment', 'Are you sure you want to delete this attachment?', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete', style: 'destructive', onPress: () => {
-                    updateTask(task.id, (t: any) => ({
-                      ...t,
-                      attachments: t.attachments?.filter((a: any) => a.id !== att.id)
-                    }));
-                    addHistoryEvent(task.id, { action: `Removed attachment: "${att.name}"`, icon: 'delete-outline' });
-                  }
-                }
-              ]);
-            }, 300); // Small delay required on iOS when showing alert from an alert
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.85,
+        selectionLimit: 10,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const newAtts = res.assets.map((a, idx) => ({
+          id: `att_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+          uri: a.uri,
+          name: a.fileName || `Image_${idx + 1}_${Date.now().toString().slice(-4)}.jpg`,
+          type: 'image',
+          size: a.fileSize || 0,
+          mimeType: a.mimeType || 'image/jpeg',
+          createdAt: Date.now(),
+        }));
+        updateTask(task.id, (t: any) => ({
+          ...t,
+          attachments: [...(t.attachments ?? []), ...newAtts],
+        }));
+        addHistoryEvent(task.id, {
+          action: newAtts.length === 1 ? `Attached image: "${newAtts[0].name}"` : `Attached ${newAtts.length} images`,
+          icon: 'photo-library',
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch {
+      Alert.alert('Error', 'Could not open photo library.');
+    }
+  }, [task, updateTask, addHistoryEvent]);
+
+  const handleAddFromFiles = useCallback(async () => {
+    if (!task) return;
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const newAtts = res.assets.map((a, idx) => {
+          const isImg = a.mimeType?.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|bmp|svg)$/i.test(a.name);
+          return {
+            id: `att_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+            uri: a.uri,
+            name: a.name || 'File',
+            type: isImg ? 'image' : 'document',
+            size: a.size || 0,
+            mimeType: a.mimeType,
+            createdAt: Date.now(),
+          };
+        });
+        updateTask(task.id, (t: any) => ({
+          ...t,
+          attachments: [...(t.attachments ?? []), ...newAtts],
+        }));
+        addHistoryEvent(task.id, {
+          action: newAtts.length === 1 ? `Attached file: "${newAtts[0].name}"` : `Attached ${newAtts.length} files`,
+          icon: 'attach-file',
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch {
+      Alert.alert('Error', 'Could not pick document.');
+    }
+  }, [task, updateTask, addHistoryEvent]);
+
+  const handleShareAtt = useCallback(async (att: any) => {
+    try {
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(att.uri, { UTI: att.mimeType, dialogTitle: `Share ${att.name}` });
+      } else {
+        await Linking.openURL(att.uri);
+      }
+    } catch {
+      Alert.alert('Error', 'Could not share file.');
+    }
+  }, []);
+
+  const handleDeleteAtt = useCallback((att: any) => {
+    if (!task) return;
+    Alert.alert('Delete Attachment', `Are you sure you want to delete "${att.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          updateTask(task.id, (t: any) => ({
+            ...t,
+            attachments: t.attachments?.filter((a: any) => a.id !== att.id),
+          }));
+          addHistoryEvent(task.id, { action: `Removed attachment: "${att.name}"`, icon: 'delete-outline' });
+        },
+      },
+    ]);
+  }, [task, updateTask, addHistoryEvent]);
+
+  const attachmentActionItems: SheetItem[] = useMemo(() => {
+    if (!selectedAttForMenu) return [];
+    const isImg = selectedAttForMenu.type === 'image';
+    return [
+      {
+        label: isImg ? 'Preview Full Screen' : 'Open Document',
+        icon: isImg ? 'fullscreen' : 'open-in-new',
+        onPress: () => {
+          if (isImg) {
+            setLightboxAttachment(selectedAttForMenu);
+          } else {
+            handleOpenAtt(selectedAttForMenu);
           }
         },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
+      },
+      {
+        label: 'Share File',
+        icon: 'share',
+        onPress: () => handleShareAtt(selectedAttForMenu),
+      },
+      {
+        label: 'Rename Attachment',
+        icon: 'edit',
+        onPress: () => {
+          setAttachmentToRename(selectedAttForMenu);
+          setRenameInput(selectedAttForMenu.name);
+        },
+      },
+      {
+        label: 'Delete Attachment',
+        icon: 'delete-outline',
+        destructive: true,
+        onPress: () => handleDeleteAtt(selectedAttForMenu),
+      },
+    ];
+  }, [selectedAttForMenu, handleOpenAtt, handleShareAtt, handleDeleteAtt]);
+
+  const commentActionItems: SheetItem[] = useMemo(() => {
+    if (!selectedCommentForMenu) return [];
+    return [
+      {
+        label: 'Copy Comment Text',
+        icon: 'content-copy',
+        onPress: () => {
+          if (selectedCommentForMenu.text) {
+            handleCopyComment(selectedCommentForMenu.text);
+          }
+        },
+      },
+      {
+        label: 'Delete Comment',
+        icon: 'delete-outline',
+        destructive: true,
+        onPress: () => {
+          handleDeleteComment(selectedCommentForMenu);
+        },
+      },
+    ];
+  }, [selectedCommentForMenu, handleCopyComment, handleDeleteComment]);
 
   const handleClose = () => {
     if (unsavedTextRef.current.trim()) {
@@ -994,15 +1292,23 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             animationConfigs={{ duration: 350, dampingRatio: 0.82, stiffness: 140 }}
             backgroundStyle={{ backgroundColor: theme.colors.cardPrimary }}
             handleIndicatorStyle={{ backgroundColor: theme.colors.border, width: 40, height: 5 }}
-            keyboardBehavior="interactive"
+            keyboardBehavior="extend"
             keyboardBlurBehavior="restore"
-            android_keyboardInputMode="adjustResize"
+            android_keyboardInputMode="adjustPan"
             topInset={insets.top}
             footerComponent={renderFooter}
           >
 
+            {/* Transparent backdrop when dropdown is open */}
+            {showUploadDropdown && (
+              <Pressable
+                style={[StyleSheet.absoluteFillObject, { zIndex: 40 }]}
+                onPress={() => setShowUploadDropdown(false)}
+              />
+            )}
+
             {/* ════════════ STATIC HEADER — plain View, direct child of BottomSheet ════════════ */}
-            <View style={[st.header, { backgroundColor: theme.colors.cardPrimary }]}>
+            <View style={[st.header, { backgroundColor: theme.colors.cardPrimary, zIndex: 50, position: 'relative' }]}>
               {/* 3-dot menu */}
               <View style={st.toolbar}>
                 <TouchableOpacity style={st.toolBtn} onPress={() => { Haptics.selectionAsync(); setShowActionMenu(true); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
@@ -1111,17 +1417,90 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                     <TouchableOpacity
                       key={tab}
                       style={[st.tabPill, { backgroundColor: active ? theme.colors.primary : theme.colors.secondary }]}
-                      onPress={() => switchTab(tab)}
+                      onPress={() => {
+                        if (tab === 'attachments' && active) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setShowUploadDropdown(prev => !prev);
+                        } else {
+                          setShowUploadDropdown(false);
+                          switchTab(tab);
+                        }
+                      }}
                       activeOpacity={0.75}
                     >
                       <MaterialIcons name={ICONS[tab] as any} size={13} color={active ? '#fff' : theme.colors.textSecondary} />
                       <Text style={[st.tabTxt, { color: active ? '#fff' : theme.colors.textSecondary, fontFamily: active ? 'Inter_700Bold' : 'Inter_500Medium' }]}>
                         {LABELS[tab]}
                       </Text>
+                      {tab === 'attachments' && active && (
+                        <MaterialIcons name={showUploadDropdown ? "arrow-drop-up" : "arrow-drop-down"} size={16} color="#fff" style={{ marginLeft: -3 }} />
+                      )}
                     </TouchableOpacity>
                   );
                 })}
               </View>
+
+              {/* Contextual Dropdown anchored directly under the Attachments button */}
+              {showUploadDropdown && activeTab === 'attachments' && (
+                <View style={st.dropdownAnchor}>
+                  <View style={[st.dropdownMenu, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]}>
+                    <TouchableOpacity
+                      style={st.dropdownItem}
+                      onPress={() => {
+                        setShowUploadDropdown(false);
+                        setTimeout(handleAddFromLibrary, 100);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[st.dropdownIconWrap, { backgroundColor: '#EFF6FF' }]}>
+                        <MaterialIcons name="photo-library" size={17} color="#3B82F6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[st.dropdownItemText, { color: theme.colors.text }]}>Photo Library</Text>
+                        <Text style={[st.dropdownItemSub, { color: theme.colors.textSecondary }]}>Choose from gallery</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <View style={[st.dropdownDivider, { backgroundColor: theme.colors.border }]} />
+
+                    <TouchableOpacity
+                      style={st.dropdownItem}
+                      onPress={() => {
+                        setShowUploadDropdown(false);
+                        setTimeout(handleAddFromCamera, 100);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[st.dropdownIconWrap, { backgroundColor: '#FDF2F8' }]}>
+                        <MaterialIcons name="photo-camera" size={17} color="#EC4899" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[st.dropdownItemText, { color: theme.colors.text }]}>Take Photo</Text>
+                        <Text style={[st.dropdownItemSub, { color: theme.colors.textSecondary }]}>Snap with camera</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <View style={[st.dropdownDivider, { backgroundColor: theme.colors.border }]} />
+
+                    <TouchableOpacity
+                      style={st.dropdownItem}
+                      onPress={() => {
+                        setShowUploadDropdown(false);
+                        setTimeout(handleAddFromFiles, 100);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[st.dropdownIconWrap, { backgroundColor: '#F0FDF4' }]}>
+                        <MaterialIcons name="upload-file" size={17} color="#10B981" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[st.dropdownItemText, { color: theme.colors.text }]}>Upload Files</Text>
+                        <Text style={[st.dropdownItemSub, { color: theme.colors.textSecondary }]}>PDF, Word, or Docs</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
 
             {/* ════════════ SCROLLABLE CONTENT — BottomSheetScrollView direct child of BottomSheet ════════════ */}
@@ -1250,42 +1629,178 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 ref={commentsScrollRef}
                 style={{ flex: 1 }}
                 nestedScrollEnabled={true}
-                contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+                contentContainerStyle={{ padding: 16, paddingBottom: 110 }}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={true}
               >
                 {(task.commentsList?.length ?? 0) > 0 ? (
-                  <View style={{ gap: 12 }}>
-                    {(task.commentsList as any[]).map((c: any) => (
-                      <View key={c.id} style={st.commentRow}>
-                        <View style={[st.avatar, { backgroundColor: theme.colors.primary }]}><Text style={st.avatarTxt}>S</Text></View>
-                        <View style={{ flex: 1 }}>
-                          <View style={[st.bubble, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
-                            <Text style={[st.commentMeta, { color: theme.colors.textSecondary }]}>Shubham · {c.date}</Text>
-                            {!!c.text && <Text style={[st.commentTxt, { color: theme.colors.text }]}>{c.text}</Text>}
+                  <View style={{ gap: 14 }}>
+                    {/* Header Strip with Counter */}
+                    <View style={commentStyles.headerRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <MaterialIcons name="forum" size={16} color={theme.colors.primary} />
+                        <Text style={[commentStyles.headerTitle, { color: theme.colors.text }]}>
+                          Discussion ({task.commentsList!.length})
+                        </Text>
+                      </View>
+                      <Text style={[commentStyles.headerSubtitle, { color: theme.colors.textSecondary }]}>
+                        Long press to copy / delete
+                      </Text>
+                    </View>
+
+                    {/* Comments List */}
+                    {(task.commentsList as any[]).map((c: any, index: number) => {
+                      const isLast = index === task.commentsList!.length - 1;
+                      return (
+                        <View key={c.id} style={commentStyles.commentThread}>
+                          {/* Left Avatar + Thread Line */}
+                          <View style={commentStyles.avatarColumn}>
+                            <View style={[commentStyles.avatarCircle, { backgroundColor: theme.colors.primary }]}>
+                              <Text style={commentStyles.avatarInitial}>
+                                {c.author ? c.author.charAt(0).toUpperCase() : 'S'}
+                              </Text>
+                            </View>
+                            {!isLast && (
+                              <View style={[commentStyles.threadLine, { backgroundColor: theme.colors.border }]} />
+                            )}
+                          </View>
+
+                          {/* Right Content Bubble */}
+                          <TouchableOpacity
+                            activeOpacity={0.92}
+                            onLongPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              setSelectedCommentForMenu(c);
+                            }}
+                            style={[
+                              commentStyles.bubbleCard,
+                              {
+                                backgroundColor: theme.colors.secondary,
+                                borderColor: theme.colors.border,
+                              },
+                            ]}
+                          >
+                            {/* Card Header: Author + Tag + Date + 3-Dots */}
+                            <View style={commentStyles.bubbleHeader}>
+                              <View style={commentStyles.authorGroup}>
+                                <Text style={[commentStyles.authorName, { color: theme.colors.text }]}>
+                                  {c.author || 'Shubham'}
+                                </Text>
+                                <View style={[commentStyles.authorBadge, { backgroundColor: `${theme.colors.primary}18` }]}>
+                                  <Text style={[commentStyles.authorBadgeTxt, { color: theme.colors.primary }]}>
+                                    Author
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={[commentStyles.commentTime, { color: theme.colors.textSecondary }]}>
+                                  {formatCommentDate(c)}
+                                </Text>
+                                <TouchableOpacity
+                                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                  onPress={() => {
+                                    Haptics.selectionAsync();
+                                    setSelectedCommentForMenu(c);
+                                  }}
+                                  style={commentStyles.menuDotsBtn}
+                                >
+                                  <MaterialIcons name="more-vert" size={16} color={theme.colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+
+                            {/* Comment Text */}
+                            {!!c.text && (
+                              <Text style={[commentStyles.commentBody, { color: theme.colors.text }]}>
+                                {c.text}
+                              </Text>
+                            )}
+
+                            {/* Comment Attachment (if any) */}
                             {c.attachment && (
                               <TouchableOpacity
                                 activeOpacity={0.8}
-                                onPress={() => handleOpenAtt(c.attachment)}
-                                style={[st.attPreview, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, marginTop: c.text ? 8 : 0 }]}
+                                onPress={() => {
+                                  if (c.attachment.type === 'image') {
+                                    setLightboxAttachment(c.attachment);
+                                  } else {
+                                    handleOpenAtt(c.attachment);
+                                  }
+                                }}
+                                style={[
+                                  commentStyles.attCard,
+                                  {
+                                    backgroundColor: theme.colors.cardPrimary,
+                                    borderColor: theme.colors.border,
+                                  },
+                                ]}
                               >
-                                {c.attachment.type === 'image'
-                                  ? <Image source={{ uri: c.attachment.uri }} style={st.attPreviewImg} resizeMode="cover" />
-                                  : <DocumentIcon fileName={c.attachment.name} theme={theme} size={36} />
-                                }
-                                <Text style={[st.attPreviewName, { color: theme.colors.text }]} numberOfLines={1}>{c.attachment.name}</Text>
+                                {c.attachment.type === 'image' ? (
+                                  <Image source={{ uri: c.attachment.uri }} style={commentStyles.attImage} resizeMode="cover" />
+                                ) : (
+                                  <DocumentIcon fileName={c.attachment.name} theme={theme} size={36} />
+                                )}
+                                <View style={{ flex: 1, gap: 2 }}>
+                                  <Text style={[commentStyles.attName, { color: theme.colors.text }]} numberOfLines={1}>
+                                    {c.attachment.name}
+                                  </Text>
+                                  {!!c.attachment.size && (
+                                    <Text style={[commentStyles.attSize, { color: theme.colors.textSecondary }]}>
+                                      {formatBytes(c.attachment.size)}
+                                    </Text>
+                                  )}
+                                </View>
+                                <MaterialIcons name="chevron-right" size={18} color={theme.colors.textSecondary} />
                               </TouchableOpacity>
                             )}
-                          </View>
+                          </TouchableOpacity>
                         </View>
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
                 ) : (
-                  <View style={st.emptyState}>
-                    <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="chat-bubble-outline" size={30} color={theme.colors.primary} /></View>
-                    <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No comments yet</Text>
-                    <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>Start the conversation below</Text>
+                  /* Modern Empty State */
+                  <View style={[commentStyles.emptyBox, { borderColor: theme.colors.border }]}>
+                    <View style={[commentStyles.emptyIconCircle, { backgroundColor: `${theme.colors.primary}14` }]}>
+                      <MaterialIcons name="chat-bubble-outline" size={28} color={theme.colors.primary} />
+                    </View>
+                    <Text style={[commentStyles.emptyTitle, { color: theme.colors.text }]}>No Comments Yet</Text>
+                    <Text style={[commentStyles.emptySubtitle, { color: theme.colors.textSecondary }]}>
+                      Add notes, update task progress, or log discussions for this task.
+                    </Text>
+
+                    {/* Quick Starter Chips */}
+                    <View style={commentStyles.quickChipsContainer}>
+                      <Text style={[commentStyles.quickChipsHeader, { color: theme.colors.textSecondary }]}>
+                        QUICK SUGGESTIONS
+                      </Text>
+                      {[
+                        '🚀 Made good progress on this',
+                        '⏳ Waiting for next steps',
+                        '✅ Ready for review',
+                      ].map((prompt, pIdx) => (
+                        <TouchableOpacity
+                          key={pIdx}
+                          style={[
+                            commentStyles.promptChip,
+                            {
+                              backgroundColor: theme.colors.secondary,
+                              borderColor: theme.colors.border,
+                            },
+                          ]}
+                          onPress={() => {
+                            handleAddComment(prompt);
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <MaterialIcons name="add-comment" size={14} color={theme.colors.primary} />
+                          <Text style={[commentStyles.promptChipText, { color: theme.colors.text }]}>
+                            {prompt}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </View>
                 )}
               </BottomSheetScrollView>
@@ -1297,53 +1812,349 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 20) + 120 }}
                 showsVerticalScrollIndicator={true}
               >
+                {/* ─── Attachments Content ─── */}
                 {(task.attachments?.length ?? 0) > 0 ? (
-                  <View style={{ gap: 16 }}>
-                    <Text style={[st.sectionLabel, { color: theme.colors.textSecondary }]}>TASK ATTACHMENTS ({task.attachments?.length})</Text>
-                    <View style={{ gap: 12 }}>
-                      {task.attachments!.map((att: any) => (
+                  <View style={{ gap: 14 }}>
+                    {/* Header Bar: Count + Total Size + Filter + View Mode */}
+                    <View style={attStyles.controlBar}>
+                      <View style={attStyles.statsWrap}>
+                        <Text style={[attStyles.statsTitle, { color: theme.colors.text }]}>
+                          Files ({task.attachments!.length})
+                        </Text>
+                        <Text style={[attStyles.statsSize, { color: theme.colors.textSecondary }]}>
+                          · {attachmentStats.totalSizeFormatted}
+                        </Text>
+                      </View>
+
+                      {/* View Mode Toggle */}
+                      <View style={[attStyles.viewModeToggle, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
                         <TouchableOpacity
-                          key={att.id}
-                          style={[st.attListItem, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}
-                          activeOpacity={0.7}
-                          onPress={() => handleOpenAtt(att)}
+                          style={[
+                            attStyles.viewModeBtn,
+                            attViewMode === 'grid' && { backgroundColor: theme.colors.cardPrimary, elevation: 1 },
+                          ]}
+                          onPress={() => { Haptics.selectionAsync(); setAttViewMode('grid'); }}
                         >
-                          <View style={st.attListThumb}>
-                            {att.type === 'image'
-                              ? <Image source={{ uri: att.uri }} style={st.attListImg} resizeMode="cover" />
-                              : <DocumentIcon fileName={att.name} theme={theme} size={40} />
-                            }
-                          </View>
-                          <View style={st.attListInfo}>
-                            <Text style={[st.attListName, { color: theme.colors.text }]} numberOfLines={1}>{att.name}</Text>
-                            <Text style={[st.attListMeta, { color: theme.colors.textSecondary }]}>
-                              {att.type === 'image' ? 'Image' : 'Document'} · {formatBytes(att.size)}
-                            </Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => handleAttachmentOptions(att)}
-                            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                            style={{ padding: 4 }}
-                          >
-                            <MaterialIcons name="more-vert" size={20} color={theme.colors.textSecondary} />
-                          </TouchableOpacity>
+                          <MaterialIcons
+                            name="grid-view"
+                            size={16}
+                            color={attViewMode === 'grid' ? theme.colors.primary : theme.colors.textSecondary}
+                          />
                         </TouchableOpacity>
-                      ))}
+                        <TouchableOpacity
+                          style={[
+                            attStyles.viewModeBtn,
+                            attViewMode === 'list' && { backgroundColor: theme.colors.cardPrimary, elevation: 1 },
+                          ]}
+                          onPress={() => { Haptics.selectionAsync(); setAttViewMode('list'); }}
+                        >
+                          <MaterialIcons
+                            name="view-list"
+                            size={18}
+                            color={attViewMode === 'list' ? theme.colors.primary : theme.colors.textSecondary}
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </View>
+
+                    {/* Filter Pills (All / Photos / Docs) */}
+                    {(attachmentStats.imageCount > 0 && attachmentStats.docCount > 0) && (
+                      <View style={attStyles.filterRow}>
+                        <TouchableOpacity
+                          style={[
+                            attStyles.filterPill,
+                            attFilter === 'all'
+                              ? { backgroundColor: theme.colors.primary }
+                              : { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, borderWidth: 1 },
+                          ]}
+                          onPress={() => { Haptics.selectionAsync(); setAttFilter('all'); }}
+                        >
+                          <Text
+                            style={[
+                              attStyles.filterPillTxt,
+                              { color: attFilter === 'all' ? '#fff' : theme.colors.textSecondary },
+                            ]}
+                          >
+                            All ({task.attachments!.length})
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[
+                            attStyles.filterPill,
+                            attFilter === 'image'
+                              ? { backgroundColor: theme.colors.primary }
+                              : { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, borderWidth: 1 },
+                          ]}
+                          onPress={() => { Haptics.selectionAsync(); setAttFilter('image'); }}
+                        >
+                          <Text
+                            style={[
+                              attStyles.filterPillTxt,
+                              { color: attFilter === 'image' ? '#fff' : theme.colors.textSecondary },
+                            ]}
+                          >
+                            Photos ({attachmentStats.imageCount})
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[
+                            attStyles.filterPill,
+                            attFilter === 'document'
+                              ? { backgroundColor: theme.colors.primary }
+                              : { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border, borderWidth: 1 },
+                          ]}
+                          onPress={() => { Haptics.selectionAsync(); setAttFilter('document'); }}
+                        >
+                          <Text
+                            style={[
+                              attStyles.filterPillTxt,
+                              { color: attFilter === 'document' ? '#fff' : theme.colors.textSecondary },
+                            ]}
+                          >
+                            Docs ({attachmentStats.docCount})
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Grid Mode */}
+                    {attViewMode === 'grid' ? (
+                      <View style={attStyles.gridContainer}>
+                        {filteredAttachments.map((att: any) => {
+                          const isImg = att.type === 'image';
+
+                          if (isImg) {
+                            return (
+                              <TouchableOpacity
+                                key={att.id}
+                                style={[attStyles.gridCard, { borderColor: theme.colors.border, backgroundColor: theme.colors.secondary }]}
+                                activeOpacity={0.85}
+                                onPress={() => setLightboxAttachment(att)}
+                                onLongPress={() => {
+                                  Haptics.selectionAsync();
+                                  setSelectedAttForMenu(att);
+                                }}
+                              >
+                                <Image source={{ uri: att.uri }} style={attStyles.gridImage} resizeMode="cover" />
+
+                                {/* Top overlay menu button */}
+                                <TouchableOpacity
+                                  style={attStyles.gridMenuBtn}
+                                  onPress={() => {
+                                    Haptics.selectionAsync();
+                                    setSelectedAttForMenu(att);
+                                  }}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <MaterialIcons name="more-vert" size={17} color="#fff" />
+                                </TouchableOpacity>
+
+                                {/* Bottom title overlay */}
+                                <View style={attStyles.gridImageBottomBar}>
+                                  <Text style={attStyles.gridImageTitle} numberOfLines={1}>
+                                    {att.name}
+                                  </Text>
+                                  <Text style={attStyles.gridImageMeta}>
+                                    {formatBytes(att.size)}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          }
+
+                          return (
+                            <TouchableOpacity
+                              key={att.id}
+                              style={[
+                                attStyles.gridDocCard,
+                                {
+                                  backgroundColor: theme.colors.secondary,
+                                  borderColor: theme.colors.border,
+                                },
+                              ]}
+                              activeOpacity={0.75}
+                              onPress={() => handleOpenAtt(att)}
+                              onLongPress={() => {
+                                Haptics.selectionAsync();
+                                setSelectedAttForMenu(att);
+                              }}
+                            >
+                              <TouchableOpacity
+                                style={attStyles.gridDocMenuBtn}
+                                onPress={() => {
+                                  Haptics.selectionAsync();
+                                  setSelectedAttForMenu(att);
+                                }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              >
+                                <MaterialIcons name="more-vert" size={18} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
+
+                              <View style={attStyles.gridDocIconArea}>
+                                <DocumentIcon fileName={att.name} mimeType={att.mimeType} theme={theme} variant="grid" />
+                              </View>
+
+                              <View style={attStyles.gridDocInfoArea}>
+                                <Text style={[attStyles.gridDocName, { color: theme.colors.text }]} numberOfLines={2}>
+                                  {att.name}
+                                </Text>
+                                <View style={attStyles.gridDocMetaRow}>
+                                  <Text style={[attStyles.gridDocSize, { color: theme.colors.textSecondary }]}>
+                                    {formatBytes(att.size)}
+                                  </Text>
+                                </View>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      /* List Mode */
+                      <View style={{ gap: 10 }}>
+                        {filteredAttachments.map((att: any) => {
+                          const isImg = att.type === 'image';
+                          const fileCat = getFileCategoryInfo(att.name, att.mimeType, theme);
+
+                          return (
+                            <TouchableOpacity
+                              key={att.id}
+                              style={[
+                                attStyles.listItem,
+                                {
+                                  backgroundColor: theme.colors.secondary,
+                                  borderColor: theme.colors.border,
+                                },
+                              ]}
+                              activeOpacity={0.75}
+                              onPress={() => {
+                                if (isImg) {
+                                  setLightboxAttachment(att);
+                                } else {
+                                  handleOpenAtt(att);
+                                }
+                              }}
+                              onLongPress={() => {
+                                Haptics.selectionAsync();
+                                setSelectedAttForMenu(att);
+                              }}
+                            >
+                              {/* Left Thumbnail */}
+                              <View style={[attStyles.listThumbWrap, { backgroundColor: theme.colors.cardPrimary }]}>
+                                {isImg ? (
+                                  <Image source={{ uri: att.uri }} style={attStyles.listThumbImg} resizeMode="cover" />
+                                ) : (
+                                  <DocumentIcon fileName={att.name} mimeType={att.mimeType} theme={theme} size={42} />
+                                )}
+                              </View>
+
+                              {/* Middle Info */}
+                              <View style={attStyles.listInfo}>
+                                <Text style={[attStyles.listName, { color: theme.colors.text }]} numberOfLines={1}>
+                                  {att.name}
+                                </Text>
+                                <View style={attStyles.listMetaRow}>
+                                  <View style={[attStyles.typeBadge, { backgroundColor: fileCat.bg }]}>
+                                    <Text style={[attStyles.typeBadgeTxt, { color: fileCat.text }]}>
+                                      {isImg ? 'IMAGE' : fileCat.ext.slice(0, 4)}
+                                    </Text>
+                                  </View>
+                                  <Text style={[attStyles.listMetaTxt, { color: theme.colors.textSecondary }]}>
+                                    {formatBytes(att.size)}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              {/* Right Actions */}
+                              <View style={attStyles.listActionsRow}>
+                                <TouchableOpacity
+                                  onPress={() => handleShareAtt(att)}
+                                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                  style={attStyles.listActionBtn}
+                                >
+                                  <MaterialIcons name="share" size={18} color={theme.colors.textSecondary} />
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    Haptics.selectionAsync();
+                                    setSelectedAttForMenu(att);
+                                  }}
+                                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                  style={attStyles.listActionBtn}
+                                >
+                                  <MaterialIcons name="more-vert" size={20} color={theme.colors.textSecondary} />
+                                </TouchableOpacity>
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
                   </View>
                 ) : (
-                  <View style={st.emptyState}>
-                    <View style={[st.emptyIcon, { backgroundColor: `${theme.colors.primary}12` }]}><MaterialIcons name="attachment" size={30} color={theme.colors.primary} /></View>
-                    <Text style={[st.emptyTitle, { color: theme.colors.text }]}>No attachments</Text>
-                    <Text style={[st.emptySubtitle, { color: theme.colors.textSecondary }]}>No files attached to this task</Text>
+                  /* ─── Sleek Empty State with Action Cards ─── */
+                  <View style={[attStyles.emptyContainer, { borderColor: `${theme.colors.border}90`, backgroundColor: `${theme.colors.secondary}40` }]}>
+                    <View style={[attStyles.emptyIconGlow, { backgroundColor: `${theme.colors.primary}15` }]}>
+                      <MaterialIcons name="cloud-upload" size={32} color={theme.colors.primary} />
+                    </View>
+                    <Text style={[attStyles.emptyTitleText, { color: theme.colors.text }]}>
+                      No Attachments Yet
+                    </Text>
+                    <Text style={[attStyles.emptySubtitleText, { color: theme.colors.textSecondary }]}>
+                      Upload reference photos, PDFs, spreadsheets, or documents to keep them linked with this task.
+                    </Text>
+
+                    {/* 3 Upload Cards */}
+                    <View style={attStyles.emptyUploadGrid}>
+                      <TouchableOpacity
+                        style={[attStyles.emptyUploadCard, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]}
+                        onPress={handleAddFromLibrary}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[attStyles.emptyUploadIconCircle, { backgroundColor: '#EFF6FF' }]}>
+                          <MaterialIcons name="photo-library" size={20} color="#3B82F6" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[attStyles.emptyUploadCardTitle, { color: theme.colors.text }]}>Photo Library</Text>
+                          <Text style={[attStyles.emptyUploadCardDesc, { color: theme.colors.textSecondary }]}>Choose from device gallery</Text>
+                        </View>
+                        <MaterialIcons name="chevron-right" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[attStyles.emptyUploadCard, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]}
+                        onPress={handleAddFromCamera}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[attStyles.emptyUploadIconCircle, { backgroundColor: '#FDF2F8' }]}>
+                          <MaterialIcons name="photo-camera" size={20} color="#EC4899" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[attStyles.emptyUploadCardTitle, { color: theme.colors.text }]}>Take Photo</Text>
+                          <Text style={[attStyles.emptyUploadCardDesc, { color: theme.colors.textSecondary }]}>Snap with device camera</Text>
+                        </View>
+                        <MaterialIcons name="chevron-right" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[attStyles.emptyUploadCard, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border }]}
+                        onPress={handleAddFromFiles}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[attStyles.emptyUploadIconCircle, { backgroundColor: '#F0FDF4' }]}>
+                          <MaterialIcons name="upload-file" size={20} color="#10B981" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[attStyles.emptyUploadCardTitle, { color: theme.colors.text }]}>Upload Files</Text>
+                          <Text style={[attStyles.emptyUploadCardDesc, { color: theme.colors.textSecondary }]}>PDF, Word, spreadsheets & more</Text>
+                        </View>
+                        <MaterialIcons name="chevron-right" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
-                <View style={{ paddingTop: 16 }}>
-                  <TouchableOpacity style={[st.addBtn, { borderColor: `${theme.colors.primary}55` }]} onPress={handleAddTaskAttachment} activeOpacity={0.75}>
-                    <View style={[st.addBtnIcon, { backgroundColor: `${theme.colors.primary}15` }]}><MaterialIcons name="add" size={16} color={theme.colors.primary} /></View>
-                    <Text style={[st.addBtnTxt, { color: theme.colors.primary }]}>Add attachment</Text>
-                  </TouchableOpacity>
-                </View>
               </BottomSheetScrollView>
             )}
 
@@ -1461,6 +2272,137 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Attachment Options Action Sheet */}
+      <AndroidSheet
+        visible={!!selectedAttForMenu}
+        title={selectedAttForMenu ? `ATTACHMENT OPTIONS: ${selectedAttForMenu.name}`.toUpperCase() : 'ATTACHMENT OPTIONS'}
+        items={attachmentActionItems}
+        onClose={() => setSelectedAttForMenu(null)}
+        theme={theme}
+      />
+
+      {/* Comment Options Action Sheet */}
+      <AndroidSheet
+        visible={!!selectedCommentForMenu}
+        title="COMMENT OPTIONS"
+        items={commentActionItems}
+        onClose={() => setSelectedCommentForMenu(null)}
+        theme={theme}
+      />
+
+      {/* Fullscreen Image Lightbox Modal */}
+      <Modal
+        visible={!!lightboxAttachment}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLightboxAttachment(null)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: '#09090b', justifyContent: 'space-between' }}>
+          {/* Header */}
+          <View style={{
+            paddingTop: Math.max(insets.top, 16) + 8,
+            paddingBottom: 14,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'rgba(0,0,0,0.65)',
+          }}>
+            <TouchableOpacity
+              onPress={() => setLightboxAttachment(null)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <MaterialIcons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, paddingHorizontal: 12, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 13.5, fontFamily: 'Inter_600SemiBold' }} numberOfLines={1}>
+                {lightboxAttachment?.name}
+              </Text>
+              {!!lightboxAttachment?.size && (
+                <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 }}>
+                  {formatBytes(lightboxAttachment.size)}
+                </Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (lightboxAttachment) handleShareAtt(lightboxAttachment);
+              }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <MaterialIcons name="share" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Centered Image */}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 12 }}>
+            {lightboxAttachment && (
+              <Image
+                source={{ uri: lightboxAttachment.uri }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+
+          {/* Bottom Actions */}
+          <View style={{
+            paddingBottom: Math.max(insets.bottom, 16) + 12,
+            paddingTop: 12,
+            paddingHorizontal: 20,
+            flexDirection: 'row',
+            justifyContent: 'center',
+            gap: 16,
+            backgroundColor: 'rgba(0,0,0,0.65)',
+          }}>
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: 'rgba(255,255,255,0.18)',
+                paddingVertical: 10,
+                paddingHorizontal: 18,
+                borderRadius: 24,
+              }}
+              onPress={() => {
+                if (lightboxAttachment) handleOpenAtt(lightboxAttachment);
+              }}
+            >
+              <MaterialIcons name="open-in-new" size={17} color="#fff" />
+              <Text style={{ color: '#fff', fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Open External</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                paddingVertical: 10,
+                paddingHorizontal: 18,
+                borderRadius: 24,
+              }}
+              onPress={() => {
+                const target = lightboxAttachment;
+                setLightboxAttachment(null);
+                setTimeout(() => {
+                  if (target) handleDeleteAtt(target);
+                }, 200);
+              }}
+            >
+              <MaterialIcons name="delete-outline" size={17} color="#EF4444" />
+              <Text style={{ color: '#EF4444', fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </>
   );
 };
@@ -1488,6 +2430,54 @@ const st = StyleSheet.create({
   tabBar: { flexDirection: 'row', paddingVertical: 10, gap: 6 },
   tabPill: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: 10 },
   tabTxt: { fontSize: 12, fontWeight: '600' },
+  dropdownAnchor: {
+    position: 'absolute',
+    top: '100%',
+    right: 20,
+    marginTop: -4,
+    zIndex: 999,
+  },
+  dropdownMenu: {
+    width: 215,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 16,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  dropdownIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  dropdownItemSub: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 1,
+  },
+  dropdownDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 8,
+    marginVertical: 2,
+  },
   // Google Keep style checklist styles
   checklistRow: {
     flexDirection: 'row',
@@ -1593,10 +2583,32 @@ const st = StyleSheet.create({
 
   // NOTE: paddingBottom is intentionally removed here, we apply it dynamically in the component!
   commentBar: { borderTopWidth: StyleSheet.hairlineWidth },
-
-  attachBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  commentInput: { flex: 1, fontSize: 14, paddingHorizontal: 14, paddingTop: Platform.OS === 'ios' ? 9 : 7, paddingBottom: Platform.OS === 'ios' ? 9 : 7, borderRadius: 20, minHeight: 38, maxHeight: 110 },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  commentInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+  },
+  commentInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingHorizontal: 8,
+    paddingTop: Platform.OS === 'ios' ? 8 : 6,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 6,
+    minHeight: 38,
+    maxHeight: 110,
+    fontFamily: 'Inter_400Regular',
+  },
+  sendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
   attPreview: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderRadius: 10, borderWidth: 1 },
   attPreviewImg: { width: 36, height: 36, borderRadius: 6 },
   attPreviewName: { flex: 1, fontSize: 12 },
@@ -1686,6 +2698,434 @@ const subComposerStyles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontFamily: 'Inter_600SemiBold',
+  },
+});
+
+const attStyles = StyleSheet.create({
+  controlBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statsTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter_700Bold',
+  },
+  statsSize: {
+    fontSize: 13,
+    fontFamily: 'Inter_500Medium',
+  },
+  viewModeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 2,
+  },
+  viewModeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterPill: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  filterPillTxt: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  gridCard: {
+    width: (SW - 32 - 12) / 2,
+    height: 140,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    position: 'relative',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gridMenuBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  gridImageBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  gridImageTitle: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  gridImageMeta: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 1,
+  },
+  gridDocCard: {
+    width: (SW - 32 - 12) / 2,
+    height: 140,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 10,
+    justifyContent: 'space-between',
+    position: 'relative',
+  },
+  gridDocMenuBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  gridDocIconArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  gridDocInfoArea: {
+    gap: 2,
+  },
+  gridDocName: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    lineHeight: 16,
+  },
+  gridDocMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  gridDocSize: {
+    fontSize: 10,
+    fontFamily: 'Inter_500Medium',
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+  },
+  listThumbWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  listInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  listName: {
+    fontSize: 13.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  listMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  typeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  typeBadgeTxt: {
+    fontSize: 9,
+    fontFamily: 'Inter_700Bold',
+  },
+  listMetaTxt: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+  },
+  listActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  listActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    marginTop: 16,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyIconGlow: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitleText: {
+    fontSize: 16,
+    fontFamily: 'Inter_700Bold',
+  },
+  emptySubtitleText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  emptyUploadGrid: {
+    width: '100%',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  emptyUploadCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 12,
+  },
+  emptyUploadIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyUploadCardTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  emptyUploadCardDesc: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 1,
+  },
+});
+
+const commentStyles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 13.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  headerSubtitle: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_400Regular',
+  },
+  commentThread: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  avatarColumn: {
+    alignItems: 'center',
+    width: 34,
+  },
+  avatarCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  avatarInitial: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  threadLine: {
+    width: 2,
+    flex: 1,
+    marginVertical: 4,
+    borderRadius: 1,
+    opacity: 0.6,
+  },
+  bubbleCard: {
+    flex: 1,
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  bubbleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  authorGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  authorName: {
+    fontSize: 13.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  authorBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  authorBadgeTxt: {
+    fontSize: 9.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  commentTime: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+  },
+  menuDotsBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentBody: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    lineHeight: 20.5,
+  },
+  attCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  attImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+  },
+  attName: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  attSize: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_400Regular',
+  },
+  emptyBox: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  emptyIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter_700Bold',
+  },
+  emptySubtitle: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  quickChipsContainer: {
+    width: '100%',
+    gap: 8,
+    marginTop: 8,
+  },
+  quickChipsHeader: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  promptChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  promptChipText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_500Medium',
   },
 });
 

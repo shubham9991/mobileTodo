@@ -67,9 +67,15 @@ export function NoteScreen() {
     const hasHtmlBlocks = payload.html && payload.html
       .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
       .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
+      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
       .trim().length > 0;
 
-    const hasContent = hasPlainText || hasHtmlBlocks;
+    const rootChildren = (payload.json as any)?.root?.children;
+    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
+      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
+
+    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
     const hasTitleText = title && title.trim().length > 0 && title.toLowerCase() !== 'untitled';
 
     if (!hasContent && !hasTitleText) {
@@ -112,9 +118,15 @@ export function NoteScreen() {
     const hasHtmlBlocks = note?.contentHtml && note.contentHtml
       .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
       .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
+      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
       .trim().length > 0;
 
-    const hasContent = hasPlainText || hasHtmlBlocks;
+    const rootChildren = (note?.content as any)?.root?.children;
+    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
+      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
+
+    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
     const hasTitleText = newTitle && newTitle.trim().length > 0 && newTitle.toLowerCase() !== 'untitled';
 
     if (!hasContent && !hasTitleText) {
@@ -143,9 +155,15 @@ export function NoteScreen() {
     const hasHtmlBlocks = note?.contentHtml && note.contentHtml
       .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
       .replace(/<p[^>]*>\s*<\/p>/gi, '')
+      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
+      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
       .trim().length > 0;
 
-    const hasContent = hasPlainText || hasHtmlBlocks;
+    const rootChildren = (note?.content as any)?.root?.children;
+    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
+      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
+
+    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
     const hasTitleText = trimmed.length > 0 && trimmed.toLowerCase() !== 'untitled';
 
     if (!hasContent && !hasTitleText) {

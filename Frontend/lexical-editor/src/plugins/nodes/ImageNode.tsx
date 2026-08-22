@@ -64,10 +64,9 @@ function ImageComponent({
     >
       <img
         src={src}
-        alt={altText}
+        alt={altText || ''}
         className="editor-image"
         draggable={false}
-        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
       {selected && (
         <button
@@ -102,9 +101,14 @@ export class ImageNode extends DecoratorNode<React.JSX.Element> {
     this.__height = height;
   }
 
+  isInline(): boolean {
+    return false;
+  }
+
   createDOM(_config: EditorConfig): HTMLElement {
-    const span = document.createElement('span');
-    return span;
+    const div = document.createElement('div');
+    div.className = 'editor-image-wrapper';
+    return div;
   }
 
   updateDOM(): false { return false; }
@@ -115,11 +119,10 @@ export class ImageNode extends DecoratorNode<React.JSX.Element> {
 
   exportJSON(): SerializedImageNode {
     return {
-      ...super.exportJSON(),
       type: 'image',
       version: 1,
       src: this.__src,
-      altText: this.__altText,
+      altText: this.__altText || '',
       width: this.__width,
       height: this.__height,
     };

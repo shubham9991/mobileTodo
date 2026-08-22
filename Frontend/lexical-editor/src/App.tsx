@@ -235,24 +235,36 @@ function AutoSavePlugin() {
   const [editor] = useLexicalComposerContext();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const dispatchSave = useCallback(() => {
+    editor.getEditorState().read(() => {
+      const json = editor.getEditorState().toJSON();
+      const html = $generateHtmlFromNodes(editor, null);
+      const text = $getRoot().getTextContent();
+      const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        type: 'AUTO_SAVE',
+        payload: { json, html, text, wordCount },
+      }));
+    });
+  }, [editor]);
+
   useEffect(() => {
     return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
       if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
-        editorState.read(() => {
-          const json = editorState.toJSON();
-          const html = $generateHtmlFromNodes(editor, null);
-          const text = $getRoot().getTextContent();
-          const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0;
-          window.ReactNativeWebView?.postMessage(JSON.stringify({
-            type: 'AUTO_SAVE',
-            payload: { json, html, text, wordCount },
-          }));
-        });
-      }, 1500);
+        dispatchSave();
+      }, 400);
     });
-  }, [editor]);
+  }, [editor, dispatchSave]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      dispatchSave();
+    };
+  }, [dispatchSave]);
+
   return null;
 }
 
@@ -563,9 +575,21 @@ function ToolbarBridgePlugin() {
               editor.update(() => {
                 restoreSelection();
                 const sel = $getSelection();
-                if (sel) sel.insertNodes([$createImageNode(src, altText ?? '')]);
+                const node = $createImageNode(src, altText ?? '');
+                if ($isRangeSelection(sel)) {
+                  sel.insertNodes([node]);
+                } else {
+                  const p = $createParagraphNode();
+                  p.append(node);
+                  $getRoot().append(p);
+                }
+                const nextP = $createParagraphNode();
+                $getRoot().append(nextP);
+                nextP.select();
               });
-            } catch {}
+            } catch (err) {
+              console.error('[Lexical] INSERT_IMAGE error:', err);
+            }
             break;
           }
           case 'INSERT_YOUTUBE': {
@@ -573,7 +597,12 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if (sel) sel.insertNodes([$createYouTubeNode(payload)]);
+              const node = $createYouTubeNode(payload);
+              if ($isRangeSelection(sel)) {
+                sel.insertNodes([node]);
+              } else {
+                $getRoot().append(node);
+              }
             });
             break;
           }
@@ -584,7 +613,12 @@ function ToolbarBridgePlugin() {
               editor.update(() => {
                 restoreSelection();
                 const sel = $getSelection();
-                if (sel) sel.insertNodes([$createEquationNode(equation, inline ?? false)]);
+                const node = $createEquationNode(equation, inline ?? false);
+                if ($isRangeSelection(sel)) {
+                  sel.insertNodes([node]);
+                } else {
+                  $getRoot().append(node);
+                }
               });
             } catch {}
             break;
@@ -593,7 +627,6 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if (!sel) return;
               const container = $createCollapsibleContainerNode(true);
               const title = $createCollapsibleTitleNode();
               const content = $createCollapsibleContentNode();
@@ -601,7 +634,11 @@ function ToolbarBridgePlugin() {
               content.append(p);
               container.append(title);
               container.append(content);
-              sel.insertNodes([container]);
+              if ($isRangeSelection(sel)) {
+                sel.insertNodes([container]);
+              } else {
+                $getRoot().append(container);
+              }
               title.selectStart();
             });
             break;
@@ -610,9 +647,11 @@ function ToolbarBridgePlugin() {
             editor.update(() => {
               restoreSelection();
               const sel = $getSelection();
-              if (sel) {
-                const pollNode = $createPollNode();
+              const pollNode = $createPollNode();
+              if ($isRangeSelection(sel)) {
                 sel.insertNodes([pollNode]);
+              } else {
+                $getRoot().append(pollNode);
               }
             });
             break;
@@ -816,7 +855,8 @@ function ToolbarBridgePlugin() {
           case 'LOAD_STATE': {
             if (!payload) break;
             try {
-              const parsed = editor.parseEditorState(payload);
+              const raw = typeof payload === 'string' ? payload : JSON.stringify(payload);
+              const parsed = editor.parseEditorState(raw);
               editor.setEditorState(parsed);
             } catch (e) {
               console.error('[Lexical] LOAD_STATE failed:', e);

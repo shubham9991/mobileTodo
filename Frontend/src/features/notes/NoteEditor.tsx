@@ -32,12 +32,10 @@ interface NoteEditorProps {
   onCommandReady?: (sendCommand: (type: string, payload?: string) => void) => void;
 }
 
-// The bundled Lexical editor lives in the Android assets folder.
-// For iOS, the file would need to be in the app bundle via Xcode.
-const EDITOR_SOURCE: { uri: string } =
-  Platform.OS === 'android'
-    ? { uri: 'file:///android_asset/editor.html' }
-    : { uri: 'editor.html' }; // iOS: add editor.html to Xcode Copy Bundle Resources
+import { EDITOR_HTML } from './editorBundle';
+
+// Loads the bundled Lexical editor directly from JavaScript bundle (instant Metro hot-reload)
+const EDITOR_SOURCE = { html: EDITOR_HTML, baseUrl: 'file:///android_asset/' };
 
 export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggered, onCommandReady }: NoteEditorProps) {
   const { theme, isDark } = useTheme();
@@ -109,7 +107,7 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
     webviewRef.current?.injectJavaScript('document.activeElement && document.activeElement.blur(); true;');
   }, [webviewRef]);
 
-  // Handle INSERT_IMAGE_NATIVE: open image picker, encode to base64, send to editor
+  // Handle INSERT_IMAGE_NATIVE: open image picker, persist to app storage, send file URI to editor
   const handleActionTriggered = useCallback(async (type: string, payload?: string) => {
     if (type === 'INSERT_IMAGE_NATIVE') {
       try {
@@ -120,16 +118,36 @@ export function NoteEditor({ initialStateJson, onSave, onReady, onActionTriggere
         }
         const result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          quality: 0.8,
+          quality: 0.7,
           base64: true,
           allowsEditing: false,
         });
         if (!result.canceled && result.assets[0]) {
           const asset = result.assets[0];
-          const src = asset.base64
-            ? `data:image/jpeg;base64,${asset.base64}`
-            : asset.uri;
-          sendCommand('INSERT_IMAGE', JSON.stringify({ src, altText: '' }));
+          let imageUri = asset.uri;
+
+          try {
+            const noteImagesDir = `${FileSystem.documentDirectory}note_images/`;
+            const dirInfo = await FileSystem.getInfoAsync(noteImagesDir);
+            if (!dirInfo.exists) {
+              await FileSystem.makeDirectoryAsync(noteImagesDir, { intermediates: true });
+            }
+
+            const fileExt = (asset.uri.split('.').pop() || 'jpg').split('?')[0];
+            const permanentPath = `${noteImagesDir}img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${fileExt}`;
+            
+            await FileSystem.copyAsync({
+              from: asset.uri,
+              to: permanentPath,
+            });
+            imageUri = permanentPath;
+          } catch {
+            if (asset.base64) {
+              imageUri = `data:image/jpeg;base64,${asset.base64}`;
+            }
+          }
+
+          sendCommand('INSERT_IMAGE', JSON.stringify({ src: imageUri, altText: '' }));
         }
       } catch (e) {
         Alert.alert('Error', 'Could not open image picker.');
