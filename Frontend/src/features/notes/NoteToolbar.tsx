@@ -581,7 +581,6 @@ export function NoteToolbar({
         title: 'Dividers',
         items: [
           { icon: 'horizontal-rule', label: 'Horizontal Rule', desc: 'Thin divider line', color: '#6B7280', onPress: () => cmd('INSERT_HR') },
-          { icon: 'insert-page-break', label: 'Page Break', desc: 'Force a page break', color: '#6B7280', onPress: () => cmd('INSERT_PAGE_BREAK') },
         ],
       },
     ];

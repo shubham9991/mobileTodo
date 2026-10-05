@@ -5,6 +5,7 @@
  *  CollapsibleContentNode    (body, hidden when collapsed)
  */
 import {
+  $getNodeByKey,
   ElementNode,
   LexicalNode,
   NodeKey,
@@ -29,10 +30,30 @@ export class CollapsibleContainerNode extends ElementNode {
 
   constructor(open: boolean, key?: NodeKey) { super(key); this.__open = open; }
 
-  createDOM(): HTMLElement {
+  getOpen(): boolean { return this.__open; }
+  setOpen(open: boolean): void {
+    const writable = this.getWritable();
+    writable.__open = open;
+  }
+  toggleOpen(): void {
+    this.setOpen(!this.getOpen());
+  }
+
+  createDOM(_config: any, editor?: any): HTMLElement {
     const el = document.createElement('details');
     el.className = 'editor-collapsible-container';
     if (this.__open) el.open = true;
+    el.addEventListener('toggle', () => {
+      const isOpen = el.open;
+      if (editor) {
+        editor.update(() => {
+          const node = $getNodeByKey(this.__key);
+          if ($isCollapsibleContainerNode(node)) {
+            node.setOpen(isOpen);
+          }
+        });
+      }
+    });
     return el;
   }
   updateDOM(prevNode: CollapsibleContainerNode, dom: HTMLElement): boolean {

@@ -102,7 +102,7 @@ import {
   $deleteTableColumn__EXPERIMENTAL,
   $getTableCellNodeFromLexicalNode,
 } from '@lexical/table';
-import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
+import { INSERT_HORIZONTAL_RULE_COMMAND, $createHorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 import { $generateHtmlFromNodes } from '@lexical/html';
 
 import editorTheme from './theme/editorTheme';
@@ -527,9 +527,32 @@ function ToolbarBridgePlugin() {
             });
             break;
 
-          // ── Insert elements ───────────────────────────────────────────
           case 'INSERT_HR':
-            editor.update(() => { restoreSelection(); editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined); });
+            editor.update(() => {
+              restoreSelection();
+              const sel = $getSelection();
+              const hrNode = $createHorizontalRuleNode();
+              const p = $createParagraphNode();
+              if ($isRangeSelection(sel)) {
+                const focusNode = sel.focus.getNode();
+                let rootNode: any = focusNode;
+                while (rootNode && rootNode.getParent() && rootNode.getParent().getType() !== 'root') {
+                  rootNode = rootNode.getParent();
+                }
+                if (rootNode) {
+                  rootNode.insertAfter(hrNode);
+                  if (rootNode.getType() === 'paragraph' && rootNode.getTextContentSize() === 0) {
+                    rootNode.remove();
+                  }
+                } else {
+                  $getRoot().append(hrNode);
+                }
+              } else {
+                $getRoot().append(hrNode);
+              }
+              hrNode.insertAfter(p);
+              p.select();
+            });
             break;
           case 'INSERT_TABLE': {
             const [rows = '3', cols = '3'] = (payload ?? '3,3').split(',');
@@ -656,14 +679,7 @@ function ToolbarBridgePlugin() {
             });
             break;
           }
-          case 'INSERT_PAGE_BREAK': {
-            editor.update(() => {
-              restoreSelection();
-              const sel = $getSelection();
-              if (sel) sel.insertNodes([$createPageBreakNode()]);
-            });
-            break;
-          }
+
           case 'INSERT_DATE': {
             if (!payload) break;
             editor.update(() => {

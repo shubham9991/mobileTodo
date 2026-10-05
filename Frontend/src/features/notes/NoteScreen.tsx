@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  TextInput, Keyboard,
+  TextInput, Keyboard, BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,7 +15,8 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../themes/ThemeContext';
 import { NoteEditor } from './NoteEditor';
 import {
-  getNote, saveNote, deleteNote, createBlankNote, buildPreview, type Note,
+  getNote, saveNote, deleteNote, createBlankNote, buildPreview,
+  isNoteEmpty, showNoteToast, type Note,
 } from '../../core/db/notesStore';
 import type { SavePayload } from './useEditorBridge';
 
@@ -38,6 +39,7 @@ export function NoteScreen() {
   const [wordCount, setWordCount] = useState(0);
   const [initialStateJson, setInitialStateJson] = useState<string | undefined>(undefined);
   const saveStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPayloadRef = useRef<SavePayload | null>(null);
   const c = theme.colors;
 
   // Load existing note on mount
@@ -62,23 +64,10 @@ export function NoteScreen() {
   // Handle auto-save payload from Lexical bridge
   const handleSave = useCallback(async (payload: SavePayload) => {
     if (!noteId) return;
+    lastPayloadRef.current = payload;
 
-    const hasPlainText = payload.text && payload.text.trim().length > 0;
-    const hasHtmlBlocks = payload.html && payload.html
-      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
-      .replace(/<p[^>]*>\s*<\/p>/gi, '')
-      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
-      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
-      .trim().length > 0;
-
-    const rootChildren = (payload.json as any)?.root?.children;
-    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
-      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
-
-    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
-    const hasTitleText = title && title.trim().length > 0 && title.toLowerCase() !== 'untitled';
-
-    if (!hasContent && !hasTitleText) {
+    const empty = isNoteEmpty(title, payload.json, payload.html, payload.text);
+    if (empty) {
       await deleteNote(noteId);
       setNote(null);
       setSaveStatus('idle');
@@ -114,22 +103,15 @@ export function NoteScreen() {
     setTitle(newTitle);
     if (!noteId) return;
 
-    const hasPlainText = note?.preview && note.preview.trim().length > 0;
-    const hasHtmlBlocks = note?.contentHtml && note.contentHtml
-      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
-      .replace(/<p[^>]*>\s*<\/p>/gi, '')
-      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
-      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
-      .trim().length > 0;
+    const payload = lastPayloadRef.current;
+    const empty = isNoteEmpty(
+      newTitle,
+      payload?.json ?? note?.content,
+      payload?.html ?? note?.contentHtml,
+      payload?.text ?? note?.preview
+    );
 
-    const rootChildren = (note?.content as any)?.root?.children;
-    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
-      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
-
-    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
-    const hasTitleText = newTitle && newTitle.trim().length > 0 && newTitle.toLowerCase() !== 'untitled';
-
-    if (!hasContent && !hasTitleText) {
+    if (empty) {
       await deleteNote(noteId);
       setNote(null);
       return;
@@ -141,32 +123,62 @@ export function NoteScreen() {
     await saveNote(updatedNote);
   }, [note, noteId]);
 
-  const handleBack = useCallback(() => {
+  const handleBack = useCallback(async () => {
     Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const payload = lastPayloadRef.current;
+    const empty = isNoteEmpty(
+      title,
+      payload?.json ?? note?.content,
+      payload?.html ?? note?.contentHtml,
+      payload?.text ?? note?.preview
+    );
+
+    if (empty) {
+      if (noteId) {
+        await deleteNote(noteId);
+      }
+      showNoteToast('Empty note discarded');
+      router.back();
+      return;
+    }
+
     router.back();
-  }, [router]);
+  }, [router, title, note, noteId]);
+
+  // Listen to Android hardware back press
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleBack]);
+
+  // Ensure empty notes are cleaned up on unmount
+  useEffect(() => {
+    return () => {
+      const payload = lastPayloadRef.current;
+      if (noteId && isNoteEmpty(title, payload?.json ?? note?.content, payload?.html ?? note?.contentHtml, payload?.text ?? note?.preview)) {
+        deleteNote(noteId).catch(() => {});
+      }
+    };
+  }, [noteId, title, note]);
 
   const handleTitleSubmitEditing = useCallback(async () => {
     setEditingTitle(false);
     const trimmed = title.trim();
 
-    const hasPlainText = note?.preview && note.preview.trim().length > 0;
-    const hasHtmlBlocks = note?.contentHtml && note.contentHtml
-      .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '')
-      .replace(/<p[^>]*>\s*<\/p>/gi, '')
-      .replace(/<div class="keep-checklist-wrapper"><\/div>/gi, '')
-      .replace(/<div class="poll-wrapper"><\/div>/gi, '')
-      .trim().length > 0;
+    const payload = lastPayloadRef.current;
+    const empty = isNoteEmpty(
+      trimmed,
+      payload?.json ?? note?.content,
+      payload?.html ?? note?.contentHtml,
+      payload?.text ?? note?.preview
+    );
 
-    const rootChildren = (note?.content as any)?.root?.children;
-    const hasJsonContent = Array.isArray(rootChildren) && rootChildren.length > 0 &&
-      rootChildren.some((c: any) => c.type !== 'paragraph' || (Array.isArray(c.children) && c.children.length > 0));
-
-    const hasContent = hasPlainText || hasHtmlBlocks || hasJsonContent;
-    const hasTitleText = trimmed.length > 0 && trimmed.toLowerCase() !== 'untitled';
-
-    if (!hasContent && !hasTitleText) {
+    if (empty) {
       setTitle('');
       if (noteId) await deleteNote(noteId);
       setNote(null);

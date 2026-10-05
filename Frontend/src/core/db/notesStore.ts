@@ -3,6 +3,7 @@
  * Each note's content is the Lexical JSON AST (lossless round-trip).
  */
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform, ToastAndroid } from 'react-native';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface Note {
@@ -159,4 +160,145 @@ export function formatRelativeTime(isoString: string): string {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(isoString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ── Toast notification system for discarded notes ────────────────────────────
+export function showNoteToast(msg: string) {
+  if (Platform.OS === 'android') {
+    ToastAndroid.show(msg, ToastAndroid.SHORT);
+  }
+}
+
+// ── Recursive AST check for meaningful content ───────────────────────────────
+function hasMeaningfulAstContent(nodes: any[]): boolean {
+  for (const node of nodes) {
+    if (!node) continue;
+
+    // Media / Embeds that constitute substantive content
+    if (node.type === 'image' && node.src && String(node.src).trim().length > 0) {
+      return true;
+    }
+    if (node.type === 'youtube' && (node.videoUrl || node.url || node.videoId)) {
+      return true;
+    }
+    if (node.type === 'tweet-card' && (node.tweetId || node.url)) {
+      return true;
+    }
+    if (node.type === 'link-preview' && node.url) {
+      return true;
+    }
+    if (node.type === 'equation' && node.equation && String(node.equation).trim().length > 0) {
+      return true;
+    }
+
+    // Keep checklist: must have at least one item with non-whitespace text
+    if (node.type === 'keep-checklist') {
+      if (Array.isArray(node.items)) {
+        const hasText = node.items.some((it: any) => {
+          const t = String(it.text || '').replace(/<[^>]*>/g, '').replace(/[\s\u200B\uFEFF\u00A0]+/g, '');
+          return t.length > 0;
+        });
+        if (hasText) return true;
+      }
+      continue;
+    }
+
+    // Poll: must have non-default question or non-default options
+    if (node.type === 'poll') {
+      const q = String(node.question || '').trim();
+      if (q.length > 0 && q !== 'Poll') return true;
+      if (Array.isArray(node.options)) {
+        const hasOpt = node.options.some((o: any) => {
+          const ot = String(o.text || '').trim();
+          return ot.length > 0 && ot !== 'Option';
+        });
+        if (hasOpt) return true;
+      }
+      continue;
+    }
+
+    // Structural dividers alone (HR / Page Break) do not count as substantive content
+    if (node.type === 'horizontalrule' || node.type === 'hr' || node.type === 'page-break') {
+      continue;
+    }
+
+    // Direct text property (e.g. TextNode)
+    if (typeof node.text === 'string') {
+      const clean = node.text.replace(/[\s\u200B\uFEFF\u00A0]+/g, '');
+      if (clean.length > 0) return true;
+    }
+
+    // Nested children (paragraphs, headings, code blocks, lists, tables, collapsibles, quotes)
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      if (hasMeaningfulAstContent(node.children)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Determines whether a note has no substantive content and should be automatically discarded.
+ * Checks title, AST nodes, plain text, and HTML.
+ */
+export function isNoteEmpty(
+  title?: string,
+  contentJson?: any,
+  contentHtml?: string,
+  plainText?: string
+): boolean {
+  // 1. Check title: if user provided a meaningful title (not blank and not 'untitled'), it's not empty
+  const cleanTitle = (title || '').trim();
+  if (cleanTitle.length > 0 && cleanTitle.toLowerCase() !== 'untitled') {
+    return false;
+  }
+
+  // 2. Check Lexical AST JSON (the source of truth)
+  if (contentJson && typeof contentJson === 'object') {
+    const root = (contentJson as any).root;
+    if (root && Array.isArray(root.children) && root.children.length > 0) {
+      if (hasMeaningfulAstContent(root.children)) {
+        return false;
+      }
+    }
+  }
+
+  // 3. Check plain text
+  if (plainText) {
+    const cleanText = plainText.replace(/[\s\u200B\uFEFF\u00A0]+/g, '');
+    if (cleanText.length > 0) {
+      return false;
+    }
+  }
+
+  // 4. Check HTML
+  if (contentHtml) {
+    if (/<img[^>]+src=["'][^"']+["']/i.test(contentHtml)) return false;
+    if (
+      contentHtml.includes('editor-youtube') ||
+      contentHtml.includes('editor-equation') ||
+      contentHtml.includes('editor-tweet') ||
+      contentHtml.includes('editor-link-preview')
+    ) {
+      return false;
+    }
+    if (contentHtml.includes('poll-wrapper') || contentHtml.includes('poll-container')) {
+      const pollText = contentHtml.replace(/<[^>]*>/g, '').replace(/[\s\u200B\uFEFF\u00A0]+/g, '');
+      if (pollText.length > 0 && pollText !== 'Poll' && pollText !== '0votes') {
+        return false;
+      }
+    }
+    const strippedHtml = contentHtml
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, '')
+      .replace(/&#160;/g, '')
+      .replace(/[\s\u200B\uFEFF\u00A0]+/g, '');
+    if (strippedHtml.length > 0) {
+      return false;
+    }
+  }
+
+  return true;
 }
