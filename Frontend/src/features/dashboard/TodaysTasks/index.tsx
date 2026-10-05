@@ -35,7 +35,7 @@ export const TodaysTasks = () => {
       {/* Section Header */}
       <View style={styles.header}>
         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
-          TODAY'S TASKS
+          {"TODAY'S TASKS"}
         </Text>
         <View style={[styles.countBadge, { backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }]}>
           <Text style={[styles.countText, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>

@@ -33,6 +33,7 @@ export interface Task {
   dueDate?: string;     // start date, e.g. "Mon, Apr 28"
   dueEndDate?: string;  // end date for multi-day tasks, e.g. "Fri, May 2" (optional)
   dueTime?: string;
+  dueEndTime?: string;
   nodeId?: string;       // ID of the project/company folder it belongs to
 }
 export const dummyData = {

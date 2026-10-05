@@ -14,6 +14,18 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../themes/ThemeContext';
 import { useDashboard, DashboardView } from '../../core/DashboardContext';
 import { useManage } from '../../core/ManageContext';
+import {
+  DashboardViewMode,
+  DisplayDensity,
+  ViewWidgetVisibility,
+  ViewWidgetOrder,
+  BentoWidgetKey,
+  FocusWidgetKey,
+  StudioWidgetKey,
+  MinimalWidgetKey,
+  DEFAULT_PREFERENCES,
+  saveDashboardPreferences,
+} from './dashboardPrefsStore';
 
 interface ViewConfigModalProps {
   visible: boolean;
@@ -21,11 +33,61 @@ interface ViewConfigModalProps {
   view: DashboardView;
 }
 
+const BENTO_WIDGET_META: Record<BentoWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
+  statusBar: { label: 'Daily Status Summary & Greeting', icon: 'wb-sunny' },
+  heroCard: { label: 'Hero Focus Card', icon: 'bolt' },
+  bentoGrid: { label: 'Bento 2x2 Matrix Grid', icon: 'grid-view' },
+  recentSketches: { label: 'Recent Canvas Sketches Widget', icon: 'brush' },
+  upcoming: { label: 'Upcoming Deadlines Strip', icon: 'calendar-month' },
+};
+
+const FOCUS_WIDGET_META: Record<FocusWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
+  weekCalendar: { label: 'Week Strip Calendar with Progress', icon: 'calendar-view-week' },
+  progressBar: { label: 'Day Completion Progress Bar', icon: 'linear-scale' },
+  quickComposer: { label: 'Inline Quick Task Composer', icon: 'add-task' },
+  agenda: { label: 'Execution Agenda (Priority / Time Block)', icon: 'format-list-bulleted' },
+};
+
+const STUDIO_WIDGET_META: Record<StudioWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
+  ideationBar: { label: 'Quick Ideation Bar (Note/Sketch)', icon: 'lightbulb-outline' },
+  filterPills: { label: 'Creative Filter & Category Pills', icon: 'filter-list' },
+  creativeFeed: { label: 'Unified 2-Column Creative Feed', icon: 'auto-awesome-mosaic' },
+  taskRadar: { label: 'Background Task Radar Pill', icon: 'radar' },
+};
+
+const MINIMAL_WIDGET_META: Record<MinimalWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
+  calmHeader: { label: 'Calm Greeting & Date Header', icon: 'spa' },
+  recentsCarousel: { label: 'Pick Up Where You Left Off Carousel', icon: 'history' },
+  ruleOfThree: { label: 'Rule of Three Essentials', icon: 'looks-3' },
+  microDock: { label: 'Universal Micro Quick Dock', icon: 'more-horiz' },
+};
+
 export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps) => {
   const { theme } = useTheme();
-  const { views, updateView, nodes, setActiveViewIndex } = useDashboard();
+  const {
+    views,
+    updateView,
+    nodes,
+    setActiveViewIndex,
+    activeViewMode,
+    setActiveViewMode,
+    dashboardPrefs,
+    setDashboardPrefs,
+    updateDensity,
+    updateDefaultMode,
+    updateSwipePagerSetting,
+    updateWidgetOrder,
+  } = useDashboard();
   const { tags } = useManage();
   
+  // Dashboard multi-view preferences local state
+  const [localViewMode, setLocalViewMode] = useState<DashboardViewMode>(activeViewMode);
+  const [localDefaultMode, setLocalDefaultMode] = useState<DashboardViewMode>(dashboardPrefs.defaultViewMode);
+  const [localDensity, setLocalDensity] = useState<DisplayDensity>(dashboardPrefs.density);
+  const [localSwipePager, setLocalSwipePager] = useState<boolean>(dashboardPrefs.enableSwipePager);
+  const [localWidgetVis, setLocalWidgetVis] = useState<ViewWidgetVisibility>(dashboardPrefs.widgetVisibility);
+  const [localWidgetOrder, setLocalWidgetOrder] = useState<ViewWidgetOrder>(dashboardPrefs.widgetOrder);
+
   // Track which page we are currently editing
   const [selectedViewId, setSelectedViewId] = useState<string>(view.id);
   const [applyToAll, setApplyToAll] = useState<boolean>(false);
@@ -47,6 +109,13 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
   // Sync state when modal becomes visible or when editing target changes
   useEffect(() => {
     if (visible) {
+      setLocalViewMode(activeViewMode);
+      setLocalDefaultMode(dashboardPrefs.defaultViewMode);
+      setLocalDensity(dashboardPrefs.density);
+      setLocalSwipePager(dashboardPrefs.enableSwipePager);
+      setLocalWidgetVis(dashboardPrefs.widgetVisibility);
+      setLocalWidgetOrder(dashboardPrefs.widgetOrder);
+
       setLayout(currentEditingView.layout);
       setShowCompleted(currentEditingView.showCompleted);
       setGrouping(currentEditingView.grouping);
@@ -57,7 +126,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
       setFilterSourceNodeId(currentEditingView.filterSourceNodeId);
       setWidgets(currentEditingView.widgets);
     }
-  }, [visible, selectedViewId]);
+  }, [visible, selectedViewId, activeViewMode, dashboardPrefs]);
 
   // Sync target selection with current active page on open
   useEffect(() => {
@@ -95,7 +164,35 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     setWidgets(arr);
   };
 
+  const moveModeWidget = <V extends DashboardViewMode>(mode: V, index: number, dir: 1 | -1) => {
+    const list = [...localWidgetOrder[mode]] as any[];
+    const target = index + dir;
+    if (target < 0 || target >= list.length) return;
+    [list[index], list[target]] = [list[target], list[index]];
+    setLocalWidgetOrder(prev => ({ ...prev, [mode]: list }));
+  };
+
   const handleSave = () => {
+    // 1. Save Dashboard multi-view preferences
+    setActiveViewMode(localViewMode);
+    updateDefaultMode(localDefaultMode);
+    updateDensity(localDensity);
+    updateSwipePagerSetting(localSwipePager);
+    updateWidgetOrder(localViewMode, localWidgetOrder[localViewMode]);
+    setDashboardPrefs(prev => {
+      const updated = {
+        ...prev,
+        activeViewMode: localViewMode,
+        defaultViewMode: localDefaultMode,
+        density: localDensity,
+        enableSwipePager: localSwipePager,
+        widgetVisibility: localWidgetVis,
+        widgetOrder: localWidgetOrder,
+      };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+
     if (applyToAll) {
       // Copy settings configuration to ALL pages
       views.forEach(v => {
@@ -136,6 +233,16 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
   };
 
   const handleReset = () => {
+    // Reset dashboard preferences
+    setLocalViewMode(DEFAULT_PREFERENCES.activeViewMode);
+    setLocalDefaultMode(DEFAULT_PREFERENCES.defaultViewMode);
+    setLocalDensity(DEFAULT_PREFERENCES.density);
+    setLocalSwipePager(DEFAULT_PREFERENCES.enableSwipePager);
+    setLocalWidgetVis(DEFAULT_PREFERENCES.widgetVisibility);
+    setLocalWidgetOrder(DEFAULT_PREFERENCES.widgetOrder);
+    setDashboardPrefs(DEFAULT_PREFERENCES);
+    saveDashboardPreferences(DEFAULT_PREFERENCES);
+
     setLayout('list');
     setShowCompleted(true);
     setGrouping('none');
@@ -178,6 +285,291 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
+            {/* ── Dashboard Multi-View Mode (The 4 Pillars) ── */}
+            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
+              DASHBOARD WORKSPACE VIEW
+            </Text>
+            <View style={styles.viewModeGrid}>
+              {([
+                { id: 'bento', label: 'Bento Hub', desc: 'All-in-one command matrix', icon: 'view-quilt' },
+                { id: 'focus', label: 'Focus Stream', desc: 'Tasks & agenda timeline', icon: 'bolt' },
+                { id: 'studio', label: 'Creative Studio', desc: 'Notes & canvas workspace', icon: 'palette' },
+                { id: 'minimal', label: 'Minimalist', desc: 'Calm essentials & recents', icon: 'crop-free' },
+              ] as const).map(mode => {
+                const isSelected = localViewMode === mode.id;
+                return (
+                  <TouchableOpacity
+                    key={mode.id}
+                    style={[
+                      styles.modeCard,
+                      {
+                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                        backgroundColor: isSelected ? theme.colors.secondary : 'transparent',
+                      },
+                    ]}
+                    onPress={() => setLocalViewMode(mode.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.modeCardTop}>
+                      <MaterialIcons
+                        name={mode.icon as any}
+                        size={22}
+                        color={isSelected ? theme.colors.primary : theme.colors.textSecondary}
+                      />
+                      <View style={[styles.radioCircle, { position: 'relative', top: 0, right: 0, borderColor: isSelected ? theme.colors.primary : theme.colors.border }]}>
+                        {isSelected && <View style={[styles.radioDot, { backgroundColor: theme.colors.primary }]} />}
+                      </View>
+                    </View>
+                    <Text style={[styles.modeCardTitle, { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }]}>
+                      {mode.label}
+                    </Text>
+                    <Text style={[styles.modeCardDesc, { color: theme.colors.textSecondary }]}>
+                      {mode.desc}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* ── Default Launch View ── */}
+            <View style={styles.optionRow}>
+              <Text style={[styles.optionLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>Default Launch View</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+                {([
+                  { id: 'bento', label: 'Bento Hub' },
+                  { id: 'focus', label: 'Focus Stream' },
+                  { id: 'studio', label: 'Creative Studio' },
+                  { id: 'minimal', label: 'Minimalist' },
+                ] as const).map(dm => {
+                  const isSelected = localDefaultMode === dm.id;
+                  return (
+                    <TouchableOpacity
+                      key={dm.id}
+                      style={[
+                        styles.chip,
+                        { backgroundColor: isSelected ? theme.colors.primary : theme.colors.accentBg }
+                      ]}
+                      onPress={() => setLocalDefaultMode(dm.id)}
+                    >
+                      <Text style={{ color: isSelected ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+                        {dm.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+
+            {/* ── Display Density ── */}
+            <View style={[styles.optionRow, { marginTop: 12 }]}>
+              <Text style={[styles.optionLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>Display Density</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {([
+                  { id: 'compact', label: 'Compact' },
+                  { id: 'comfortable', label: 'Comfortable' },
+                  { id: 'expanded', label: 'Expanded' },
+                ] as const).map(den => {
+                  const isSelected = localDensity === den.id;
+                  return (
+                    <TouchableOpacity
+                      key={den.id}
+                      style={[
+                        styles.chip,
+                        { flex: 1, alignItems: 'center', backgroundColor: isSelected ? theme.colors.primary : theme.colors.accentBg }
+                      ]}
+                      onPress={() => setLocalDensity(den.id)}
+                    >
+                      <Text style={{ color: isSelected ? '#fff' : theme.colors.textSecondary, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
+                        {den.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* ── Swipe Pager Toggle ── */}
+            <View style={[styles.switchRow, { borderBottomColor: theme.colors.border, marginTop: 4 }]}>
+              <View>
+                <Text style={[styles.rowLabel, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+                  Swipe Paging
+                </Text>
+                <Text style={[styles.rowSub, { color: theme.colors.textSecondary }]}>
+                  Swipe horizontally between dashboard views
+                </Text>
+              </View>
+              <Switch
+                value={localSwipePager}
+                onValueChange={setLocalSwipePager}
+                trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
+              />
+            </View>
+
+            {/* ── Active View Widgets Visibility ── */}
+            {/* ── Active View Widgets Visibility & Ordering ── */}
+            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
+              WIDGET REORDER & VISIBILITY ({localViewMode.toUpperCase()} VIEW)
+            </Text>
+
+            {localViewMode === 'bento' && (
+              <View style={styles.widgetsContainer}>
+                {localWidgetOrder.bento.map((key, index) => {
+                  const meta = BENTO_WIDGET_META[key] || { label: key, icon: 'widgets' };
+                  return (
+                    <View key={key} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
+                      <View style={styles.widgetInfo}>
+                        <MaterialIcons name={meta.icon} size={20} color={theme.colors.text} />
+                        <Text style={[styles.widgetName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('bento', index, -1)}
+                          disabled={index === 0}
+                        >
+                          <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ opacity: index === localWidgetOrder.bento.length - 1 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('bento', index, 1)}
+                          disabled={index === localWidgetOrder.bento.length - 1}
+                        >
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <Switch
+                          value={localWidgetVis.bento[key]}
+                          onValueChange={(val) => setLocalWidgetVis(p => ({ ...p, bento: { ...p.bento, [key]: val } }))}
+                          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {localViewMode === 'focus' && (
+              <View style={styles.widgetsContainer}>
+                {localWidgetOrder.focus.map((key, index) => {
+                  const meta = FOCUS_WIDGET_META[key] || { label: key, icon: 'widgets' };
+                  return (
+                    <View key={key} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
+                      <View style={styles.widgetInfo}>
+                        <MaterialIcons name={meta.icon} size={20} color={theme.colors.text} />
+                        <Text style={[styles.widgetName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('focus', index, -1)}
+                          disabled={index === 0}
+                        >
+                          <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ opacity: index === localWidgetOrder.focus.length - 1 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('focus', index, 1)}
+                          disabled={index === localWidgetOrder.focus.length - 1}
+                        >
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <Switch
+                          value={localWidgetVis.focus[key]}
+                          onValueChange={(val) => setLocalWidgetVis(p => ({ ...p, focus: { ...p.focus, [key]: val } }))}
+                          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {localViewMode === 'studio' && (
+              <View style={styles.widgetsContainer}>
+                {localWidgetOrder.studio.map((key, index) => {
+                  const meta = STUDIO_WIDGET_META[key] || { label: key, icon: 'widgets' };
+                  return (
+                    <View key={key} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
+                      <View style={styles.widgetInfo}>
+                        <MaterialIcons name={meta.icon} size={20} color={theme.colors.text} />
+                        <Text style={[styles.widgetName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('studio', index, -1)}
+                          disabled={index === 0}
+                        >
+                          <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ opacity: index === localWidgetOrder.studio.length - 1 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('studio', index, 1)}
+                          disabled={index === localWidgetOrder.studio.length - 1}
+                        >
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <Switch
+                          value={localWidgetVis.studio[key]}
+                          onValueChange={(val) => setLocalWidgetVis(p => ({ ...p, studio: { ...p.studio, [key]: val } }))}
+                          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {localViewMode === 'minimal' && (
+              <View style={styles.widgetsContainer}>
+                {localWidgetOrder.minimal.map((key, index) => {
+                  const meta = MINIMAL_WIDGET_META[key] || { label: key, icon: 'widgets' };
+                  return (
+                    <View key={key} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
+                      <View style={styles.widgetInfo}>
+                        <MaterialIcons name={meta.icon} size={20} color={theme.colors.text} />
+                        <Text style={[styles.widgetName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('minimal', index, -1)}
+                          disabled={index === 0}
+                        >
+                          <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ opacity: index === localWidgetOrder.minimal.length - 1 ? 0.3 : 1, padding: 4 }}
+                          onPress={() => moveModeWidget('minimal', index, 1)}
+                          disabled={index === localWidgetOrder.minimal.length - 1}
+                        >
+                          <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <Switch
+                          value={localWidgetVis.minimal[key]}
+                          onValueChange={(val) => setLocalWidgetVis(p => ({ ...p, minimal: { ...p.minimal, [key]: val } }))}
+                          trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={{ height: 16 }} />
+
             {/* ── Page Selection ── */}
             <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
               SELECT PAGE TO CONFIGURE
@@ -549,7 +941,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
                   fontFamily: 'Inter_600SemiBold',
                   fontSize: 12
                 }}>
-                  Just "{currentEditingView.name}"
+                  {`Just "${currentEditingView.name}"`}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -634,6 +1026,32 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 12,
     marginTop: 16,
+  },
+  viewModeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modeCard: {
+    width: '48%',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 12,
+  },
+  modeCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  modeCardTitle: {
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  modeCardDesc: {
+    fontSize: 10.5,
+    lineHeight: 14,
   },
   layoutRow: {
     flexDirection: 'row',

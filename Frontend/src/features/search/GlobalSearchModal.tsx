@@ -35,7 +35,7 @@ export const GlobalSearchModal = ({ visible, onClose }: Props) => {
       const matchCat = activeCategory === 'All' || task.tag?.toUpperCase() === activeCategory.toUpperCase();
       const matchQuery = query === '' || 
         task.title.toLowerCase().includes(query.toLowerCase()) ||
-        task.subtasks?.some(st => st.text.toLowerCase().includes(query.toLowerCase()));
+        (task as any).subtasks?.some((st: any) => st?.text?.toLowerCase().includes(query.toLowerCase()));
       return matchCat && matchQuery;
     });
   }, [allTasks, query, activeCategory]);

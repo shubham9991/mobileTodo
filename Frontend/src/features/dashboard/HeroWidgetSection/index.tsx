@@ -41,7 +41,7 @@ export const HeroWidgetSection = () => {
       <View style={styles.focusHeader}>
         <MaterialIcons name="bolt" size={14} color={theme.colors.textSecondary} />
         <Text style={[styles.focusLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
-          TODAY'S FOCUS
+          {"TODAY'S FOCUS"}
         </Text>
       </View>
 

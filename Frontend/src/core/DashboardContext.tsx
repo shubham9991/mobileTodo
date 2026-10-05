@@ -1,6 +1,18 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { format, addDays, parse, isValid } from 'date-fns';
 import { dummyData, Task } from './dummyData';
+import {
+  DashboardViewMode,
+  DisplayDensity,
+  DashboardPreferences,
+  ViewWidgetVisibility,
+  ViewWidgetOrder,
+  getDashboardPreferences,
+  saveDashboardPreferences,
+  DEFAULT_PREFERENCES,
+} from '../features/dashboard/dashboardPrefsStore';
+
+export type { DashboardViewMode, DisplayDensity, DashboardPreferences, ViewWidgetVisibility, ViewWidgetOrder };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type SectionId = 'hero' | 'tabs' | 'tasks' | 'notes' | 'upcoming';
@@ -237,8 +249,8 @@ export const DEFAULT_VIEWS: DashboardView[] = [
   },
 ];
 
-// ─── Date Normalizer ─────────────────────────────────────────────────────────
-function normalizeToISO(dateStr?: string): string | undefined {
+// ─── Date Normalizer & Matching Helper ──────────────────────────────────────
+export function normalizeToISO(dateStr?: string): string | undefined {
   if (!dateStr) return undefined;
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const today = new Date();
@@ -260,6 +272,26 @@ function normalizeToISO(dateStr?: string): string | undefined {
   return undefined;
 }
 
+export function isTaskScheduledForDate(task: Task, targetDateISO: string): boolean {
+  const todayISO = format(new Date(), 'yyyy-MM-dd');
+  const startISO = normalizeToISO(task.dueDate);
+  const endISO = normalizeToISO(task.dueEndDate);
+
+  if (!startISO && !endISO) {
+    return targetDateISO === todayISO;
+  }
+  if (startISO && !endISO) {
+    return startISO === targetDateISO;
+  }
+  if (startISO && endISO) {
+    return targetDateISO >= startISO && targetDateISO <= endISO;
+  }
+  if (!startISO && endISO) {
+    return targetDateISO <= endISO;
+  }
+  return false;
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 interface DashboardContextType {
   sectionOrder: SectionId[];
@@ -271,6 +303,15 @@ interface DashboardContextType {
   activeViewIndex: number;
   nodes: Record<string, ProjectNode>;
   activeNodeId: string | null;
+  activeViewMode: DashboardViewMode;
+  setActiveViewMode: (mode: DashboardViewMode) => void;
+  dashboardPrefs: DashboardPreferences;
+  setDashboardPrefs: React.Dispatch<React.SetStateAction<DashboardPreferences>>;
+  updateWidgetVis: <V extends DashboardViewMode>(view: V, widgetKey: keyof ViewWidgetVisibility[V], visible: boolean) => void;
+  updateWidgetOrder: <V extends DashboardViewMode>(view: V, order: ViewWidgetOrder[V]) => void;
+  updateDensity: (density: DisplayDensity) => void;
+  updateDefaultMode: (mode: DashboardViewMode) => void;
+  updateSwipePagerSetting: (enable: boolean) => void;
   setSectionOrder: (order: SectionId[]) => void;
   toggleSectionVisibility: (id: SectionId) => void;
   setLayoutMode: (mode: LayoutMode) => void;
@@ -300,6 +341,15 @@ const DashboardContext = createContext<DashboardContextType>({
   activeViewIndex: 0,
   nodes: DEFAULT_NODES,
   activeNodeId: null,
+  activeViewMode: 'bento',
+  setActiveViewMode: () => { },
+  dashboardPrefs: DEFAULT_PREFERENCES,
+  setDashboardPrefs: () => { },
+  updateWidgetVis: () => { },
+  updateWidgetOrder: () => { },
+  updateDensity: () => { },
+  updateDefaultMode: () => { },
+  updateSwipePagerSetting: () => { },
   setSectionOrder: () => { },
   toggleSectionVisibility: () => { },
   setLayoutMode: () => { },
@@ -333,6 +383,81 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
   // Custom nested hierarchy state
   const [nodes, setNodes] = useState<Record<string, ProjectNode>>(DEFAULT_NODES);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+
+  // Multi-view and dashboard preferences state
+  const [activeViewMode, setActiveViewModeState] = useState<DashboardViewMode>('bento');
+  const [dashboardPrefs, setDashboardPrefs] = useState<DashboardPreferences>(DEFAULT_PREFERENCES);
+
+  useEffect(() => {
+    getDashboardPreferences().then(prefs => {
+      setDashboardPrefs(prefs);
+      setActiveViewModeState(prefs.activeViewMode || prefs.defaultViewMode || 'bento');
+    });
+  }, []);
+
+  const setActiveViewMode = useCallback((mode: DashboardViewMode) => {
+    setActiveViewModeState(mode);
+    setDashboardPrefs(prev => {
+      const updated = { ...prev, activeViewMode: mode };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateWidgetVis = useCallback(<V extends DashboardViewMode>(view: V, widgetKey: keyof ViewWidgetVisibility[V], visible: boolean) => {
+    setDashboardPrefs(prev => {
+      const updated: DashboardPreferences = {
+        ...prev,
+        widgetVisibility: {
+          ...prev.widgetVisibility,
+          [view]: {
+            ...prev.widgetVisibility[view],
+            [widgetKey]: visible,
+          },
+        },
+      };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateWidgetOrder = useCallback(<V extends DashboardViewMode>(view: V, order: ViewWidgetOrder[V]) => {
+    setDashboardPrefs(prev => {
+      const updated: DashboardPreferences = {
+        ...prev,
+        widgetOrder: {
+          ...prev.widgetOrder,
+          [view]: order,
+        },
+      };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateDensity = useCallback((density: DisplayDensity) => {
+    setDashboardPrefs(prev => {
+      const updated = { ...prev, density };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateDefaultMode = useCallback((mode: DashboardViewMode) => {
+    setDashboardPrefs(prev => {
+      const updated = { ...prev, defaultViewMode: mode };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateSwipePagerSetting = useCallback((enable: boolean) => {
+    setDashboardPrefs(prev => {
+      const updated = { ...prev, enableSwipePager: enable };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
 
   const addHistoryEvent = (taskId: string, event: Omit<HistoryEvent, 'id' | 'timestamp'>) => {
     const newEvent: HistoryEvent = {
@@ -541,6 +666,9 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
     <DashboardContext.Provider value={{
       sectionOrder, sectionVisibility, layoutMode, taskGroups, taskHistory,
       views, activeViewIndex, nodes, activeNodeId,
+      activeViewMode, setActiveViewMode,
+      dashboardPrefs, setDashboardPrefs,
+      updateWidgetVis, updateWidgetOrder, updateDensity, updateDefaultMode, updateSwipePagerSetting,
       setSectionOrder, toggleSectionVisibility, setLayoutMode,
       setTaskGroups, setViews, setActiveViewIndex, setActiveNodeId,
       handleComposerSave, updateTask, deleteTask, addHistoryEvent,
