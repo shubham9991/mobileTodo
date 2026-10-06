@@ -7,6 +7,7 @@ import {
   createTLStore,
   defaultShapeUtils,
   defaultBindingUtils,
+  exportToBlob,
 } from '@tldraw/tldraw';
 import '@tldraw/tldraw/tldraw.css';
 
@@ -25,9 +26,9 @@ function postToRN(type: string, payload?: unknown) {
 }
 
 // ─── Debounce helper ──────────────────────────────────────────────────────────
-function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
   let timer: ReturnType<typeof setTimeout>;
-  return ((...args: unknown[]) => {
+  return ((...args: any[]) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   }) as T;
@@ -60,7 +61,12 @@ export default function App() {
           return;
         }
 
-        const blob = await editor.toBlob({ ids: [...shapeIds], format: 'png', scale: 0.4 });
+        const blob = await exportToBlob({
+          editor,
+          ids: [...shapeIds],
+          format: 'png',
+          opts: { scale: 0.4 },
+        });
         if (!blob) return;
 
         const reader = new FileReader();
@@ -128,7 +134,12 @@ export default function App() {
             try {
               const shapeIds = editor.getCurrentPageShapeIds();
               if (shapeIds.size === 0) { postToRN('EXPORT_RESULT', null); return; }
-              const blob = await editor.toBlob({ ids: [...shapeIds], format: 'png', scale: 2 });
+              const blob = await exportToBlob({
+                editor,
+                ids: [...shapeIds],
+                format: 'png',
+                opts: { scale: 2 },
+              });
               if (!blob) { postToRN('EXPORT_RESULT', null); return; }
               const reader = new FileReader();
               reader.onloadend = () => postToRN('EXPORT_RESULT', reader.result as string);

@@ -31,7 +31,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
   const dotWidths = useRef(views.map(() => new Animated.Value(8))).current;
   const [showAddModal, setShowAddModal] = useState(false);
   const [newViewName, setNewViewName] = useState('');
-  const [selectedLayout, setSelectedLayout] = useState<'list' | 'calendar' | 'paged'>('list');
+  const [selectedLayout, setSelectedLayout] = useState<'paged'>('paged');
 
   // Sync dot widths when activeViewIndex changes
   useEffect(() => {
@@ -65,7 +65,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
     if (!newViewName.trim()) return;
     createView({
       name: newViewName.trim(),
-      layout: selectedLayout,
+      layout: 'paged',
       showCompleted: true,
       grouping: 'none',
       sorting: 'dueDate',
@@ -74,11 +74,15 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
       filterTags: [],
       filterSourceNodeId: null,
       widgets: [
+        { id: 'statusBar', visible: true },
+        { id: 'heroCard', visible: true },
         { id: 'tasks', visible: true },
-        { id: 'hero', visible: false },
-        { id: 'tabs', visible: false },
-        { id: 'notes', visible: false },
-        { id: 'upcoming', visible: false },
+        { id: 'pomodoro', visible: true },
+        { id: 'scratchpad', visible: true },
+        { id: 'recentNote', visible: true },
+        { id: 'sketch', visible: true },
+        { id: 'habits', visible: true },
+        { id: 'productivityStats', visible: true },
       ],
     });
     setNewViewName('');
@@ -166,7 +170,7 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
             </Text>
 
             <TextInput
-              placeholder="View Name (e.g. Guyu, Tasks)"
+              placeholder="View Name (e.g. Workspace, Sprint)"
               placeholderTextColor={theme.colors.textSecondary}
               style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border }]}
               value={newViewName}
@@ -174,39 +178,42 @@ export const DashboardPager = ({ renderPageView, onPressAddView }: DashboardPage
               autoFocus
             />
 
-            {/* Layout selector cards */}
+            {/* Layout selector */}
             <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, fontFamily: 'Inter_500Medium' }]}>
               Layout style
             </Text>
-             <View style={styles.layoutSelectorRow}>
-              {(['list', 'calendar', 'paged'] as const).map((lay) => (
-                <TouchableOpacity
-                  key={lay}
-                  style={[
-                    styles.layoutCard,
-                    { 
-                      borderColor: selectedLayout === lay ? theme.colors.primary : theme.colors.border,
-                      backgroundColor: selectedLayout === lay ? theme.colors.secondary : 'transparent'
-                    }
-                  ]}
-                  onPress={() => setSelectedLayout(lay)}
-                >
-                  <MaterialIcons 
-                    name={lay === 'list' ? 'view-list' : lay === 'paged' ? 'pages' : 'calendar-today'} 
-                    size={20} 
-                    color={selectedLayout === lay ? theme.colors.primary : theme.colors.textSecondary} 
-                  />
+            <View style={styles.layoutSelectorRow}>
+              <View
+                style={[
+                  styles.layoutCard,
+                  { 
+                    borderColor: theme.colors.primary,
+                    backgroundColor: theme.colors.secondary,
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                  }
+                ]}
+              >
+                <MaterialIcons 
+                  name="pages" 
+                  size={20} 
+                  color={theme.colors.primary} 
+                />
+                <View>
                   <Text style={{ 
-                    color: selectedLayout === lay ? theme.colors.primary : theme.colors.textSecondary,
-                    fontSize: 12,
-                    marginTop: 4,
-                    textTransform: 'capitalize',
-                    fontFamily: 'Inter_500Medium'
+                    color: theme.colors.primary,
+                    fontSize: 13,
+                    fontFamily: 'Inter_600SemiBold'
                   }}>
-                    {lay}
+                    Paged Workspace
                   </Text>
-                </TouchableOpacity>
-              ))}
+                  <Text style={{ color: theme.colors.textSecondary, fontSize: 11 }}>
+                    Standard multi-panel dashboard
+                  </Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.modalActions}>

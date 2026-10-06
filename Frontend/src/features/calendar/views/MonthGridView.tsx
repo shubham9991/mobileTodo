@@ -11,7 +11,7 @@ import {
   startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth,
 } from 'date-fns';
 import { useTheme } from '../../../themes/ThemeContext';
-import { CalendarItem } from '../../hooks/useCalendarData';
+import { CalendarItem } from '../../../core/hooks/useCalendarData';
 
 const DAYS_OF_WEEK = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const CHIP_HEIGHT  = 15; // height of one chip row (font 8 + paddingVertical 2*2 + gap 2)

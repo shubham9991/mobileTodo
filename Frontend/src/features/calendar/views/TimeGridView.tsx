@@ -16,7 +16,7 @@ import { format, parseISO } from 'date-fns';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../../themes/ThemeContext';
-import { CalendarItem } from '../../hooks/useCalendarData';
+import { CalendarItem } from '../../../core/hooks/useCalendarData';
 
 const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6 AM → 11 PM
 const HOUR_HEIGHT = 72;           // px per hour

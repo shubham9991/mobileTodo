@@ -42,7 +42,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { loadAllDownloadedFonts } from '../src/features/notes/fontManager';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import notifee, { EventType, TriggerType } from '@notifee/react-native';
+import notifee, { EventType, TriggerType, AndroidCategory } from '@notifee/react-native';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 
 // ─── Incoming Reminder Overlay (Premium Alarm Style) ──────────────────────────────────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ const IncomingReminderOverlay = ({
         body: reminder.title,
         android: {
           channelId,
-          category: 'alarm',
+          category: AndroidCategory.ALARM,
           importance: 4,
           fullScreenAction: { id: 'default' },
           pressAction: { id: 'default' },

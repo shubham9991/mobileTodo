@@ -1,4 +1,4 @@
-import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
+import notifee, { TimestampTrigger, TriggerType, AndroidCategory } from '@notifee/react-native';
 import { addDays, nextDay, Day, addMinutes, addHours } from 'date-fns';
 
 export async function requestNotificationPermission() {
@@ -101,7 +101,7 @@ export async function scheduleReminder(
       body: title,
       android: {
         channelId,
-        category: 'alarm',
+        category: AndroidCategory.ALARM,
         importance: 4, // HIGH
         fullScreenAction: {
           id: 'default',

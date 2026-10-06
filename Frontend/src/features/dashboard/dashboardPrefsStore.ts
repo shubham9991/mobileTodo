@@ -7,8 +7,23 @@ import * as FileSystem from 'expo-file-system/legacy';
 
 export type DashboardViewMode = 'bento' | 'focus' | 'studio' | 'minimal';
 export type DisplayDensity = 'compact' | 'comfortable' | 'expanded';
+export type WidgetSize = 'half' | 'full';
 
-export type BentoWidgetKey = 'statusBar' | 'heroCard' | 'bentoGrid' | 'recentSketches' | 'upcoming';
+export type BentoWidgetKey =
+  | 'statusBar'
+  | 'heroCard'
+  | 'tasks'
+  | 'recentNote'
+  | 'sketch'
+  | 'quickCapture'
+  | 'pomodoro'
+  | 'scratchpad'
+  | 'habits'
+  | 'productivityStats'
+  | 'recentSketches'
+  | 'upcoming'
+  | 'bentoGrid'; // legacy fallback
+
 export type FocusWidgetKey = 'weekCalendar' | 'progressBar' | 'quickComposer' | 'agenda';
 export type StudioWidgetKey = 'ideationBar' | 'filterPills' | 'creativeFeed' | 'taskRadar';
 export type MinimalWidgetKey = 'calmHeader' | 'recentsCarousel' | 'ruleOfThree' | 'microDock';
@@ -34,10 +49,40 @@ export interface DashboardPreferences {
   enableSwipePager: boolean;
   widgetVisibility: ViewWidgetVisibility;
   widgetOrder: ViewWidgetOrder;
+  widgetSizes: Record<string, WidgetSize>;
 }
 
+export const DEFAULT_WIDGET_SIZES: Record<string, WidgetSize> = {
+  statusBar: 'full',
+  heroCard: 'full',
+  tasks: 'half',
+  recentNote: 'half',
+  sketch: 'half',
+  quickCapture: 'half',
+  pomodoro: 'half',
+  scratchpad: 'half',
+  habits: 'half',
+  productivityStats: 'half',
+  recentSketches: 'full',
+  upcoming: 'full',
+  bentoGrid: 'full',
+};
+
 export const DEFAULT_WIDGET_ORDER: ViewWidgetOrder = {
-  bento: ['statusBar', 'heroCard', 'bentoGrid', 'recentSketches', 'upcoming'],
+  bento: [
+    'statusBar',
+    'heroCard',
+    'tasks',
+    'recentNote',
+    'sketch',
+    'quickCapture',
+    'pomodoro',
+    'scratchpad',
+    'habits',
+    'productivityStats',
+    'recentSketches',
+    'upcoming',
+  ],
   focus: ['weekCalendar', 'progressBar', 'quickComposer', 'agenda'],
   studio: ['ideationBar', 'filterPills', 'creativeFeed', 'taskRadar'],
   minimal: ['calmHeader', 'recentsCarousel', 'ruleOfThree', 'microDock'],
@@ -47,9 +92,17 @@ export const DEFAULT_WIDGET_VISIBILITY: ViewWidgetVisibility = {
   bento: {
     statusBar: true,
     heroCard: true,
-    bentoGrid: true,
+    tasks: true,
+    recentNote: true,
+    sketch: true,
+    quickCapture: true,
+    pomodoro: true,
+    scratchpad: true,
+    habits: true,
+    productivityStats: true,
     recentSketches: true,
     upcoming: true,
+    bentoGrid: false,
   },
   focus: {
     weekCalendar: true,
@@ -78,6 +131,7 @@ export const DEFAULT_PREFERENCES: DashboardPreferences = {
   enableSwipePager: false,
   widgetVisibility: DEFAULT_WIDGET_VISIBILITY,
   widgetOrder: DEFAULT_WIDGET_ORDER,
+  widgetSizes: DEFAULT_WIDGET_SIZES,
 };
 
 const PREFS_FILE = `${FileSystem.documentDirectory}dashboard_preferences.json`;
@@ -95,7 +149,7 @@ export async function getDashboardPreferences(): Promise<DashboardPreferences> {
     const parsed = JSON.parse(raw) as Partial<DashboardPreferences>;
     
     // Deep merge with defaults to safeguard against missing keys
-    return {
+    const res: DashboardPreferences = {
       activeViewMode: parsed.activeViewMode || DEFAULT_PREFERENCES.activeViewMode,
       defaultViewMode: parsed.defaultViewMode || DEFAULT_PREFERENCES.defaultViewMode,
       density: parsed.density || DEFAULT_PREFERENCES.density,
@@ -132,7 +186,25 @@ export async function getDashboardPreferences(): Promise<DashboardPreferences> {
           ? parsed.widgetOrder.minimal
           : [...DEFAULT_PREFERENCES.widgetOrder.minimal],
       },
+      widgetSizes: {
+        ...DEFAULT_WIDGET_SIZES,
+        ...(parsed.widgetSizes || {}),
+      },
     };
+
+    // Migration for bento: if legacy bentoGrid was in order, ensure modern widgets are present
+    if (res.widgetOrder.bento.includes('bentoGrid' as any) || !res.widgetOrder.bento.includes('tasks')) {
+      const filtered = res.widgetOrder.bento.filter((k: BentoWidgetKey) => k !== ('bentoGrid' as any));
+      const needed: BentoWidgetKey[] = ['tasks', 'recentNote', 'sketch', 'quickCapture', 'pomodoro', 'scratchpad', 'habits', 'productivityStats'];
+      needed.forEach((k: BentoWidgetKey) => {
+        if (!filtered.includes(k)) {
+          filtered.push(k);
+        }
+      });
+      res.widgetOrder.bento = filtered;
+    }
+
+    return res;
   } catch (err) {
     console.warn('[dashboardPrefsStore] Failed to read preferences, using defaults:', err);
     return { ...DEFAULT_PREFERENCES };
@@ -148,6 +220,22 @@ export async function saveDashboardPreferences(prefs: DashboardPreferences): Pro
   } catch (err) {
     console.error('[dashboardPrefsStore] Failed to save preferences:', err);
   }
+}
+
+/**
+ * Update a widget's size ('half' or 'full') and persist.
+ */
+export async function updateWidgetSize(widgetKey: string, size: WidgetSize): Promise<DashboardPreferences> {
+  const current = await getDashboardPreferences();
+  const updated: DashboardPreferences = {
+    ...current,
+    widgetSizes: {
+      ...current.widgetSizes,
+      [widgetKey]: size,
+    },
+  };
+  await saveDashboardPreferences(updated);
+  return updated;
 }
 
 /**

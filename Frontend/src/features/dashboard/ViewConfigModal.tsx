@@ -19,6 +19,7 @@ import {
   DisplayDensity,
   ViewWidgetVisibility,
   ViewWidgetOrder,
+  WidgetSize,
   BentoWidgetKey,
   FocusWidgetKey,
   StudioWidgetKey,
@@ -36,9 +37,17 @@ interface ViewConfigModalProps {
 const BENTO_WIDGET_META: Record<BentoWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
   statusBar: { label: 'Daily Status Summary & Greeting', icon: 'wb-sunny' },
   heroCard: { label: 'Hero Focus Card', icon: 'bolt' },
-  bentoGrid: { label: 'Bento 2x2 Matrix Grid', icon: 'grid-view' },
-  recentSketches: { label: 'Recent Canvas Sketches Widget', icon: 'brush' },
+  tasks: { label: "Today's Tasks Checklist", icon: 'check-circle-outline' },
+  recentNote: { label: 'Recent Note Snippet', icon: 'description' },
+  sketch: { label: 'Latest Canvas Sketch', icon: 'brush' },
+  quickCapture: { label: 'Quick Capture Action Dock', icon: 'bolt' },
+  pomodoro: { label: 'Pomodoro Sprint Timer', icon: 'timer' },
+  scratchpad: { label: 'Quick Scratchpad Memo', icon: 'sticky-note-2' },
+  habits: { label: 'Daily Habit & Streak Tracker', icon: 'local-fire-department' },
+  productivityStats: { label: 'Productivity Velocity Score', icon: 'insights' },
+  recentSketches: { label: 'Recent Canvas Sketches Widget', icon: 'palette' },
   upcoming: { label: 'Upcoming Deadlines Strip', icon: 'calendar-month' },
+  bentoGrid: { label: 'Bento Grid Matrix', icon: 'grid-view' },
 };
 
 const FOCUS_WIDGET_META: Record<FocusWidgetKey, { label: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
@@ -77,6 +86,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     updateDefaultMode,
     updateSwipePagerSetting,
     updateWidgetOrder,
+    updateWidgetSize,
   } = useDashboard();
   const { tags } = useManage();
   
@@ -87,6 +97,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
   const [localSwipePager, setLocalSwipePager] = useState<boolean>(dashboardPrefs.enableSwipePager);
   const [localWidgetVis, setLocalWidgetVis] = useState<ViewWidgetVisibility>(dashboardPrefs.widgetVisibility);
   const [localWidgetOrder, setLocalWidgetOrder] = useState<ViewWidgetOrder>(dashboardPrefs.widgetOrder);
+  const [localWidgetSizes, setLocalWidgetSizes] = useState<Record<string, WidgetSize>>(dashboardPrefs.widgetSizes || {});
 
   // Track which page we are currently editing
   const [selectedViewId, setSelectedViewId] = useState<string>(view.id);
@@ -96,7 +107,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
   const currentEditingView = views.find(v => v.id === selectedViewId) || view;
 
   // Local state copy of active page configuration
-  const [layout, setLayout] = useState<DashboardView['layout']>(currentEditingView.layout);
+  const [layout, setLayout] = useState<DashboardView['layout']>('paged');
   const [showCompleted, setShowCompleted] = useState<boolean>(currentEditingView.showCompleted);
   const [grouping, setGrouping] = useState<DashboardView['grouping']>(currentEditingView.grouping);
   const [sorting, setSorting] = useState<DashboardView['sorting']>(currentEditingView.sorting);
@@ -115,8 +126,9 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
       setLocalSwipePager(dashboardPrefs.enableSwipePager);
       setLocalWidgetVis(dashboardPrefs.widgetVisibility);
       setLocalWidgetOrder(dashboardPrefs.widgetOrder);
+      setLocalWidgetSizes(dashboardPrefs.widgetSizes || {});
 
-      setLayout(currentEditingView.layout);
+      setLayout('paged');
       setShowCompleted(currentEditingView.showCompleted);
       setGrouping(currentEditingView.grouping);
       setSorting(currentEditingView.sorting);
@@ -136,6 +148,28 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     }
   }, [visible, view.id]);
 
+  const getModeForView = (vId: string): DashboardViewMode => {
+    if (vId === 'page_focus' || vId.includes('focus')) return 'focus';
+    if (vId === 'page_studio' || vId.includes('studio')) return 'studio';
+    if (vId === 'page_minimal' || vId.includes('minimal')) return 'minimal';
+    return 'bento';
+  };
+
+  const getViewForMode = (m: DashboardViewMode): string => {
+    const match = views.find(v => v.id === `page_${m}` || v.id.includes(m) || v.name.toLowerCase().includes(m));
+    return match ? match.id : views[0]?.id || `page_${m}`;
+  };
+
+  const handleSelectView = (vId: string) => {
+    setSelectedViewId(vId);
+    setLocalViewMode(getModeForView(vId));
+  };
+
+  const handleSelectMode = (mode: DashboardViewMode) => {
+    setLocalViewMode(mode);
+    setSelectedViewId(getViewForMode(mode));
+  };
+
   const togglePriority = (priority: 'HIGH' | 'MED' | 'LOW') => {
     if (filterPriorities.includes(priority)) {
       setFilterPriorities(prev => prev.filter(p => p !== priority));
@@ -150,18 +184,6 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     } else {
       setFilterTags(prev => [...prev, tagId]);
     }
-  };
-
-  const toggleWidget = (widgetId: string) => {
-    setWidgets(prev => prev.map(w => w.id === widgetId ? { ...w, visible: !w.visible } : w));
-  };
-
-  const moveWidget = (index: number, dir: 1 | -1) => {
-    const arr = [...widgets];
-    const target = index + dir;
-    if (target < 0 || target >= arr.length) return;
-    [arr[index], arr[target]] = [arr[target], arr[index]];
-    setWidgets(arr);
   };
 
   const moveModeWidget = <V extends DashboardViewMode>(mode: V, index: number, dir: 1 | -1) => {
@@ -188,16 +210,27 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
         enableSwipePager: localSwipePager,
         widgetVisibility: localWidgetVis,
         widgetOrder: localWidgetOrder,
+        widgetSizes: localWidgetSizes,
       };
       saveDashboardPreferences(updated);
       return updated;
     });
 
+    const buildWidgetsForView = (vId: string) => {
+      const mode = getModeForView(vId);
+      const orderList = (localWidgetOrder[mode] || []) as string[];
+      const visMap = (localWidgetVis[mode] || {}) as Record<string, boolean>;
+      return orderList.map(key => ({
+        id: key,
+        visible: visMap[key] !== false,
+      }));
+    };
+
     if (applyToAll) {
       // Copy settings configuration to ALL pages
       views.forEach(v => {
         updateView(v.id, {
-          layout,
+          layout: 'paged',
           showCompleted,
           grouping,
           sorting,
@@ -205,13 +238,13 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
           filterPriorities,
           filterTags,
           filterSourceNodeId,
-          widgets,
+          widgets: buildWidgetsForView(v.id),
         });
       });
     } else {
       // Update only current configured view
       updateView(selectedViewId, {
-        layout,
+        layout: 'paged',
         showCompleted,
         grouping,
         sorting,
@@ -219,7 +252,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
         filterPriorities,
         filterTags,
         filterSourceNodeId,
-        widgets,
+        widgets: buildWidgetsForView(selectedViewId),
       });
     }
 
@@ -240,10 +273,11 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     setLocalSwipePager(DEFAULT_PREFERENCES.enableSwipePager);
     setLocalWidgetVis(DEFAULT_PREFERENCES.widgetVisibility);
     setLocalWidgetOrder(DEFAULT_PREFERENCES.widgetOrder);
+    setLocalWidgetSizes(DEFAULT_PREFERENCES.widgetSizes);
     setDashboardPrefs(DEFAULT_PREFERENCES);
     saveDashboardPreferences(DEFAULT_PREFERENCES);
 
-    setLayout('list');
+    setLayout('paged');
     setShowCompleted(true);
     setGrouping('none');
     setSorting('dueDate');
@@ -251,13 +285,6 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
     setFilterPriorities(['HIGH', 'MED', 'LOW']);
     setFilterTags([]);
     setFilterSourceNodeId(null);
-    setWidgets([
-      { id: 'tasks', visible: true },
-      { id: 'hero', visible: true },
-      { id: 'tabs', visible: true },
-      { id: 'notes', visible: true },
-      { id: 'upcoming', visible: true },
-    ]);
   };
 
   return (
@@ -307,7 +334,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
                         backgroundColor: isSelected ? theme.colors.secondary : 'transparent',
                       },
                     ]}
-                    onPress={() => setLocalViewMode(mode.id)}
+                    onPress={() => handleSelectMode(mode.id)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.modeCardTop}>
@@ -438,6 +465,24 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
                           disabled={index === localWidgetOrder.bento.length - 1}
                         >
                           <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.sizePill,
+                            {
+                              backgroundColor: theme.colors.secondary,
+                              borderColor: theme.colors.border,
+                            },
+                          ]}
+                          onPress={() => {
+                            const cur = localWidgetSizes[key] || (['statusBar', 'heroCard', 'recentSketches', 'upcoming'].includes(key) ? 'full' : 'half');
+                            const next: WidgetSize = cur === 'half' ? 'full' : 'half';
+                            setLocalWidgetSizes(p => ({ ...p, [key]: next }));
+                          }}
+                        >
+                          <Text style={[styles.sizePillText, { color: theme.colors.textSecondary }]}>
+                            {(localWidgetSizes[key] || (['statusBar', 'heroCard', 'recentSketches', 'upcoming'].includes(key) ? 'full' : 'half')) === 'half' ? '1x1' : '2x1'}
+                          </Text>
                         </TouchableOpacity>
                         <Switch
                           value={localWidgetVis.bento[key]}
@@ -586,7 +631,7 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
                         backgroundColor: isSelected ? theme.colors.primary : theme.colors.accentBg 
                       }
                     ]}
-                    onPress={() => setSelectedViewId(v.id)}
+                    onPress={() => handleSelectView(v.id)}
                   >
                     <Text style={{ 
                       color: isSelected ? '#fff' : theme.colors.textSecondary,
@@ -600,52 +645,38 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
               })}
             </ScrollView>
 
-            {/* ── Layout Selector ── */}
+            {/* ── Layout Selector (Permanently Paged) ── */}
             <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
-              LAYOUT
+              LAYOUT ARCHITECTURE
             </Text>
-            <View style={styles.layoutRow}>
-              {([
-                { id: 'list', label: 'List', icon: 'view-list' },
-                { id: 'calendar', label: 'Calendar', icon: 'calendar-month' },
-                { id: 'paged', label: 'Paged', icon: 'pages' },
-              ] as const).map(item => {
-                const isSelected = layout === item.id;
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[
-                      styles.layoutCard,
-                      { 
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                        backgroundColor: isSelected ? theme.colors.secondary : 'transparent' 
-                      }
-                    ]}
-                    onPress={() => setLayout(item.id)}
-                  >
-                    <MaterialIcons 
-                      name={item.icon} 
-                      size={24} 
-                      color={isSelected ? theme.colors.primary : theme.colors.textSecondary} 
-                    />
-                    <Text style={[
-                      styles.layoutLabel, 
-                      { 
-                        color: isSelected ? theme.colors.text : theme.colors.textSecondary,
-                        fontFamily: 'Inter_500Medium'
-                      }
-                    ]}>
-                      {item.label}
-                    </Text>
-                    <View style={[
-                      styles.radioCircle, 
-                      { borderColor: isSelected ? theme.colors.primary : theme.colors.border }
-                    ]}>
-                      {isSelected && <View style={[styles.radioDot, { backgroundColor: theme.colors.primary }]} />}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+            <View
+              style={[
+                styles.pagedCard,
+                {
+                  borderColor: theme.colors.primary,
+                  backgroundColor: `${theme.colors.primary}0D`,
+                },
+              ]}
+            >
+              <View style={styles.pagedCardLeft}>
+                <View style={[styles.pagedIconWrap, { backgroundColor: `${theme.colors.primary}18` }]}>
+                  <MaterialIcons name="pages" size={22} color={theme.colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.pagedCardTitle, { color: theme.colors.text, fontFamily: 'Inter_600SemiBold' }]}>
+                    Paged Workspace Layout
+                  </Text>
+                  <Text style={[styles.pagedCardDesc, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
+                    Multi-page dashboard OS with swipe & tap navigation
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.pagedActiveBadge, { backgroundColor: `${theme.colors.primary}20` }]}>
+                <MaterialIcons name="check" size={13} color={theme.colors.primary} />
+                <Text style={[styles.pagedActiveText, { color: theme.colors.primary, fontFamily: 'Inter_600SemiBold' }]}>
+                  Active
+                </Text>
+              </View>
             </View>
 
             {/* ── Show Completed Toggles ── */}
@@ -874,49 +905,6 @@ export const ViewConfigModal = ({ visible, onClose, view }: ViewConfigModalProps
               </View>
             </View>
 
-            {/* ── Widgets Management ── */}
-            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
-              ACTIVE WIDGETS
-            </Text>
-
-            <View style={styles.widgetsContainer}>
-              {widgets.map((w, index) => (
-                <View key={w.id} style={[styles.widgetRow, { borderBottomColor: theme.colors.border }]}>
-                  <View style={styles.widgetInfo}>
-                    <MaterialIcons 
-                      name={w.id === 'hero' ? 'bolt' : w.id === 'tabs' ? 'tab' : w.id === 'tasks' ? 'check-circle-outline' : w.id === 'notes' ? 'description' : 'calendar-month'} 
-                      size={20} 
-                      color={theme.colors.text} 
-                    />
-                    <Text style={[styles.widgetName, { color: theme.colors.text, fontFamily: 'Inter_500Medium' }]}>
-                      {w.id === 'hero' ? 'Hero Next Focus' : w.id === 'tabs' ? 'Category Tabs' : w.id === 'tasks' ? 'Tasks List' : w.id === 'notes' ? 'Recent Notes' : 'Upcoming Timeline'}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <TouchableOpacity
-                      style={{ opacity: index === 0 ? 0.3 : 1, padding: 4 }}
-                      onPress={() => moveWidget(index, -1)}
-                      disabled={index === 0}
-                    >
-                      <MaterialIcons name="keyboard-arrow-up" size={22} color={theme.colors.text} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{ opacity: index === widgets.length - 1 ? 0.3 : 1, padding: 4 }}
-                      onPress={() => moveWidget(index, 1)}
-                      disabled={index === widgets.length - 1}
-                    >
-                      <MaterialIcons name="keyboard-arrow-down" size={22} color={theme.colors.text} />
-                    </TouchableOpacity>
-                    <Switch
-                      value={w.visible}
-                      onValueChange={() => toggleWidget(w.id)}
-                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
-                    />
-                  </View>
-                </View>
-              ))}
-            </View>
-            
             <View style={{ height: 20 }} />
 
             {/* ── Scope of Settings ── */}
@@ -1173,5 +1161,55 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  sizePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 0.8,
+  },
+  sizePillText: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  pagedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginBottom: 16,
+  },
+  pagedCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  pagedIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagedCardTitle: {
+    fontSize: 14,
+  },
+  pagedCardDesc: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  pagedActiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  pagedActiveText: {
+    fontSize: 11,
   },
 });

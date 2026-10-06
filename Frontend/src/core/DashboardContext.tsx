@@ -7,12 +7,13 @@ import {
   DashboardPreferences,
   ViewWidgetVisibility,
   ViewWidgetOrder,
+  WidgetSize,
   getDashboardPreferences,
   saveDashboardPreferences,
   DEFAULT_PREFERENCES,
 } from '../features/dashboard/dashboardPrefsStore';
 
-export type { DashboardViewMode, DisplayDensity, DashboardPreferences, ViewWidgetVisibility, ViewWidgetOrder };
+export type { DashboardViewMode, DisplayDensity, DashboardPreferences, ViewWidgetVisibility, ViewWidgetOrder, WidgetSize };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type SectionId = 'hero' | 'tabs' | 'tasks' | 'notes' | 'upcoming';
@@ -172,9 +173,9 @@ export const DEFAULT_NODES: Record<string, ProjectNode> = {
 
 export const DEFAULT_VIEWS: DashboardView[] = [
   {
-    id: 'view_inbox',
-    name: 'Inbox',
-    layout: 'list',
+    id: 'page_bento',
+    name: 'Bento Dashboard',
+    layout: 'paged',
     showCompleted: true,
     grouping: 'none',
     sorting: 'dueDate',
@@ -183,68 +184,72 @@ export const DEFAULT_VIEWS: DashboardView[] = [
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
+      { id: 'statusBar', visible: true },
+      { id: 'heroCard', visible: true },
       { id: 'tasks', visible: true },
-      { id: 'hero', visible: true },
-      { id: 'tabs', visible: true },
-      { id: 'notes', visible: true },
+      { id: 'recentNote', visible: true },
+      { id: 'sketch', visible: true },
+      { id: 'quickCapture', visible: true },
+      { id: 'pomodoro', visible: true },
+      { id: 'scratchpad', visible: true },
+      { id: 'habits', visible: true },
+      { id: 'productivityStats', visible: true },
+      { id: 'recentSketches', visible: true },
       { id: 'upcoming', visible: true },
     ],
   },
   {
-    id: 'view_guyu',
-    name: 'Guyu',
-    layout: 'list',
-    showCompleted: false,
-    grouping: 'none',
-    sorting: 'dueDate',
-    filterDate: 'all',
-    filterPriorities: ['HIGH', 'MED', 'LOW'],
-    filterTags: [],
-    filterSourceNodeId: null,
-    widgets: [
-      { id: 'tasks', visible: true },
-      { id: 'hero', visible: true },
-      { id: 'tabs', visible: true },
-      { id: 'notes', visible: false },
-      { id: 'upcoming', visible: false },
-    ],
-  },
-  {
-    id: 'view_shjjh',
-    name: 'Shjjh',
-    layout: 'list',
+    id: 'page_focus',
+    name: 'Focus Stream',
+    layout: 'paged',
     showCompleted: false,
     grouping: 'priority',
-    sorting: 'manual',
-    filterDate: 'all',
+    sorting: 'dueDate',
+    filterDate: 'today',
     filterPriorities: ['HIGH', 'MED', 'LOW'],
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
-      { id: 'tasks', visible: true },
-      { id: 'hero', visible: false },
-      { id: 'tabs', visible: false },
-      { id: 'notes', visible: false },
-      { id: 'upcoming', visible: false },
+      { id: 'weekCalendar', visible: true },
+      { id: 'progressBar', visible: true },
+      { id: 'quickComposer', visible: true },
+      { id: 'agenda', visible: true },
     ],
   },
   {
-    id: 'view_beeu',
-    name: 'Beeu',
-    layout: 'calendar',
+    id: 'page_studio',
+    name: 'Creative Studio',
+    layout: 'paged',
     showCompleted: true,
     grouping: 'none',
-    sorting: 'dueDate',
+    sorting: 'created',
     filterDate: 'all',
     filterPriorities: ['HIGH', 'MED', 'LOW'],
     filterTags: [],
     filterSourceNodeId: null,
     widgets: [
-      { id: 'tasks', visible: true },
-      { id: 'hero', visible: false },
-      { id: 'tabs', visible: false },
-      { id: 'notes', visible: false },
-      { id: 'upcoming', visible: true },
+      { id: 'ideationBar', visible: true },
+      { id: 'filterPills', visible: true },
+      { id: 'creativeFeed', visible: true },
+      { id: 'taskRadar', visible: true },
+    ],
+  },
+  {
+    id: 'page_minimal',
+    name: 'Minimalist Hub',
+    layout: 'paged',
+    showCompleted: false,
+    grouping: 'none',
+    sorting: 'dueDate',
+    filterDate: 'today',
+    filterPriorities: ['HIGH', 'MED'],
+    filterTags: [],
+    filterSourceNodeId: null,
+    widgets: [
+      { id: 'calmHeader', visible: true },
+      { id: 'recentsCarousel', visible: true },
+      { id: 'ruleOfThree', visible: true },
+      { id: 'microDock', visible: true },
     ],
   },
 ];
@@ -309,6 +314,7 @@ interface DashboardContextType {
   setDashboardPrefs: React.Dispatch<React.SetStateAction<DashboardPreferences>>;
   updateWidgetVis: <V extends DashboardViewMode>(view: V, widgetKey: keyof ViewWidgetVisibility[V], visible: boolean) => void;
   updateWidgetOrder: <V extends DashboardViewMode>(view: V, order: ViewWidgetOrder[V]) => void;
+  updateWidgetSize: (widgetKey: string, size: WidgetSize) => void;
   updateDensity: (density: DisplayDensity) => void;
   updateDefaultMode: (mode: DashboardViewMode) => void;
   updateSwipePagerSetting: (enable: boolean) => void;
@@ -347,6 +353,7 @@ const DashboardContext = createContext<DashboardContextType>({
   setDashboardPrefs: () => { },
   updateWidgetVis: () => { },
   updateWidgetOrder: () => { },
+  updateWidgetSize: () => { },
   updateDensity: () => { },
   updateDefaultMode: () => { },
   updateSwipePagerSetting: () => { },
@@ -428,6 +435,20 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
         widgetOrder: {
           ...prev.widgetOrder,
           [view]: order,
+        },
+      };
+      saveDashboardPreferences(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateWidgetSize = useCallback((widgetKey: string, size: WidgetSize) => {
+    setDashboardPrefs(prev => {
+      const updated: DashboardPreferences = {
+        ...prev,
+        widgetSizes: {
+          ...(prev.widgetSizes || {}),
+          [widgetKey]: size,
         },
       };
       saveDashboardPreferences(updated);
@@ -668,7 +689,7 @@ export const DashboardProvider = ({ children }: { children: ReactNode }) => {
       views, activeViewIndex, nodes, activeNodeId,
       activeViewMode, setActiveViewMode,
       dashboardPrefs, setDashboardPrefs,
-      updateWidgetVis, updateWidgetOrder, updateDensity, updateDefaultMode, updateSwipePagerSetting,
+      updateWidgetVis, updateWidgetOrder, updateWidgetSize, updateDensity, updateDefaultMode, updateSwipePagerSetting,
       setSectionOrder, toggleSectionVisibility, setLayoutMode,
       setTaskGroups, setViews, setActiveViewIndex, setActiveNodeId,
       handleComposerSave, updateTask, deleteTask, addHistoryEvent,

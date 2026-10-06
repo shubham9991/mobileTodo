@@ -101,13 +101,13 @@ async function runTfliteEngine(text: string): Promise<string | null> {
       // but some runtimes allow raw UTF-8. Let's try raw UTF-8 first.
       const encoder = new TextEncoder();
       const bytes = encoder.encode(text);
-      inputBuffer = bytes.buffer;
+      inputBuffer = bytes.buffer as ArrayBuffer;
     } else {
       const tokens = tokenize(text);
       if (model.inputs[0]?.dataType === 'float32') {
-        inputBuffer = new Float32Array(tokens).buffer;
+        inputBuffer = new Float32Array(tokens).buffer as ArrayBuffer;
       } else {
-        inputBuffer = tokens.buffer;
+        inputBuffer = tokens.buffer as ArrayBuffer;
       }
     }
 

@@ -693,7 +693,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   }, [taskGroups, taskId]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setTimeout>;
     if (visible && task) {
       // Reset state so it always starts fresh on the subtasks tab
       setActiveTab('subtasks');
@@ -782,7 +782,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
   const handleAddNewSubtask = (title: string) => {
     if (!task || !title.trim()) return;
     const newId = `st_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const newSub: Subtask = { id: newId, text: title.trim(), title: title.trim(), done: false };
+    const newSub: Subtask = { id: newId, text: title.trim(), done: false };
 
     const currentSubs = (task.subtasks as Subtask[]) || [];
     const unchecks = currentSubs.filter(s => !s.done);
@@ -1289,7 +1289,7 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
             enablePanDownToClose
             backdropComponent={renderBackdrop}
             onClose={handleSheetClose}
-            animationConfigs={{ duration: 350, dampingRatio: 0.82, stiffness: 140 }}
+            animationConfigs={{ duration: 350 }}
             backgroundStyle={{ backgroundColor: theme.colors.cardPrimary }}
             handleIndicatorStyle={{ backgroundColor: theme.colors.border, width: 40, height: 5 }}
             keyboardBehavior="extend"
@@ -1514,7 +1514,6 @@ export const TaskDetailModal = ({ visible, taskId, onClose }: TaskDetailModalPro
                 onScroll={(e) => {
                   scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
                 }}
-                scrollEventThrottle={16}
                 contentContainerStyle={{
                   paddingTop: 8,
                   paddingBottom: Math.max(insets.bottom, 20) + 120,
@@ -2414,6 +2413,7 @@ const st = StyleSheet.create({
   toolbar: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 2 },
   toolBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 24, fontWeight: '800', lineHeight: 30, marginBottom: 10, letterSpacing: -0.4 },
+  desc: { fontSize: 13.5, lineHeight: 18, marginBottom: 10, fontFamily: 'Inter_400Regular' },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, backgroundColor: '#f1f5f9' },
   badgeTxt: { fontSize: 12, fontWeight: '700' },

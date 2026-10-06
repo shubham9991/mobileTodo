@@ -256,14 +256,12 @@ export function DrawingEditor({
         bounces={false}
         cacheEnabled={false}
         onMessage={onMessage}
-        onConsoleMessage={(e) => console.log('[Drawing WebView]', e.nativeEvent.message)}
         allowFileAccess
         allowFileAccessFromFileURLs
         allowUniversalAccessFromFileURLs
         originWhitelist={['*']}
         // Allow pinch-to-zoom — tldraw needs native touch gestures
         setBuiltInZoomControls={false}
-        builtInZoomControls={false}
         renderLoading={() => (
           <View style={[styles.loadingOverlay, { backgroundColor: c.background }]}>
             <ActivityIndicator color={c.primary} size="large" />

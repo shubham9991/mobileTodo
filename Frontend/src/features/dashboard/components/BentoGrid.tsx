@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../../themes/ThemeContext';
 import { Task } from '../../../core/dummyData';
 import { Note, formatRelativeTime } from '../../../core/db/notesStore';
@@ -12,6 +13,9 @@ interface BentoGridProps {
   tasks: Task[];
   onToggleTask: (id: string) => void;
   onPressNewTask: () => void;
+  onOpenTaskDetail?: (taskId: string) => void;
+  onOpenQuickTasks?: () => void;
+  onLongPressTile?: (tileKey: string) => void;
   note: Note | null;
   onOpenNote: (note: Note) => void;
   onCreateNote: () => void;
@@ -25,6 +29,9 @@ export const BentoGrid = ({
   tasks,
   onToggleTask,
   onPressNewTask,
+  onOpenTaskDetail,
+  onOpenQuickTasks,
+  onLongPressTile,
   note,
   onOpenNote,
   onCreateNote,
@@ -44,8 +51,19 @@ export const BentoGrid = ({
       {/* ── ROW 1: Tile A (Tasks) & Tile B (Note) ── */}
       <View style={styles.row}>
         {/* Tile A: Today's Tasks Checklist */}
-        <View style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}>
-          <View style={styles.tileHeader}>
+        <TouchableOpacity
+          style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}
+          onPress={onOpenQuickTasks}
+          onLongPress={() => onLongPressTile && onLongPressTile('tasks')}
+          delayLongPress={350}
+          activeOpacity={0.9}
+        >
+          {/* Header opens QuickTasksModal */}
+          <TouchableOpacity
+            style={styles.tileHeader}
+            onPress={onOpenQuickTasks}
+            activeOpacity={0.7}
+          >
             <View style={styles.headerLeft}>
               <MaterialIcons name="check-circle-outline" size={14} color="#10B981" />
               <Text style={[styles.tileTitle, { color: theme.colors.textSecondary, fontFamily: 'Inter_600SemiBold' }]}>
@@ -55,58 +73,78 @@ export const BentoGrid = ({
             <TouchableOpacity onPress={onPressNewTask} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <MaterialIcons name="add" size={16} color={theme.colors.primary} />
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.tileBody}>
             {tasks.length === 0 ? (
-              <View style={styles.emptyContainer}>
+              <TouchableOpacity
+                style={styles.emptyContainer}
+                onPress={onOpenQuickTasks}
+                activeOpacity={0.7}
+              >
                 <MaterialIcons name="done-all" size={20} color={theme.colors.textSecondary} />
                 <Text style={[styles.emptyText, { color: theme.colors.textSecondary, fontFamily: 'Inter_400Regular' }]}>
                   All done for today!
                 </Text>
-              </View>
+              </TouchableOpacity>
             ) : (
               tasks.slice(0, taskCount).map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={styles.taskItemRow}
-                  onPress={() => onToggleTask(t.id)}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.miniCheckbox,
-                      { borderColor: t.completed ? theme.colors.primary : theme.colors.border },
-                      t.completed && { backgroundColor: theme.colors.primary },
-                    ]}
+                <View key={t.id} style={styles.taskItemRow}>
+                  {/* ISOLATED CHECKBOX TOUCH */}
+                  <TouchableOpacity
+                    style={styles.miniCheckboxTouch}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      onToggleTask(t.id);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 6 }}
+                    activeOpacity={0.7}
                   >
-                    {t.completed && (
-                      <MaterialIcons name="check" size={10} color={theme.colors.primaryText} />
-                    )}
-                  </View>
-                  <Text
-                    style={[
-                      styles.taskItemText,
-                      {
-                        color: t.completed ? theme.colors.textSecondary : theme.colors.text,
-                        textDecorationLine: t.completed ? 'line-through' : 'none',
-                        fontFamily: 'Inter_400Regular',
-                      },
-                    ]}
-                    numberOfLines={1}
+                    <View
+                      style={[
+                        styles.miniCheckbox,
+                        { borderColor: t.completed ? theme.colors.primary : theme.colors.border },
+                        t.completed && { backgroundColor: theme.colors.primary },
+                      ]}
+                    >
+                      {t.completed && (
+                        <MaterialIcons name="check" size={10} color={theme.colors.primaryText} />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* ISOLATED TEXT TOUCH -> OPENS TASK DETAIL MODAL */}
+                  <TouchableOpacity
+                    style={styles.taskItemTextTouch}
+                    onPress={() => onOpenTaskDetail && onOpenTaskDetail(t.id)}
+                    activeOpacity={0.7}
                   >
-                    {t.title}
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.taskItemText,
+                        {
+                          color: t.completed ? theme.colors.textSecondary : theme.colors.text,
+                          textDecorationLine: t.completed ? 'line-through' : 'none',
+                          fontFamily: 'Inter_400Regular',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {t.title}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               ))
             )}
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Tile B: Latest Note Preview */}
         <TouchableOpacity
           style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}
           onPress={() => (note ? onOpenNote(note) : onCreateNote())}
+          onLongPress={() => onLongPressTile && onLongPressTile('recentNote')}
+          delayLongPress={350}
           activeOpacity={0.8}
         >
           <View style={styles.tileHeader}>
@@ -159,6 +197,8 @@ export const BentoGrid = ({
         <TouchableOpacity
           style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}
           onPress={() => (sketch ? onOpenSketch(sketch) : onCreateSketch())}
+          onLongPress={() => onLongPressTile && onLongPressTile('sketch')}
+          delayLongPress={350}
           activeOpacity={0.8}
         >
           <View style={styles.tileHeader}>
@@ -205,7 +245,12 @@ export const BentoGrid = ({
         </TouchableOpacity>
 
         {/* Tile D: Quick Capture Actions */}
-        <View style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}>
+        <TouchableOpacity
+          style={[styles.tile, { backgroundColor: theme.colors.cardPrimary, borderColor: theme.colors.border, minHeight: tileMinHeight }]}
+          onLongPress={() => onLongPressTile && onLongPressTile('quickCapture')}
+          delayLongPress={350}
+          activeOpacity={0.9}
+        >
           <View style={styles.tileHeader}>
             <View style={styles.headerLeft}>
               <MaterialIcons name="bolt" size={14} color={theme.colors.primary} />
@@ -249,7 +294,7 @@ export const BentoGrid = ({
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -309,6 +354,9 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingVertical: 3.5,
   },
+  miniCheckboxTouch: {
+    padding: 2,
+  },
   miniCheckbox: {
     width: 14,
     height: 14,
@@ -317,9 +365,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  taskItemTextTouch: {
+    flex: 1,
+    paddingVertical: 1,
+  },
   taskItemText: {
     fontSize: 12,
-    flex: 1,
   },
   noteTitle: {
     fontSize: 12.5,

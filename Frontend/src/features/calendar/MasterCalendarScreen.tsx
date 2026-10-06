@@ -782,7 +782,7 @@ export const MasterCalendarScreen: React.FC = () => {
               const orig = event.originalItem as CalendarItem;
               if (orig && orig.type === 'task' && orig.taskId) {
                 let newDate = event.start.date;
-                let newTime;
+                let newTime: string | undefined;
                 if (event.start.dateTime) {
                   const d = new Date(event.start.dateTime);
                   newDate = format(d, 'yyyy-MM-dd');
@@ -794,7 +794,7 @@ export const MasterCalendarScreen: React.FC = () => {
                 updateTask(orig.taskId, t => ({ ...t, dueDate: newDate, dueTime: newTime }));
               }
             }}
-          theme={{
+          theme={({
               primaryColor: theme.colors.primary,
               primaryContainer: theme.colors.primary + '20',
               backgroundColor: theme.colors.background,
@@ -818,7 +818,7 @@ export const MasterCalendarScreen: React.FC = () => {
               leftBarWidth: 52,
               slotDuration: { minutes: 60 },
               eventContainerStyle: { borderRadius: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3, borderWidth: 0 },
-          }}
+          } as any)}
             renderEvent={renderEvent}
           />
         )}

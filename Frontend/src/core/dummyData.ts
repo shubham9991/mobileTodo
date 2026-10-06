@@ -331,7 +331,7 @@ export const dummyData = {
         },
       ],
     },
-  ],
+  ] as { id: string; label: string; tasks: Task[] }[],
 
   eventsData: {
     stats: { total: 8, today: 2, thisWeek: 6 },

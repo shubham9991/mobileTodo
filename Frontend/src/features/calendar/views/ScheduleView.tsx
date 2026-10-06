@@ -9,7 +9,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { parseISO, format, addDays, eachDayOfInterval } from 'date-fns';
 import { useTheme } from '../../../themes/ThemeContext';
-import { CalendarItem } from '../../hooks/useCalendarData';
+import { CalendarItem } from '../../../core/hooks/useCalendarData';
 import { useDashboard } from '../../../core/DashboardContext';
 import { TaskItem } from '../../tasks/TaskItem';
 import { Task } from '../../../core/dummyData';
@@ -183,7 +183,7 @@ export const ScheduleView: React.FC<Props> = ({
                         item.completed ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { borderColor: theme.colors.border }
                       ]}>
                         {item.completed && <MaterialIcons name="check" size={11} color="#FFF" />}
-                        {!item.completed && item.type !== 'task' && item.type !== 'event' && (
+                        {!item.completed && item.type !== 'task' && (
                           <MaterialIcons
                             name={item.type === 'birthday' ? 'cake' : item.type === 'holiday' ? 'flag' : 'event'}
                             size={11}
@@ -292,4 +292,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyDayText: { fontSize: 13 },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  dueText: {
+    fontSize: 11,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  actionsHint: {
+    paddingLeft: 4,
+  },
 });

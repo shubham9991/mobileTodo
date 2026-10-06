@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Keyboard, Modal, Switch, Platform
+  ScrollView, Keyboard, Modal, Switch, Platform, TextInput
 } from 'react-native';
-import { GestureHandlerRootView, ScrollView as GHScrollView } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, ScrollView as GHScrollView, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Calendar, DateData } from 'react-native-calendars';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
@@ -40,7 +40,7 @@ const TimeSlot = ({ value, onChange, min, max, pad, theme: t }: any) => {
       startValRef.current = parseInt(currentValRef.current || String(min), 10);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     })
-    .onUpdate((e) => {
+    .onUpdate((e: any) => {
       const delta = Math.floor(-e.translationY / 10);
       let v = startValRef.current + delta;
       const range = max - min + 1;
@@ -74,7 +74,7 @@ const TimeSlot = ({ value, onChange, min, max, pad, theme: t }: any) => {
             fontFamily: 'Inter_700Bold',
           }}
           value={value}
-          onChangeText={(s) => {
+          onChangeText={(s: string) => {
             const n = parseInt(s, 10);
             if (s === '' || (!isNaN(n) && n >= 0)) onChange(s);
           }}
@@ -195,11 +195,11 @@ const DayCell = React.memo(({ date, state, marking, theme, onDayPress, onGlideSt
         {/* Colored dot row / emoji / period row */}
         {!isSelected && count > 0 && (
           <View style={{ flexDirection: 'row', gap: 2, marginTop: 3, justifyContent: 'center', alignItems: 'center' }}>
-            {busyTasks.some(t => t.style === 'custom' && t.customEmoji) ? (
+            {busyTasks.some((t: any) => t.style === 'custom' && t.customEmoji) ? (
               <Text style={{ fontSize: 9, lineHeight: 11 }}>
-                {busyTasks.find(t => t.style === 'custom' && t.customEmoji)?.customEmoji}
+                {(busyTasks.find((t: any) => t.style === 'custom' && t.customEmoji) as any)?.customEmoji}
               </Text>
-            ) : busyTasks.some(t => t.style === 'period') ? (
+            ) : busyTasks.some((t: any) => t.style === 'period') ? (
               <View style={{ width: 12, height: 2, borderRadius: 1, backgroundColor: badgeColor }} />
             ) : (
               [...new Set(busyTasks.map(t => t.color))].slice(0, 4).map((c, i) => (
@@ -284,7 +284,7 @@ const BusyTasksPreview = ({ selectedISO, theme, allTasks }: {
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
                       {isMultiDay
                         ? (startISO === selectedISO ? 'Starts today' : endISO === selectedISO ? 'Ends today' : 'Multi-day')
-                        : format(parseISO(startISO), 'EEE, MMM d')
+                        : (startISO ? format(parseISO(startISO), 'EEE, MMM d') : '')
                       }
                     </Text>
                   </View>
@@ -404,6 +404,7 @@ function buildMarkedDates(
   primaryColor: string,
   showHistory: boolean,
   recurrence: string,
+  customRule?: any,
 ): Record<string, any> {
   const marks: Record<string, any> = {};
 
@@ -601,6 +602,7 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
   const [customInterval, setCustomInterval] = useState(1);
   const [customFreq, setCustomFreq] = useState<'Day'|'Week'|'Month'|'Year'>('Week');
   const [customDays, setCustomDays] = useState<number[]>([]);
+  const customRule = useMemo(() => ({ interval: customInterval, freq: customFreq, days: customDays }), [customInterval, customFreq, customDays]);
 
   useEffect(() => {
     if (startISO) {
@@ -700,8 +702,8 @@ export default function DateTimePicker({ visible, onClose, onConfirm, initialDat
   }, [visible, initialDate, initialEndDate, initialTime, initialEndTime, initialIsAllDay, initialRecurrence, todayISO]);
 
   const markedDates = useMemo(
-    () => buildMarkedDates(startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence),
-    [startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence]
+    () => buildMarkedDates(startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence, customRule),
+    [startISO, endISO, allTasks, tags, calendarMarkings, theme.colors.primary, showHistory, recurrence, customRule]
   );
 
   // Days selected count
